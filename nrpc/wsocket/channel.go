@@ -1,0 +1,149 @@
+package wsocket
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"sloth/group"
+	"sloth/internal/utils"
+	"sloth/message"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// in fact, Channel it's a user Connect session
+type WsChannel struct {
+	Lock      sync.Mutex
+	_room     *group.Room
+	_next     group.IChannel
+	_prev     group.IChannel
+	broadcast chan *message.Msg
+	_userId   int64
+	Conn      *websocket.Conn
+	connTcp   *net.TCPConn
+
+	rpcCaller chan *message.JsonCallObject
+	rpcBacker chan *message.JsonBackObject
+
+	pongTimeout    time.Duration
+	writeWait      time.Duration
+	maxMessageSize int64
+	// ping period default eq 54s
+	pingPeriod time.Duration
+	// error handler
+	errHandler func(err error)
+}
+
+func (ch *WsChannel) Next(n ...group.IChannel) group.IChannel {
+	if len(n) > 0 {
+		ch._next = n[0]
+	}
+	return ch._next
+}
+
+func (ch *WsChannel) Prev(p ...group.IChannel) group.IChannel {
+	if len(p) > 0 {
+		ch._prev = p[0]
+	}
+	return ch._prev
+}
+func (ch *WsChannel) Room(r ...*group.Room) *group.Room {
+	if len(r) > 0 {
+		ch._room = r[0]
+	}
+	return ch._room
+}
+
+func (ch *WsChannel) UserId(u ...int64) int64 {
+	if len(u) > 0 {
+		ch._userId = u[0]
+	}
+	fmt.Println("UserId:", ch._userId)
+	return ch._userId
+}
+
+func NewWsChannel(size int, opts ...WsChannelOption) (c *WsChannel) {
+	c = new(WsChannel)
+	c.Lock = sync.Mutex{}
+	c.broadcast = make(chan *message.Msg, size)
+	c.rpcCaller = make(chan *message.JsonCallObject, 10)
+	c.rpcBacker = make(chan *message.JsonBackObject, 10)
+	c.Next(nil)
+	c.Prev(nil)
+	c.pongTimeout = 54 * time.Second
+	c.writeWait = 10 * time.Second
+	c.maxMessageSize = 1024 * 1024
+	c.pingPeriod = 54 * time.Second
+	c.errHandler = func(err error) {
+		fmt.Println("Channel errHandler:", err.Error())
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return
+}
+
+func (ch *WsChannel) Chans() (broadcast chan *message.Msg, rpcCaller chan *message.JsonCallObject, rpcBacker chan *message.JsonBackObject) {
+	return ch.broadcast, ch.rpcCaller, ch.rpcBacker
+}
+
+func (ch *WsChannel) OnError(f func(err error)) {
+	ch.errHandler = f
+}
+
+func (ch *WsChannel) Push(ctx context.Context, msg *message.Msg) (err error) {
+	select {
+	case ch.broadcast <- msg:
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return
+}
+
+func (c *WsChannel) Reply(id string, data []byte) error {
+	if c.Conn == nil {
+		return fmt.Errorf("conn is nil")
+	}
+	msg := message.NewWsJsonBackObject(id, data)
+	select {
+	case c.rpcBacker <- msg:
+	default:
+	}
+	return nil
+}
+
+func (ch *WsChannel) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
+	ch.Lock.Lock()
+	defer ch.Lock.Unlock()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	msg := message.NewWsJsonCallObject(mtd, utils.Serialize(args))
+	// 发送调用请求
+	select {
+	case <-ticker.C:
+		return []byte{}, fmt.Errorf("call timeout")
+	case ch.rpcCaller <- msg:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	// fmt.Println("***************call***************")
+	ticker.Reset(5 * time.Second)
+	// 等待调用结果
+	for {
+		select {
+		case <-ticker.C:
+			return []byte{}, fmt.Errorf("reply timeout")
+		case back, ok := <-ch.rpcBacker:
+			if back.Id == msg.Id && ok {
+				return []byte(back.Data), nil
+			}
+		case <-ctx.Done():
+			return []byte{}, ctx.Err()
+		}
+	}
+}
