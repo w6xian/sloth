@@ -1,7 +1,6 @@
 package wsocket
 
 import (
-	"net/http"
 	"sloth/group"
 )
 
@@ -14,8 +13,4 @@ type IServerHandleMessage interface {
 }
 type IClientHandleMessage interface {
 	HandleMessage(c *LocalClient, ch *WsClient, msgType int, message []byte) error
-}
-
-type ISock interface {
-	HandleFunc(path string, handler func(w http.ResponseWriter, r *http.Request))
 }

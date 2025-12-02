@@ -11,31 +11,36 @@ import (
 )
 
 type Bucket struct {
-	cLock         sync.RWMutex       // protect the channels for chs
-	chs           map[int64]IChannel // map sub key to a channel
-	bucketOptions BucketOptions
-	rooms         map[int64]*Room // bucket room channels
-	routines      []chan *message.PushRoomMsgRequest
-	routinesNum   uint64
-	broadcast     chan []byte
-}
+	cLock sync.RWMutex       // protect the channels for chs
+	chs   map[int64]IChannel // map sub key to a channel
 
-type BucketOptions struct {
+	rooms       map[int64]*Room // bucket room channels
+	routines    []chan *message.PushRoomMsgRequest
+	routinesNum uint64
+	broadcast   chan []byte
+
 	ChannelSize   int
 	RoomSize      int
 	RoutineAmount uint64
 	RoutineSize   int
 }
 
-func NewBucket(bucketOptions BucketOptions) (b *Bucket) {
+func NewBucket(opts ...BucketOption) (b *Bucket) {
 	b = new(Bucket)
-	b.chs = make(map[int64]IChannel, bucketOptions.ChannelSize)
-	b.bucketOptions = bucketOptions
-	b.routines = make([]chan *message.PushRoomMsgRequest, bucketOptions.RoutineAmount)
-	b.rooms = make(map[int64]*Room, bucketOptions.RoomSize)
+	b.ChannelSize = 1024
+	b.RoomSize = 1024
+	b.RoutineAmount = 32
+	b.RoutineSize = 20
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	b.chs = make(map[int64]IChannel, b.ChannelSize)
+	b.routines = make([]chan *message.PushRoomMsgRequest, b.RoutineAmount)
+	b.rooms = make(map[int64]*Room, b.RoomSize)
 	ctx := context.Background()
-	for i := uint64(0); i < b.bucketOptions.RoutineAmount; i++ {
-		c := make(chan *message.PushRoomMsgRequest, bucketOptions.RoutineSize)
+	for i := uint64(0); i < b.RoutineAmount; i++ {
+		c := make(chan *message.PushRoomMsgRequest, b.RoutineSize)
 		b.routines[i] = c
 		go b.PushRoom(ctx, c)
 	}
@@ -156,6 +161,6 @@ func (b *Bucket) Channel(userId int64) (ch IChannel) {
 }
 
 func (b *Bucket) BroadcastRoom(pushRoomMsgReq *message.PushRoomMsgRequest) {
-	num := atomic.AddUint64(&b.routinesNum, 1) % b.bucketOptions.RoutineAmount
+	num := atomic.AddUint64(&b.routinesNum, 1) % b.RoutineAmount
 	b.routines[num] <- pushRoomMsgReq
 }

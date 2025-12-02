@@ -4,28 +4,34 @@ import (
 	"time"
 )
 
-type WsChannelOption func(ch *WsChannel)
+type ChannelOption func(ch *Channel)
 
-func WithPongTimeout(timeout time.Duration) WsChannelOption {
-	return func(ch *WsChannel) {
+func WithPongTimeout(timeout time.Duration) ChannelOption {
+	return func(ch *Channel) {
 		ch.pongTimeout = timeout
 	}
 }
 
-func WithWriteWait(writeWait time.Duration) WsChannelOption {
-	return func(ch *WsChannel) {
+func WithWriteWait(writeWait time.Duration) ChannelOption {
+	return func(ch *Channel) {
 		ch.writeWait = writeWait
 	}
 }
 
-func WithMaxMessageSize(maxMessageSize int64) WsChannelOption {
-	return func(ch *WsChannel) {
+func WithMaxMessageSize(maxMessageSize int64) ChannelOption {
+	return func(ch *Channel) {
 		ch.maxMessageSize = maxMessageSize
 	}
 }
 
-func WithPingPeriod(pingPeriod time.Duration) WsChannelOption {
-	return func(ch *WsChannel) {
+func WithPingPeriod(pingPeriod time.Duration) ChannelOption {
+	return func(ch *Channel) {
 		ch.pingPeriod = pingPeriod
+	}
+}
+
+func WithErrorHandler(errHandler func(err error)) ChannelOption {
+	return func(ch *Channel) {
+		ch.errHandler = errHandler
 	}
 }

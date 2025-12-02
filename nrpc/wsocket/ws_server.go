@@ -43,12 +43,12 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	//init Connect layer rpc server, logic client will call this
 	bs := make([]*group.Bucket, bsNum)
 	for i := 0; i < bsNum; i++ {
-		bs[i] = group.NewBucket(group.BucketOptions{
-			ChannelSize:   1024,
-			RoomSize:      1024,
-			RoutineAmount: 32,
-			RoutineSize:   20,
-		})
+		bs[i] = group.NewBucket(
+			group.WithChannelSize(1024),
+			group.WithRoomSize(1024),
+			group.WithRoutineAmount(32),
+			group.WithRoutineSize(20),
+		)
 	}
 	s := &WsServer{
 		Buckets:         bs,
@@ -119,7 +119,7 @@ func (s *WsServer) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 一个连接一个channel
-	ch := NewWsChannel(512)
+	ch := NewChannel(512)
 	//default broadcast size eq 512
 	ch.Conn = conn
 	//send data to websocket conn
@@ -129,7 +129,7 @@ func (s *WsServer) serveWs(w http.ResponseWriter, r *http.Request) {
 	go s.readPump(ch, s.handler)
 }
 
-func (s *WsServer) writePump(ch *WsChannel) {
+func (s *WsServer) writePump(ch *Channel) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("writePump recover err :", err)
@@ -185,7 +185,7 @@ func (s *WsServer) writePump(ch *WsChannel) {
 	}
 }
 
-func (s *WsServer) readPump(ch *WsChannel, handler IServerHandleMessage) {
+func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("readPump recover err :", err)
@@ -255,10 +255,10 @@ func (s *WsServer) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
 			fmt.Println("HandleMessage recover err :", err)
 		}
 	}()
+	s.serviceMapMu.RLock()
+	defer s.serviceMapMu.RUnlock()
 
 	if msgReq.Action == actions.ACTION_CALL {
-		s.serviceMapMu.RLock()
-		defer s.serviceMapMu.RUnlock()
 		rst, err := s.Connect.CallFunc(msgReq)
 		if err != nil {
 			return

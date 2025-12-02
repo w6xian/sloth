@@ -12,10 +12,6 @@ import (
 var svr_once sync.Once
 var ServerObjc *ServerRpc
 
-type IClient interface {
-	Broadcast(ctx context.Context, msg *message.Msg) error
-}
-
 type ServerRpc struct {
 	Listen nrpc.ICall
 	RoomId int64

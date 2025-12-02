@@ -14,7 +14,7 @@ import (
 )
 
 // in fact, Channel it's a user Connect session
-type WsChannel struct {
+type Channel struct {
 	Lock      sync.Mutex
 	_room     *group.Room
 	_next     group.IChannel
@@ -36,36 +36,35 @@ type WsChannel struct {
 	errHandler func(err error)
 }
 
-func (ch *WsChannel) Next(n ...group.IChannel) group.IChannel {
+func (ch *Channel) Next(n ...group.IChannel) group.IChannel {
 	if len(n) > 0 {
 		ch._next = n[0]
 	}
 	return ch._next
 }
 
-func (ch *WsChannel) Prev(p ...group.IChannel) group.IChannel {
+func (ch *Channel) Prev(p ...group.IChannel) group.IChannel {
 	if len(p) > 0 {
 		ch._prev = p[0]
 	}
 	return ch._prev
 }
-func (ch *WsChannel) Room(r ...*group.Room) *group.Room {
+func (ch *Channel) Room(r ...*group.Room) *group.Room {
 	if len(r) > 0 {
 		ch._room = r[0]
 	}
 	return ch._room
 }
 
-func (ch *WsChannel) UserId(u ...int64) int64 {
+func (ch *Channel) UserId(u ...int64) int64 {
 	if len(u) > 0 {
 		ch._userId = u[0]
 	}
-	fmt.Println("UserId:", ch._userId)
 	return ch._userId
 }
 
-func NewWsChannel(size int, opts ...WsChannelOption) (c *WsChannel) {
-	c = new(WsChannel)
+func NewChannel(size int, opts ...ChannelOption) (c *Channel) {
+	c = new(Channel)
 	c.Lock = sync.Mutex{}
 	c.broadcast = make(chan *message.Msg, size)
 	c.rpcCaller = make(chan *message.JsonCallObject, 10)
@@ -85,15 +84,11 @@ func NewWsChannel(size int, opts ...WsChannelOption) (c *WsChannel) {
 	return
 }
 
-func (ch *WsChannel) Chans() (broadcast chan *message.Msg, rpcCaller chan *message.JsonCallObject, rpcBacker chan *message.JsonBackObject) {
-	return ch.broadcast, ch.rpcCaller, ch.rpcBacker
-}
-
-func (ch *WsChannel) OnError(f func(err error)) {
+func (ch *Channel) OnError(f func(err error)) {
 	ch.errHandler = f
 }
 
-func (ch *WsChannel) Push(ctx context.Context, msg *message.Msg) (err error) {
+func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 	select {
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
@@ -103,7 +98,7 @@ func (ch *WsChannel) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
-func (c *WsChannel) Reply(id string, data []byte) error {
+func (c *Channel) Reply(id string, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -115,7 +110,7 @@ func (c *WsChannel) Reply(id string, data []byte) error {
 	return nil
 }
 
-func (ch *WsChannel) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
+func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(5 * time.Second)
