@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"log"
+
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"modernc.org/mathutil"
@@ -206,7 +208,7 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 		ch.Conn.SetReadDeadline(time.Now().Add(s.PongWait))
 		return nil
 	})
-	fmt.Println("readPump start")
+	log.Println("readPump start")
 	for {
 		msgType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
@@ -215,14 +217,14 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 			}
 		}
 		if msg == nil || msgType == -1 {
-			fmt.Println("readPump msgType:", msgType)
+			log.Println("readPump msgType:", msgType)
 			return
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		m, err := receiveMessage(ch.Conn, msg)
 		if err != nil {
-			fmt.Println("receiveMessage err = ", err.Error())
+			log.Println("receiveMessage err = ", err.Error())
 			continue
 		}
 		// fmt.Println("readPump msgType:", msgType, "message:", string(m))
@@ -252,7 +254,7 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 func (s *WsServer) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("HandleMessage recover err :", err)
+			log.Println("HandleMessage recover err :", err)
 		}
 	}()
 	s.serviceMapMu.RLock()

@@ -1,0 +1,55 @@
+<html>
+
+<head>
+    <title>WS Client</title>
+</head>
+
+<body>
+    <h1>WS Client</h1>
+    <script src="./sock_rpc.js"></script>
+    <script>
+        const addr = `ws://localhost:8080/ws`
+        rpc = new SockRpc({
+            addr: addr,
+            onMessage: (evt) => {
+                console.log('onMessage', evt)
+            },
+            onError: (evt) => {
+                console.log('onError', evt)
+            }
+        });
+        rpc.OnOpen(evt => {
+            console.log('onOpen', evt)
+            const timestamp = Date.now()
+            const auth = '123456'
+            const authMsg = {
+                auth_token: `auth:${auth}`,
+                room_id: 1,
+                user_id: 1,
+                server_id: 'local',
+                action: 0xFE,
+                type: "h5",
+            }
+            rpc.Send(authMsg)
+            setInterval(() => {
+                rpc.Call("v1.Test", {
+                    a: 1,
+                    b: 2,
+                }, data => {
+                    console.log('call success', data)
+                })
+            }, 2000)
+        })
+        rpc.Bind('shop', {
+            Test: (evt) => {
+                console.log('server say hello', evt)
+                return 'helo' + (new Date().getTime())
+            }
+        })
+        rpc.Connect()
+
+
+    </script>
+</body>
+
+</html>

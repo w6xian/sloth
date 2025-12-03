@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sloth"
 	"sloth/internal/utils"
 	"sloth/nrpc/wsocket"
@@ -39,9 +40,25 @@ func main() {
 			fmt.Println("Call success:", string(data))
 		}
 	}()
-	newConnect.StartWebsocketClient(
-		wsocket.WithClientHandleMessage(&Handler{}),
-	)
+	go func() {
+		newConnect.StartWebsocketClient(
+			wsocket.WithClientHandleMessage(&Handler{}),
+		)
+	}()
+	httpServer()
+}
+
+func httpServer() {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./index.html")
+	})
+	http.HandleFunc("/sock_rpc.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./sock_rpc.js")
+	})
+	fmt.Println("Server is running on http://localhost:8080")
+	http.ListenAndServe(":8081", nil)
 }
 
 type Handler struct {
