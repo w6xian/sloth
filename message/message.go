@@ -1,8 +1,8 @@
 package message
 
 import (
-	"sloth/actions"
-	"sloth/internal/utils/id"
+	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/internal/utils/id"
 )
 
 type JsonCallObject struct {

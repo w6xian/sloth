@@ -5,9 +5,10 @@ package group
 
 import (
 	"context"
-	"sloth/message"
 	"sync"
 	"sync/atomic"
+
+	"github.com/w6xian/sloth/message"
 )
 
 type Bucket struct {

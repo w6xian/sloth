@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"sloth/group"
-	"sloth/internal/utils"
-	"sloth/message"
 	"sync"
 	"time"
+
+	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/message"
 
 	"github.com/gorilla/websocket"
 )

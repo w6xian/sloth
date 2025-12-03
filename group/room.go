@@ -3,8 +3,9 @@ package group
 import (
 	"context"
 	"fmt"
-	"sloth/message"
 	"sync"
+
+	"github.com/w6xian/sloth/message"
 
 	"github.com/pkg/errors"
 )

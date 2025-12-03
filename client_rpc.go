@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sloth/group"
-	"sloth/internal/utils/id"
-	"sloth/message"
 	"sync"
 	"time"
+
+	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/utils/id"
+	"github.com/w6xian/sloth/message"
 )
 
 var once sync.Once

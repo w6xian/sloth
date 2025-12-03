@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
-	"sloth/nrpc"
-	"sloth/nrpc/wsocket"
 	"strings"
+
+	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/sloth/nrpc/wsocket"
 )
 
 // Precompute the reflect type for context.

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sloth"
-	"sloth/group"
-	"sloth/internal/utils"
-	"sloth/nrpc/wsocket"
 	"time"
+
+	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"

@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
-	"sloth/actions"
-	"sloth/group"
-	"sloth/internal/tools"
-	"sloth/internal/utils"
-	"sloth/message"
-	"sloth/nrpc"
 	"sync"
 	"time"
+
+	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/tools"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 
 	"log"
 

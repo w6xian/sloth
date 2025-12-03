@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sloth/message"
-	"sloth/nrpc"
 	"sync"
+
+	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 )
 
 var svr_once sync.Once

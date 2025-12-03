@@ -1,7 +1,7 @@
 package wsocket
 
 import (
-	"sloth/group"
+	"github.com/w6xian/sloth/group"
 )
 
 type IWsReply interface {

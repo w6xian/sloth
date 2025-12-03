@@ -1,4 +1,4 @@
-module sloth
+module github.com/w6xian/sloth
 
 go 1.25.3
 

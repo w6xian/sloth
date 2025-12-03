@@ -2,7 +2,8 @@ package group
 
 import (
 	"context"
-	"sloth/message"
+
+	"github.com/w6xian/sloth/message"
 )
 
 type IChannel interface {

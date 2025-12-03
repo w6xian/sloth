@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sloth"
-	"sloth/internal/utils"
-	"sloth/nrpc/wsocket"
 	"time"
+
+	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/websocket"
 )

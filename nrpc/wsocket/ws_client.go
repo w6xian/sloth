@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sloth/actions"
-	"sloth/internal/utils"
-	"sloth/internal/utils/id"
-	"sloth/message"
-	"sloth/nrpc"
 	"sync"
 	"time"
+
+	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/internal/utils/id"
+	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 
 	"github.com/gorilla/websocket"
 )

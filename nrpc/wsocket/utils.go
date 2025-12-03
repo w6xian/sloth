@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sloth/group"
-	"sloth/internal/tools"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/tools"
 
 	"github.com/gorilla/websocket"
 )

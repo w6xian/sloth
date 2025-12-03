@@ -1,6 +1,6 @@
 package message
 
-import "sloth/internal/utils"
+import "github.com/w6xian/sloth/internal/utils"
 
 type CmdReq struct {
 	Id        string `json:"id"`
