@@ -99,11 +99,22 @@ func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
-func (c *Channel) Reply(id string, data []byte) error {
+func (c *Channel) ReplySuccess(id string, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msg := message.NewWsJsonBackObject(id, data)
+	msg := message.NewWsJsonBackSuccess(id, data)
+	select {
+	case c.rpcBacker <- msg:
+	default:
+	}
+	return nil
+}
+func (c *Channel) ReplyError(id string, err []byte) error {
+	if c.Conn == nil {
+		return fmt.Errorf("conn is nil")
+	}
+	msg := message.NewWsJsonBackError(id, err)
 	select {
 	case c.rpcBacker <- msg:
 	default:
@@ -136,6 +147,9 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
 			if back.Id == msg.Id && ok {
+				if back.Error != "" {
+					return []byte{}, fmt.Errorf(back.Error)
+				}
 				return []byte(back.Data), nil
 			}
 		case <-ctx.Done():

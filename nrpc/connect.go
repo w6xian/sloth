@@ -15,6 +15,7 @@ type RpcCaller struct {
 	Action int    `json:"action"`
 	Method string `json:"method"`
 	Data   string `json:"data"`
+	Error  string `json:"error,omitempty"` // error message
 }
 
 type ICall interface {

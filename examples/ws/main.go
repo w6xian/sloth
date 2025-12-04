@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -65,11 +66,18 @@ func (h *Handler) HandleMessage(s *wsocket.WsServer, ch group.IChannel, msgType 
 }
 
 type HelloService struct {
+	Id int64 `json:"id"`
 }
 
 func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
+	h.Id = h.Id + 1
+	fmt.Println("HelloService.Test", h.Id)
+	if h.Id%2 == 1 {
+		return nil, errors.New("test error response")
+	}
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 func (h *HelloService) Login(ctx context.Context, data []byte) ([]byte, error) {
+
 	return utils.Serialize(map[string]string{"user_id": "2", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }

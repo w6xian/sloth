@@ -45,7 +45,6 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data any
 
 	resp, err := ch.Call(ctx, mtd, data)
 	if err != nil {
-		fmt.Println("Connect layer Call() error", err)
 		return nil, err
 	}
 	return resp, nil

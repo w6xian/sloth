@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"strings"
@@ -95,7 +96,10 @@ func (c *Connect) CallFunc(msgReq *nrpc.RpcCaller) ([]byte, error) {
 		return nil, err
 	}
 	// 调用成功，返回结果
-	rst := ret[0].Interface().([]byte)
+	rst, ok := ret[0].Interface().([]byte)
+	if !ok {
+		return nil, errors.New("call func error")
+	}
 	return rst, nil
 }
 
@@ -116,25 +120,34 @@ func suitableMethods(typ reflect.Type) map[string]reflect.Method {
 		}
 		// 只限定第一个参数，一这是context.Context，后面的参数可以是任意类型
 		if m.Type.NumIn() < 2 {
-			panic(fmt.Sprintf("method %s must have at least 1 arguments", m.Name))
+			log.Printf("[notice]method %s must have at least 1 arguments", m.Name)
+			continue
 		}
 		arg1 := m.Type.In(1)
 		// 判定第一个参数是不是context.Context
 		if !arg1.Implements(typeOfContext) {
-			panic(fmt.Sprintf("method %s must have at least 1 arguments, first argument must be context.Context", m.Name))
+			log.Printf("[notice]method %s must have at least 1 arguments, first argument must be context.Context", m.Name)
+			continue
 		}
 		// 返回值最后一个值需要是error
 		if m.Type.NumOut() < 1 {
-			panic(fmt.Sprintf("method %s must have 1-2 return value and last return value must be error", m.Name))
+			log.Printf("[notice]method %s must have 1-2 return value and last return value must be error", m.Name)
+			continue
 		}
 		if m.Type.NumOut() > 2 {
-			panic(fmt.Sprintf("method %s must have 1-2 return values and last return value must be error", m.Name))
+			log.Printf("[notice]method %s must have 1-2 return values and last return value must be error", m.Name)
+			continue
 		}
 		out := m.Type.Out(m.Type.NumOut() - 1)
 		if !out.Implements(typeOfError) {
-			panic(fmt.Sprintf("method %s must have at least 1 return value, last return value must be error", m.Name))
+			log.Printf("[notice]method %s must have at least 1 return value, last return value must be error", m.Name)
+			continue
 		}
 		methods[m.Name] = m
+	}
+
+	for _, m := range methods {
+		log.Printf("[success]method %s is registered", m.Name)
 	}
 	return methods
 }

@@ -236,7 +236,13 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 				s.HandleCall(ch, connReq)
 				continue
 			} else if connReq.Action == actions.ACTION_REPLY {
-				backObj := message.NewWsJsonBackObject(connReq.Id, []byte(connReq.Data))
+				if connReq.Error != "" {
+					// 处理服务器返回的错误
+					backObj := message.NewWsJsonBackError(connReq.Id, []byte(connReq.Error))
+					ch.rpcBacker <- backObj
+					continue
+				}
+				backObj := message.NewWsJsonBackSuccess(connReq.Id, []byte(connReq.Data))
 				ch.rpcBacker <- backObj
 				continue
 			}
@@ -264,9 +270,10 @@ func (s *WsServer) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
 	if msgReq.Action == actions.ACTION_CALL {
 		rst, err := s.Connect.CallFunc(msgReq)
 		if err != nil {
+			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
-		ch.Reply(msgReq.Id, rst)
+		ch.ReplySuccess(msgReq.Id, rst)
 		return
 	}
 }

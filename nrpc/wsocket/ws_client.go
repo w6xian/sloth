@@ -105,7 +105,6 @@ func (s *LocalClient) Call(ctx context.Context, mtd string, data any) ([]byte, e
 
 	resp, err := s.client.Call(ctx, mtd, data)
 	if err != nil {
-		fmt.Println("Connect layer Call() error", err)
 		return nil, err
 	}
 	return resp, nil
@@ -230,8 +229,16 @@ func (c *LocalClient) readPump(ch *WsClient, closeChan chan bool, handler IClien
 		// fmt.Println("readPump msgType:", msgType, "message:", string(m))
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
+
 			if connReq.Action == actions.ACTION_REPLY {
-				backObj := message.NewWsJsonBackObject(connReq.Id, []byte(connReq.Data))
+				// 处理服务器返回的结果
+				if connReq.Error != "" {
+					// 处理服务器返回的错误
+					backObj := message.NewWsJsonBackError(connReq.Id, []byte(connReq.Error))
+					ch.rpcBacker <- backObj
+					continue
+				}
+				backObj := message.NewWsJsonBackSuccess(connReq.Id, []byte(connReq.Data))
 				ch.rpcBacker <- backObj
 				continue
 			} else if connReq.Action == actions.ACTION_CALL {
@@ -261,10 +268,10 @@ func (c *LocalClient) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
 	if msgReq.Action == actions.ACTION_CALL {
 		rst, err := c.Connect.CallFunc(msgReq)
 		if err != nil {
-			fmt.Println("HandleMessage CallFunc err :", err)
+			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
-		ch.Reply(msgReq.Id, rst)
+		ch.ReplySuccess(msgReq.Id, rst)
 		return
 	}
 }

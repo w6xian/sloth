@@ -3,7 +3,7 @@ package sloth
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log"
 	"sync"
 
 	"github.com/w6xian/sloth/message"
@@ -32,7 +32,6 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, data any) ([]byte, err
 	}
 	resp, err := c.Listen.Call(ctx, mtd, data)
 	if err != nil {
-		fmt.Println("Connect layer Call() error", err)
 		return nil, err
 	}
 	return resp, nil
@@ -45,7 +44,7 @@ func (c *ServerRpc) Send(ctx context.Context, data []byte) error {
 		Body: data,
 	})
 	if err != nil {
-		fmt.Println("Connect layer Call() error", err)
+		log.Println("Connect layer Push() error\n", err)
 		return err
 	}
 	return nil

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/w6xian/sloth"
@@ -22,17 +21,17 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			if server.UserId == 0 {
-				data, err := server.Call(context.Background(), "v1.Login", "2")
-				if err != nil {
-					fmt.Println("Call error:", err)
-					continue
-				}
-				server.UserId = 2
-				server.RoomId = 1
-				server.Send(context.Background(), utils.Serialize(map[string]string{"user_id": "2", "room_id": "1"}))
-				fmt.Println("Call success:", string(data))
-			}
+			// if server.UserId == 0 {
+			// 	data, err := server.Call(context.Background(), "v1.Test", "2")
+			// 	if err != nil {
+			// 		fmt.Println("Call error:", err)
+			// 		continue
+			// 	}
+			// 	server.UserId = 2
+			// 	server.RoomId = 1
+			// 	server.Send(context.Background(), utils.Serialize(map[string]string{"user_id": "2", "room_id": "1"}))
+			// 	fmt.Println("Call success:", string(data))
+			// }
 			data, err := server.Call(context.Background(), "v1.Test", "abc")
 			if err != nil {
 				fmt.Println("Call error:", err)
@@ -41,25 +40,12 @@ func main() {
 			fmt.Println("Call success:", string(data))
 		}
 	}()
-	go func() {
-		newConnect.StartWebsocketClient(
-			wsocket.WithClientHandleMessage(&Handler{}),
-		)
-	}()
-	httpServer()
-}
+	newConnect.StartWebsocketClient(
+		wsocket.WithClientHandleMessage(&Handler{}),
+		wsocket.WithClientUriPath("/ws"),
+		wsocket.WithClientServerUri("localhost:8080"),
+	)
 
-func httpServer() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./index.html")
-	})
-	http.HandleFunc("/sock_rpc.js", func(w http.ResponseWriter, r *http.Request) {
-		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./sock_rpc.js")
-	})
-	fmt.Println("Server is running on http://localhost:8080")
-	http.ListenAndServe(":8081", nil)
 }
 
 type Handler struct {

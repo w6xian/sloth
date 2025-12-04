@@ -5,7 +5,8 @@ import (
 )
 
 type IWsReply interface {
-	Reply(id string, data []byte) (err error)
+	ReplySuccess(id string, data []byte) error
+	ReplyError(id string, err []byte) error
 }
 
 type IServerHandleMessage interface {
