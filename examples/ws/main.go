@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
@@ -48,7 +48,7 @@ func main() {
 type Handler struct {
 }
 
-func (h *Handler) HandleMessage(s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
+func (h *Handler) HandleMessage(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		// fmt.Println("------------login------------")
 		if ch.UserId() == 0 {
@@ -60,6 +60,13 @@ func (h *Handler) HandleMessage(s *wsocket.WsServer, ch group.IChannel, msgType 
 			err := b.Put(userId, roomId, ch)
 			return err
 		}
+	} else if decoder.IsHdCFrame(message) {
+		hdc, err := decoder.DecodeHdC(message)
+		if err != nil {
+			fmt.Println("DecodeHdC error:", err)
+			return err
+		}
+		fmt.Println("DecodeHdC success:", string(hdc.Data()))
 	}
 	fmt.Println(string(message))
 	return nil
@@ -73,11 +80,14 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	h.Id = h.Id + 1
 	fmt.Println("HelloService.Test", h.Id)
 	if h.Id%2 == 1 {
-		return nil, errors.New("test error response")
+		return utils.Serialize([]string{"a", "b", "c"}), nil
+		hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
+		return hdc.Frame(), nil
 	}
+	// hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
+	// return hdc.Frame(), nil
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 func (h *HelloService) Login(ctx context.Context, data []byte) ([]byte, error) {
-
 	return utils.Serialize(map[string]string{"user_id": "2", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }

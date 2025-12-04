@@ -2,6 +2,7 @@ package wsocket
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -99,18 +100,27 @@ func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
-func (c *Channel) ReplySuccess(id string, data []byte) error {
+func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msg := message.NewWsJsonBackSuccess(id, data)
+
+	// 判断data 是否是string类型
+	// 如果是string类型，就设置msgType为TextMessage
+	msgType := BinaryMessage
+	f := data[0]
+	if f == '{' || f == '[' {
+		msgType = TextMessage
+	}
+
+	msg := message.NewWsJsonBackSuccess(id, data, msgType)
 	select {
 	case c.rpcBacker <- msg:
 	default:
 	}
 	return nil
 }
-func (c *Channel) ReplyError(id string, err []byte) error {
+func (c *Channel) ReplyError(id uint64, err []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -138,22 +148,30 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 		return nil, ctx.Err()
 	default:
 	}
+	fmt.Println("call:", msg.Id)
 	// fmt.Println("***************call***************")
 	ticker.Reset(5 * time.Second)
 	// 等待调用结果
 	for {
 		select {
+		case <-ctx.Done():
+			return []byte{}, ctx.Err()
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
+			fmt.Println("call back:", back.Id, msg.Id)
 			if back.Id == msg.Id && ok {
 				if back.Error != "" {
-					return []byte{}, fmt.Errorf(back.Error)
+					return []byte{}, errors.New(back.Error)
 				}
-				return []byte(back.Data), nil
+				switch back.Type {
+				case message.TextMessage:
+					return back.Data.([]byte), nil
+				case message.BinaryMessage:
+					return back.Data.([]byte), nil
+				}
+				return []byte{}, fmt.Errorf("unknown message type")
 			}
-		case <-ctx.Done():
-			return []byte{}, ctx.Err()
 		}
 	}
 }

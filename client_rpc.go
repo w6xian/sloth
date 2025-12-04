@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/group"
-	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/message"
 )
 
@@ -60,14 +60,12 @@ func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data 
 		return
 	}
 	cmd := message.CmdReq{
-		Id:     id.ShortID(),
+		Id:     decoder.NextId(),
 		Ts:     time.Now().Unix(),
 		Action: action,
 		Data:   data,
 	}
-	msg := &message.Msg{
-		Body: cmd.Bytes(),
-	}
+	msg := message.NewTextMessage(cmd.Bytes())
 	if err := ch.Push(ctx, msg); err != nil {
 		fmt.Println("Connect layer Push() error", err)
 	}
@@ -85,14 +83,12 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 		return
 	}
 	cmd := message.CmdReq{
-		Id:     id.ShortID(),
+		Id:     decoder.NextId(),
 		Ts:     time.Now().Unix(),
 		Action: action,
 		Data:   data,
 	}
-	msg := &message.Msg{
-		Body: cmd.Bytes(),
-	}
+	msg := message.NewTextMessage(cmd.Bytes())
 	// fmt.Println("Connect layer Push() roomId", roomId)
 	room.Push(ctx, msg)
 }
@@ -102,14 +98,12 @@ func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
 		return
 	}
 	cmd := message.CmdReq{
-		Id:     id.ShortID(),
+		Id:     decoder.NextId(),
 		Ts:     time.Now().Unix(),
 		Action: action,
 		Data:   data,
 	}
-	msg := &message.Msg{
-		Body: cmd.Bytes(),
-	}
+	msg := message.NewTextMessage(cmd.Bytes())
 	if err := c.Serve.Broadcast(ctx, msg); err != nil {
 		return
 	}

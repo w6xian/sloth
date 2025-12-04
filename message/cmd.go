@@ -3,7 +3,7 @@ package message
 import "github.com/w6xian/sloth/internal/utils"
 
 type CmdReq struct {
-	Id        string `json:"id"`
+	Id        uint64 `json:"id"`
 	TrackId   string `json:"track_id"`
 	AppId     string `json:"app_id,omitempty"`
 	ProxyId   int64  `json:"proxy_id,omitempty"`

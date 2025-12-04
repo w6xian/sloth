@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/w6xian/sloth/message"
-
 	"github.com/pkg/errors"
+	"github.com/w6xian/sloth/message"
 )
 
 const NoRoom = -1

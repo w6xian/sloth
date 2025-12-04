@@ -40,9 +40,8 @@ func (c *ServerRpc) Send(ctx context.Context, data []byte) error {
 	if c.Listen == nil {
 		return errors.New("server not found")
 	}
-	err := c.Listen.Push(&message.Msg{
-		Body: data,
-	})
+	msg := message.NewTextMessage(data)
+	err := c.Listen.Push(ctx, msg)
 	if err != nil {
 		log.Println("Connect layer Push() error\n", err)
 		return err

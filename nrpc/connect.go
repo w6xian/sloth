@@ -7,11 +7,11 @@ import (
 )
 
 type ICallRpc interface {
-	CallFunc(msgReq *RpcCaller) ([]byte, error)
+	CallFunc(ctx context.Context, msgReq *RpcCaller) ([]byte, error)
 }
 
 type RpcCaller struct {
-	Id     string `json:"id"`
+	Id     uint64 `json:"id"`
 	Action int    `json:"action"`
 	Method string `json:"method"`
 	Data   string `json:"data"`
@@ -20,5 +20,5 @@ type RpcCaller struct {
 
 type ICall interface {
 	Call(ctx context.Context, mtd string, args any) ([]byte, error)
-	Push(msg *message.Msg) (err error)
+	Push(ctx context.Context, msg *message.Msg) (err error)
 }

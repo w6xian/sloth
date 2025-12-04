@@ -102,14 +102,14 @@ func (s *WsServer) Broadcast(ctx context.Context, msg *message.Msg) error {
 	return nil
 }
 
-func (s *WsServer) ListenAndServe() error {
+func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("new client connect")
-		s.serveWs(w, r)
+		s.serveWs(ctx, w, r)
 	})
 	return nil
 }
-func (s *WsServer) serveWs(w http.ResponseWriter, r *http.Request) {
+func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var upGrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -126,13 +126,13 @@ func (s *WsServer) serveWs(w http.ResponseWriter, r *http.Request) {
 	//default broadcast size eq 512
 	ch.Conn = conn
 	//send data to websocket conn
-	go s.writePump(ch)
+	go s.writePump(ctx, ch)
 	//get data from websocket conn
 	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
-	go s.readPump(ch, s.handler)
+	go s.readPump(ctx, ch, s.handler)
 }
 
-func (s *WsServer) writePump(ch *Channel) {
+func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("writePump recover err :", err)
@@ -147,35 +147,39 @@ func (s *WsServer) writePump(ch *Channel) {
 
 	for {
 		select {
-		case message, ok := <-ch.broadcast:
+		case msg, ok := <-ch.broadcast:
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesSend(getSliceName(), ch.Conn, message.Body, 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 
 				return
 			}
-		case message, ok := <-ch.rpcCaller:
+		case msg, ok := <-ch.rpcCaller:
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesSend(getSliceName(), ch.Conn, utils.Serialize(message), 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
-		case message, ok := <-ch.rpcBacker:
+		case msg, ok := <-ch.rpcBacker:
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesSend(getSliceName(), ch.Conn, utils.Serialize(message), 32); err != nil {
+			if msg.Type == websocket.BinaryMessage {
+				slicesBinarySend(msg.Id, ch.Conn, msg.Data.([]byte), 512)
+				continue
+			}
+			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -188,7 +192,7 @@ func (s *WsServer) writePump(ch *Channel) {
 	}
 }
 
-func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
+func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("readPump recover err :", err)
@@ -211,21 +215,28 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 	})
 	log.Println("readPump start")
 	for {
-		msgType, msg, err := ch.Conn.ReadMessage()
+		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				return
 			}
 		}
-		if msg == nil || msgType == -1 {
-			log.Println("readPump msgType:", msgType)
+		if msg == nil || messageType == -1 {
+			log.Println("readPump messageType:", messageType)
 			return
+		}
+		if messageType == websocket.BinaryMessage {
+			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
+				// 处理HdC消息
+				handler.HandleMessage(ctx, s, ch, messageType, hdc)
+				continue
+			}
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		m, err := receiveMessage(ch.Conn, msg)
+		m, err := receiveMessage(ch.Conn, messageType, msg)
 		if err != nil {
-			log.Println("receiveMessage err = ", err.Error())
+			log.Println("server receiveMessage err = ", err.Error())
 			continue
 		}
 		// fmt.Println("readPump msgType:", msgType, "message:", string(m))
@@ -233,7 +244,7 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			if connReq.Action == actions.ACTION_CALL {
 				// 调用方法
-				s.HandleCall(ch, connReq)
+				s.HandleCall(ctx, ch, connReq)
 				continue
 			} else if connReq.Action == actions.ACTION_REPLY {
 				if connReq.Error != "" {
@@ -249,7 +260,7 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 		}
 
 		if handler != nil {
-			handler.HandleMessage(s, ch, msgType, m)
+			handler.HandleMessage(ctx, s, ch, messageType, m)
 		}
 	}
 }
@@ -258,17 +269,18 @@ func (s *WsServer) readPump(ch *Channel, handler IServerHandleMessage) {
 // 有两种情况：
 // 1. 服务器主动推送消息，需要调用本地方法处理
 // 2. 服务器调用本地方法，需要返回结果
-func (s *WsServer) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
+func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.RpcCaller) {
+	s.serviceMapMu.RLock()
+	defer s.serviceMapMu.RUnlock()
+
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println("HandleMessage recover err :", err)
 		}
 	}()
-	s.serviceMapMu.RLock()
-	defer s.serviceMapMu.RUnlock()
 
 	if msgReq.Action == actions.ACTION_CALL {
-		rst, err := s.Connect.CallFunc(msgReq)
+		rst, err := s.Connect.CallFunc(ctx, msgReq)
 		if err != nil {
 			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/message"
@@ -60,26 +61,26 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	return s
 }
 
-func (s *LocalClient) ListenAndServe() error {
+func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 	addr := fmt.Sprintf("ws://%s%s", s.serverUri, s.uriPath)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, http.Header{
-			"app_id": []string{id.ShortID()},
+			"app_id": []string{id.ShortStringID()},
 		})
 		if err != nil {
 			fmt.Println("websocket.DefaultDialer.Dial err = ", err.Error())
 			time.Sleep(5 * time.Second)
-			s.ListenAndServe()
+			s.ListenAndServe(ctx)
 			return err
 		}
-		s.ClientWs(conn)
+		s.ClientWs(ctx, conn)
 	}
 	return nil
 }
 
 // ClientWs 客户端连接
-func (c *LocalClient) ClientWs(conn *websocket.Conn) {
+func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
@@ -89,13 +90,13 @@ func (c *LocalClient) ClientWs(conn *websocket.Conn) {
 	wsConn.conn = conn
 	wsConn.RoomId = 1
 	//send data to websocket conn
-	go c.writePump(wsConn)
+	go c.writePump(ctx, wsConn)
 	//get data from websocket conn
-	go c.readPump(wsConn, closeChan, c.handler)
+	go c.readPump(ctx, wsConn, closeChan, c.handler)
 	// 等待关闭信号
 	<-closeChan
 	// 重连
-	c.ListenAndServe()
+	c.ListenAndServe(ctx)
 }
 
 func (s *LocalClient) Call(ctx context.Context, mtd string, data any) ([]byte, error) {
@@ -110,14 +111,14 @@ func (s *LocalClient) Call(ctx context.Context, mtd string, data any) ([]byte, e
 	return resp, nil
 }
 
-func (s *LocalClient) Push(msg *message.Msg) (err error) {
+func (s *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	if s.client == nil {
 		return errors.New("server not found")
 	}
-	return s.client.Push(msg)
+	return s.client.Push(ctx, msg)
 }
 
-func (s *LocalClient) writePump(ch *WsClient) {
+func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("writePump recover err :", err)
@@ -133,7 +134,7 @@ func (s *LocalClient) writePump(ch *WsClient) {
 
 	for {
 		select {
-		case message, ok := <-ch.send:
+		case msg, ok := <-ch.send:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
@@ -141,34 +142,38 @@ func (s *LocalClient) writePump(ch *WsClient) {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			sl, err := getSlice(message.Body)
+			sl, err := getSlice(msg.Body)
 			if err != nil {
 				continue
 			}
-			if err := slicesSend(sl.N, ch.conn, message.Body, 32); err != nil {
+			if err := slicesTextSend(sl.N, ch.conn, msg.Body, 32); err != nil {
 				return
 			}
-		case message, ok := <-ch.rpcCaller:
+		case msg, ok := <-ch.rpcCaller:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesSend(getSliceName(), ch.conn, utils.Serialize(message), 32); err != nil {
-				fmt.Println("slicesSend err = ", err.Error())
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 32); err != nil {
+				fmt.Println("slicesTextSend err = ", err.Error())
 				return
 			}
 			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
-		case message, ok := <-ch.rpcBacker:
+		case msg, ok := <-ch.rpcBacker:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			if msg.Type == websocket.BinaryMessage {
+				slicesBinarySend(msg.Id, ch.conn, msg.Data.([]byte), 512)
+				continue
+			}
 
-			if err := slicesSend(getSliceName(), ch.conn, utils.Serialize(message), 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 32); err != nil {
 				return
 			}
 			// fmt.Println("rpcBacker message:", message)
@@ -186,7 +191,7 @@ func (s *LocalClient) writePump(ch *WsClient) {
 	}
 }
 
-func (c *LocalClient) readPump(ch *WsClient, closeChan chan bool, handler IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan bool, handler IClientHandleMessage) {
 	defer func() {
 		if ch.UserId == 0 {
 			ch.conn.Close()
@@ -208,28 +213,63 @@ func (c *LocalClient) readPump(ch *WsClient, closeChan chan bool, handler IClien
 
 	for {
 		// 来自服务器的消息
-		msgType, msg, err := ch.conn.ReadMessage()
+		messageType, msg, err := ch.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				fmt.Println("readPump ReadMessage err = ", err.Error())
 				return
 			}
 		}
-		if msg == nil || msgType == -1 {
-			fmt.Println("readPump msgType:", msgType)
+		if msg == nil || messageType == -1 {
+			fmt.Println("readPump messageType:", messageType)
 			return
+		}
+		fmt.Println("------------")
+		fmt.Println("readPump messageType:", messageType, "message:", string(msg))
+		if messageType == websocket.BinaryMessage {
+			fmt.Println("010101010101010101010101010101010101010101010101")
+			// fmt.Println("readPump messageType:", messageType, "message:", string(msg))
+			if frame, hdcErr := receiveHdCFrame(ch.conn, msg); hdcErr == nil {
+				hdc, err := decoder.DecodeHdC(frame)
+				if err != nil {
+					fmt.Println("DecodeHdC err = ", err.Error())
+					continue
+				}
+				// call
+				if hdc.FunctionCode() == 0xFF {
+					// c.HandleCall(ctx, ch, hdc)
+					continue
+				}
+				fmt.Println("readPump messageType:", messageType, "message:", hdc.Id(), hdc.FunctionCode(), hdc.Data())
+				// reply error
+				if hdc.FunctionCode() == 0x00 {
+					// 处理服务器返回的错误
+					backObj := message.NewWsJsonBackError(hdc.Id(), []byte(hdc.Data()))
+					ch.rpcBacker <- backObj
+					continue
+				}
+				// reply success
+				if hdc.FunctionCode() == 0x03 {
+					backObj := message.NewWsJsonBackSuccess(hdc.Id(), []byte(hdc.Data()), messageType)
+					fmt.Println("========================")
+					ch.rpcBacker <- backObj
+					continue
+				}
+				// 处理HdC消息
+				handler.HandleMessage(ctx, c, ch, messageType, frame)
+				continue
+			}
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		m, err := receiveMessage(ch.conn, msg)
+		m, err := receiveMessage(ch.conn, messageType, msg)
 		if err != nil {
-			fmt.Println("receiveMessage err = ", err.Error())
+			fmt.Println("client receiveMessage err = ", err.Error())
 			continue
 		}
-		// fmt.Println("readPump msgType:", msgType, "message:", string(m))
+		// fmt.Println("readPump messageType:", messageType, "message:", string(m))
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
-
 			if connReq.Action == actions.ACTION_REPLY {
 				// 处理服务器返回的结果
 				if connReq.Error != "" {
@@ -242,13 +282,13 @@ func (c *LocalClient) readPump(ch *WsClient, closeChan chan bool, handler IClien
 				ch.rpcBacker <- backObj
 				continue
 			} else if connReq.Action == actions.ACTION_CALL {
-				c.HandleCall(ch, connReq)
+				c.HandleCall(ctx, ch, connReq)
 				continue
 			}
 		}
 
 		if handler != nil {
-			handler.HandleMessage(c, ch, msgType, m)
+			handler.HandleMessage(ctx, c, ch, messageType, m)
 		}
 	}
 }
@@ -257,7 +297,7 @@ func (c *LocalClient) readPump(ch *WsClient, closeChan chan bool, handler IClien
 // 有两种情况：
 // 1. 服务器主动推送消息，需要调用本地方法处理
 // 2. 服务器调用本地方法，需要返回结果
-func (c *LocalClient) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
+func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.RpcCaller) {
 	c.serviceMapMu.RLock()
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
@@ -266,7 +306,7 @@ func (c *LocalClient) HandleCall(ch IWsReply, msgReq *nrpc.RpcCaller) {
 		}
 	}()
 	if msgReq.Action == actions.ACTION_CALL {
-		rst, err := c.Connect.CallFunc(msgReq)
+		rst, err := c.Connect.CallFunc(ctx, msgReq)
 		if err != nil {
 			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return

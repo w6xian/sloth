@@ -2,6 +2,7 @@ package wsocket
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -49,7 +50,7 @@ func (c *WsClient) Logout() (err error) {
 	return
 }
 
-func (c *WsClient) Push(msg *message.Msg) (err error) {
+func (c *WsClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	if c.conn == nil {
 		return
 	}
@@ -61,18 +62,19 @@ func (c *WsClient) Push(msg *message.Msg) (err error) {
 	return
 }
 
-func (c *WsClient) ReplySuccess(id string, data []byte) error {
+func (c *WsClient) ReplySuccess(id uint64, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msg := message.NewWsJsonBackSuccess(id, data)
+	msgType := TextMessage
+	msg := message.NewWsJsonBackSuccess(id, data, msgType)
 	select {
 	case c.rpcBacker <- msg:
 	default:
 	}
 	return nil
 }
-func (c *WsClient) ReplyError(id string, err []byte) error {
+func (c *WsClient) ReplyError(id uint64, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -100,21 +102,33 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 		return nil, ctx.Err()
 	default:
 	}
+	fmt.Println("client call:", msg.Id)
 	ticker.Reset(5 * time.Second)
 	// 等待调用结果
 	for {
 		select {
+		case <-ctx.Done():
+			return []byte{}, ctx.Err()
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
-			if back.Id == msg.Id && ok {
-				if back.Error != "" {
-					return []byte{}, fmt.Errorf(back.Error)
+			fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
+			switch back.Type {
+			case message.TextMessage:
+				if back.Id == msg.Id && ok {
+					if back.Error != "" {
+						return []byte{}, errors.New(back.Error)
+					}
+					return back.Data.([]byte), nil
 				}
-				return []byte(back.Data), nil
+			case message.BinaryMessage:
+				if back.Id == msg.Id && ok {
+					fmt.Println("client call back binary:", back.Id, msg.Id, back.Type, ok)
+					return back.Data.([]byte), nil
+				}
 			}
-		case <-ctx.Done():
-			return []byte{}, ctx.Err()
+			return []byte{}, fmt.Errorf("unknown message type")
+
 		}
 	}
 }

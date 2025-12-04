@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
@@ -37,7 +38,18 @@ func main() {
 				fmt.Println("Call error:", err)
 				continue
 			}
-			fmt.Println("Call success:", string(data))
+			fmt.Println("Call success:", "****************")
+			if utils.IsJson(data) {
+				fmt.Println("Call success:", string(data))
+			} else if decoder.IsHdCFrame(data) {
+				hdc, err := decoder.DecodeHdC(data)
+				fmt.Printf("|||||||||||||||||||||||||%+v\n", hdc, err)
+				if err != nil {
+					fmt.Println("DecodeHdC error:", err)
+					continue
+				}
+				fmt.Println("DecodeHdC success:", string(hdc.Data()))
+			}
 		}
 	}()
 	newConnect.StartWebsocketClient(
@@ -51,7 +63,7 @@ func main() {
 type Handler struct {
 }
 
-func (h *Handler) HandleMessage(s *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
+func (h *Handler) HandleMessage(ctx context.Context, s *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}

@@ -57,7 +57,7 @@ func (c *Connect) StartWebsocketServer(options ...wsocket.ServerOption) {
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsServer := wsocket.NewWsServer(c, options...)
 	c.client.Serve = wsServer
-	wsServer.ListenAndServe()
+	wsServer.ListenAndServe(context.Background())
 }
 
 func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
@@ -65,10 +65,10 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsClient := wsocket.NewLocalClient(c, options...)
 	c.server.Listen = wsClient
-	wsClient.ListenAndServe()
+	wsClient.ListenAndServe(context.Background())
 }
 
-func (c *Connect) CallFunc(msgReq *nrpc.RpcCaller) ([]byte, error) {
+func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte, error) {
 	parts := strings.Split(msgReq.Method, ".")
 	if len(parts) != 2 {
 		return nil, errors.New("method format error")
@@ -85,7 +85,7 @@ func (c *Connect) CallFunc(msgReq *nrpc.RpcCaller) ([]byte, error) {
 	}
 	ret := mtd.Func.Call([]reflect.Value{
 		serviceFns.V,
-		reflect.ValueOf(context.Background()),
+		reflect.ValueOf(ctx),
 		reflect.ValueOf([]byte(msgReq.Data)),
 	})
 	if len(ret) != 2 {
