@@ -55,7 +55,7 @@ func main() {
 	newConnect.StartWebsocketClient(
 		wsocket.WithClientHandleMessage(&Handler{}),
 		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri("localhost:8080"),
+		wsocket.WithClientServerUri("localhost:8990"),
 	)
 
 }

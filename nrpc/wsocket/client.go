@@ -87,8 +87,10 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 }
 
 func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
+	fmt.Println("-=-=-=")
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
+	fmt.Println("=-=-=-=-=-=-=")
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -102,14 +104,16 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 		return nil, ctx.Err()
 	default:
 	}
-	fmt.Println("client call:", msg.Id)
+	fmt.Println("client call 107:", msg.Id)
 	ticker.Reset(5 * time.Second)
 	// 等待调用结果
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("client call context done:", ctx.Err())
 			return []byte{}, ctx.Err()
 		case <-ticker.C:
+			fmt.Println("client call ticker.C:", ticker.C)
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
 			fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)

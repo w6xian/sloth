@@ -30,7 +30,7 @@ type IADFrame struct {
 // | 地址  | 功能码 | 数据长度 | CRC校验 |  数据内容|
 // | 1字节 | 1字节  | 2字节   |  2字节   |   N字节 |
 // +------+-------+---------+--------+--------+
-type HdcHeader struct {
+type HdCHeader struct {
 	Id           uint64 //Id(消息ID)
 	Address      byte   //Address(地址)
 	FunctionCode byte   //FunctionCode(功能码)
@@ -70,12 +70,17 @@ func (h *HdC) Frame() []byte {
 }
 
 // GetHdCDataLength 获取HdC数据长度
-func GetHdCDataLength(d []byte) (uint16, error) {
+func GetHdCDataLength(d []byte) *HdCHeader {
 	if len(d) < HDC_HEADER_SIZE {
-		return 0, fmt.Errorf("data length error")
+		return nil
 	}
-	fmt.Printf("GetHdCDataLength: %v\n", d[POS_LENGTH:POS_LENGTH+2])
-	return binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2]), nil
+	return &HdCHeader{
+		Id:           binary.BigEndian.Uint64(d[POS_ID : POS_ID+ID_SIZE]),
+		Address:      d[POS_ADDRESS],
+		FunctionCode: d[POS_FUNCTION_CODE],
+		Length:       binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2]),
+		HdC:          d[POS_CRC : POS_CRC+2],
+	}
 }
 
 func NewHdC(id uint64, address byte, functionCode byte, body []byte) *HdC {
@@ -108,7 +113,7 @@ func IsHdCFrame(d []byte) bool {
 		return false
 	}
 	Length := binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2])
-	fmt.Printf("IsHdCFrame: %v %v %v\n", d[POS_ID:POS_ID+ID_SIZE], d[POS_ADDRESS], d[POS_FUNCTION_CODE])
+	fmt.Printf("IsHdCFrame: \n", Length, len(d) < HDC_HEADER_SIZE+int(Length))
 	if len(d) < HDC_HEADER_SIZE+int(Length) {
 		return false
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/mux"
@@ -18,7 +20,7 @@ import (
 )
 
 func main() {
-	ln, err := net.Listen("tcp", "localhost:8080")
+	ln, err := net.Listen("tcp", "localhost:8990")
 	if err != nil {
 		panic(err)
 	}
@@ -84,8 +86,8 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 		hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
 		return hdc.Frame(), nil
 	}
-	// hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
-	// return hdc.Frame(), nil
+	hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+id.RandStr(rand.Intn(50))))
+	return hdc.Frame(), nil
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 func (h *HelloService) Login(ctx context.Context, data []byte) ([]byte, error) {

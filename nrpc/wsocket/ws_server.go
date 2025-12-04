@@ -139,7 +139,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 		}
 	}()
 	//PingPeriod default eq 54s
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(9 * time.Second)
 	defer func() {
 		ticker.Stop()
 		ch.Conn.Close()
@@ -185,6 +185,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 		case <-ticker.C:
 			//heartbeat，if ping error will exit and close current websocket conn
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			fmt.Println("piiiiiiiiiiiiiiiiiiiiiiiig")
 			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -225,13 +226,14 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 			log.Println("readPump messageType:", messageType)
 			return
 		}
-		if messageType == websocket.BinaryMessage {
-			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
-				// 处理HdC消息
-				handler.HandleMessage(ctx, s, ch, messageType, hdc)
-				continue
-			}
-		}
+		// if messageType == websocket.BinaryMessage {
+		// 	fmt.Println("ws_server:", messageType)
+		// 	if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
+		// 		// 处理HdC消息
+		// 		handler.HandleMessage(ctx, s, ch, messageType, hdc)
+		// 		continue
+		// 	}
+		// }
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		m, err := receiveMessage(ch.Conn, messageType, msg)

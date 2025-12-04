@@ -84,7 +84,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
-	wsConn := NewWsClient(2, 10)
+	wsConn := NewWsClient(2, 2)
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
@@ -156,11 +156,11 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
 				fmt.Println("slicesTextSend err = ", err.Error())
 				return
 			}
-			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
+			fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
 		case msg, ok := <-ch.rpcBacker:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
@@ -173,7 +173,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				continue
 			}
 
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
 			// fmt.Println("rpcBacker message:", message)
@@ -207,6 +207,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 	ch.conn.SetReadLimit(c.MaxMessageSize)
 	ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 	ch.conn.SetPongHandler(func(string) error {
+		fmt.Println("pooooooooong")
 		ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 		return nil
 	})
@@ -224,7 +225,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			fmt.Println("readPump messageType:", messageType)
 			return
 		}
-		fmt.Println("------------")
+		fmt.Println("------------", len(msg))
 		fmt.Println("readPump messageType:", messageType, "message:", string(msg))
 		if messageType == websocket.BinaryMessage {
 			fmt.Println("010101010101010101010101010101010101010101010101")
@@ -253,6 +254,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 					backObj := message.NewWsJsonBackSuccess(hdc.Id(), []byte(hdc.Data()), messageType)
 					fmt.Println("========================")
 					ch.rpcBacker <- backObj
+					fmt.Println("========================!", cap(ch.rpcBacker), len(ch.rpcBacker))
 					continue
 				}
 				// 处理HdC消息
