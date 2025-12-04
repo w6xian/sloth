@@ -160,7 +160,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				fmt.Println("slicesTextSend err = ", err.Error())
 				return
 			}
-			fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
+			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
 		case msg, ok := <-ch.rpcBacker:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
@@ -225,10 +225,10 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			fmt.Println("readPump messageType:", messageType)
 			return
 		}
-		fmt.Println("------------", len(msg))
-		fmt.Println("readPump messageType:", messageType, "message:", string(msg))
+		// fmt.Println("------------", len(msg))
+		// fmt.Println("readPump messageType:", messageType, "message:", string(msg))
 		if messageType == websocket.BinaryMessage {
-			fmt.Println("010101010101010101010101010101010101010101010101")
+			// fmt.Println("010101010101010101010101010101010101010101010101")
 			// fmt.Println("readPump messageType:", messageType, "message:", string(msg))
 			if frame, hdcErr := receiveHdCFrame(ch.conn, msg); hdcErr == nil {
 				hdc, err := decoder.DecodeHdC(frame)
@@ -241,7 +241,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 					// c.HandleCall(ctx, ch, hdc)
 					continue
 				}
-				fmt.Println("readPump messageType:", messageType, "message:", hdc.Id(), hdc.FunctionCode(), hdc.Data())
+				// fmt.Println("readPump messageType:", messageType, "message:", hdc.Id(), hdc.FunctionCode(), hdc.Data())
 				// reply error
 				if hdc.FunctionCode() == 0x00 {
 					// 处理服务器返回的错误
@@ -250,11 +250,11 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 					continue
 				}
 				// reply success
-				if hdc.FunctionCode() == 0x03 {
+				if hdc.FunctionCode() == 0x01 {
 					backObj := message.NewWsJsonBackSuccess(hdc.Id(), []byte(hdc.Data()), messageType)
-					fmt.Println("========================")
+					// fmt.Println("========================")
 					ch.rpcBacker <- backObj
-					fmt.Println("========================!", cap(ch.rpcBacker), len(ch.rpcBacker))
+					// fmt.Println("========================!", cap(ch.rpcBacker), len(ch.rpcBacker))
 					continue
 				}
 				// 处理HdC消息

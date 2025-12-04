@@ -87,10 +87,10 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 }
 
 func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
-	fmt.Println("-=-=-=")
+	// fmt.Println("-=-=-=")
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	fmt.Println("=-=-=-=-=-=-=")
+	// fmt.Println("=-=-=-=-=-=-=")
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -104,7 +104,7 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 		return nil, ctx.Err()
 	default:
 	}
-	fmt.Println("client call 107:", msg.Id)
+	// fmt.Println("client call 107:", msg.Id)
 	ticker.Reset(5 * time.Second)
 	// 等待调用结果
 	for {
@@ -113,10 +113,10 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 			fmt.Println("client call context done:", ctx.Err())
 			return []byte{}, ctx.Err()
 		case <-ticker.C:
-			fmt.Println("client call ticker.C:", ticker.C)
+			// fmt.Println("client call ticker.C:", ticker.C)
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
-			fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
+			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
 			switch back.Type {
 			case message.TextMessage:
 				if back.Id == msg.Id && ok {
@@ -127,7 +127,6 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 				}
 			case message.BinaryMessage:
 				if back.Id == msg.Id && ok {
-					fmt.Println("client call back binary:", back.Id, msg.Id, back.Type, ok)
 					return back.Data.([]byte), nil
 				}
 			}

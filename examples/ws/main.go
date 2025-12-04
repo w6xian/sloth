@@ -82,11 +82,11 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	h.Id = h.Id + 1
 	fmt.Println("HelloService.Test", h.Id)
 	if h.Id%2 == 1 {
-		return utils.Serialize([]string{"a", "b", "c"}), nil
-		hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
+		// return utils.Serialize([]string{"a", "b", "c"}), nil
+		hdc := decoder.NewHdCReply(0x01, 0x00, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
 		return hdc.Frame(), nil
 	}
-	hdc := decoder.NewHdCReply(0x01, 0x03, []byte(time.Now().Format("2006-01-02 15:04:05")+id.RandStr(rand.Intn(50))))
+	hdc := decoder.NewHdCReply(0x01, 0x01, []byte(time.Now().Format("2006-01-02 15:04:05")+id.RandStr(rand.Intn(50))))
 	return hdc.Frame(), nil
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }

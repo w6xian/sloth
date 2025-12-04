@@ -99,7 +99,7 @@ func slicesTextSend(n string, conn *websocket.Conn, data []byte, sliceSize int) 
 	if err != nil {
 		return err
 	}
-	fmt.Println("slicesSend:", string(data))
+	// fmt.Println("slicesSend:", string(data))
 	for _, slice := range slices {
 		w, err := conn.NextWriter(websocket.TextMessage)
 		if err != nil {
@@ -119,11 +119,10 @@ func getSliceBinaryArray(id uint64, message []byte, sliceSize int) ([]decoder.Hd
 	if len(message) < decoder.HdCFrameSize {
 		return nil, fmt.Errorf("message size is less than HdCFrameSize 6 Byte")
 	}
-	// 第一个切片是6字节
-	firstSlice := message[:decoder.HdCFrameSize]
+
 	// 用id替换前8字节
-	binary.BigEndian.PutUint64(firstSlice[decoder.POS_ID:decoder.POS_ID+8], id)
-	totalSize := len(message) - decoder.HdCFrameSize
+	binary.BigEndian.PutUint64(message[decoder.POS_ID:decoder.POS_ID+8], id)
+	totalSize := len(message)
 	totalSlice := totalSize / sliceSize
 	if totalSize%sliceSize != 0 {
 		totalSlice++
@@ -133,15 +132,14 @@ func getSliceBinaryArray(id uint64, message []byte, sliceSize int) ([]decoder.Hd
 	}
 	// 转换为字符串，判断真实长度
 	// HdCPiece(分片序号)从1开始
-	firstSlice[decoder.POS_PICESE] = byte(totalSlice) + 0x01
+	message[decoder.POS_PICESE] = byte(totalSlice)
 	slices := []decoder.HdCFrame{}
 	// 第一个切片是6字节
-	slices = append(slices, firstSlice)
 	for i := 0; i < totalSlice; i++ {
 		start := i * sliceSize
 		end := start + sliceSize
 		end = min(end, totalSize)
-		slices = append(slices, message[decoder.HdCFrameSize+start:decoder.HdCFrameSize+end])
+		slices = append(slices, message[start:end])
 	}
 	return slices, nil
 }
@@ -149,7 +147,7 @@ func getSliceBinaryArray(id uint64, message []byte, sliceSize int) ([]decoder.Hd
 // 分块发送数据
 func slicesBinarySend(bid uint64, conn *websocket.Conn, data []byte, sliceSize int) error {
 	//第一个需要先发6字节，后续每个分片都需要先发1字节
-	fmt.Println("slicesSend:", bid, string(data))
+	// fmt.Println("slicesSend:", bid, string(data))
 	slices, err := getSliceBinaryArray(bid, data, sliceSize)
 	if err != nil {
 		return err
@@ -220,7 +218,7 @@ func receiveHdCFrame(conn *websocket.Conn, value []byte) ([]byte, error) {
 	if len(value) < decoder.HdCFrameSize {
 		return nil, fmt.Errorf("insufficient data length")
 	}
-	fmt.Println("receiveHdCFrame:", len(value), value)
+	// fmt.Println("receiveHdCFrame:", len(value), value)
 	header := decoder.GetHdCDataLength(value)
 	if header == nil {
 		return nil, fmt.Errorf("insufficient data length")
@@ -238,19 +236,19 @@ func receiveHdCFrame(conn *websocket.Conn, value []byte) ([]byte, error) {
 			return nil, fmt.Errorf("read message failed: %v", err)
 		}
 		buf = append(buf, msg...)
-		fmt.Println("receiveHdCFrame:", len(buf), requiredLen, buf)
+		// fmt.Println("receiveHdCFrame:", len(buf), requiredLen, buf)
 		if len(buf) >= requiredLen {
-			fmt.Println("receiveHdCFrame:", len(buf), buf)
+			// fmt.Println("receiveHdCFrame:", len(buf), buf)
 			return buf[:requiredLen], nil
 		}
 		piece--
-		fmt.Println("receiveHdCFrame=======:", "piece:", piece)
+		// fmt.Println("receiveHdCFrame=======:", "piece:", piece)
 		if piece == 0 {
 			if len(buf) == requiredLen {
-				fmt.Println("receiveHdCFrame:", len(buf), buf)
+				// fmt.Println("receiveHdCFrame:", len(buf), buf)
 				return buf[:requiredLen], nil
 			}
-			fmt.Println("receiveHdCFrame:", "++++++++++++++++++++++++++++++++++++")
+			// fmt.Println("receiveHdCFrame:", "++++++++++++++++++++++++++++++++++++")
 			return nil, fmt.Errorf("piece not match")
 		}
 	}

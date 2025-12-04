@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
-	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
@@ -38,17 +37,12 @@ func main() {
 				fmt.Println("Call error:", err)
 				continue
 			}
-			fmt.Println("Call success:", "****************")
+			// fmt.Println("Call success:", "****************")
+			// fmt.Println("Call success:", data)
 			if utils.IsJson(data) {
 				fmt.Println("Call success:", string(data))
-			} else if decoder.IsHdCFrame(data) {
-				hdc, err := decoder.DecodeHdC(data)
-				fmt.Printf("|||||||||||||||||||||||||%+v\n", hdc, err)
-				if err != nil {
-					fmt.Println("DecodeHdC error:", err)
-					continue
-				}
-				fmt.Println("DecodeHdC success:", string(hdc.Data()))
+			} else {
+				fmt.Println("Call success:", string(data))
 			}
 		}
 	}()
