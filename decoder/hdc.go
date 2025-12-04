@@ -11,29 +11,24 @@ type HdCFrame []byte
 
 // HdCFrameSize 固定头6字节 也是数小长度
 const ID_SIZE = 8
-const HdCFrameSize = 6 + ID_SIZE
-const HDC_HEADER_SIZE = 6 + ID_SIZE
+const HdCFrameSize = 7 + ID_SIZE
+const HDC_HEADER_SIZE = 7 + ID_SIZE
 const POS_ID = 0
 const POS_ADDRESS = 0 + ID_SIZE
 const POS_FUNCTION_CODE = 1 + ID_SIZE
-const POS_LENGTH = 2 + ID_SIZE
-const POS_CRC = 4 + ID_SIZE
+const POS_PICESE = 2 + ID_SIZE
+const POS_LENGTH = 3 + ID_SIZE
+const POS_CRC = 5 + ID_SIZE
 
-type IADFrame struct {
-	Id     int64
-	Action uint16
-	Length uint16
-	Data   []byte
-}
-
-// +------+-------+---------+--------+--------+
-// | 地址  | 功能码 | 数据长度 | CRC校验 |  数据内容|
-// | 1字节 | 1字节  | 2字节   |  2字节   |   N字节 |
+// +------+-------+----+--------+--------+--------+
+// | 地址  | 功能码 | 分片序号 | 数据长度 | CRC校验 |  数据内容|
+// | 1字节 | 1字节  | 1字节    |  2字节   |   2字节 |   N字节 |
 // +------+-------+---------+--------+--------+
 type HdCHeader struct {
 	Id           uint64 //Id(消息ID)
 	Address      byte   //Address(地址)
 	FunctionCode byte   //FunctionCode(功能码)
+	Picese       byte   //Picese(分片序号)
 	Length       uint16 //DataLength(数据长度)
 	HdC          []byte //CRC校验
 }
@@ -62,6 +57,9 @@ func (h *HdC) Crc() []byte {
 func (h *HdC) Header() []byte {
 	return h.h[:HDC_HEADER_SIZE]
 }
+func (h *HdC) Picese() byte {
+	return h.h[POS_PICESE]
+}
 func (h *HdC) Data() []byte {
 	return h.d
 }
@@ -78,6 +76,7 @@ func GetHdCDataLength(d []byte) *HdCHeader {
 		Id:           binary.BigEndian.Uint64(d[POS_ID : POS_ID+ID_SIZE]),
 		Address:      d[POS_ADDRESS],
 		FunctionCode: d[POS_FUNCTION_CODE],
+		Picese:       d[POS_PICESE],
 		Length:       binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2]),
 		HdC:          d[POS_CRC : POS_CRC+2],
 	}
@@ -91,6 +90,8 @@ func NewHdC(id uint64, address byte, functionCode byte, body []byte) *HdC {
 			idBytes[0], idBytes[1], idBytes[2], idBytes[3], idBytes[4], idBytes[5], idBytes[6], idBytes[7],
 			address,
 			functionCode,
+			0x01, //Picese(分片序号)
+			1, 1,
 		},
 		d: body,
 	}
@@ -113,7 +114,7 @@ func IsHdCFrame(d []byte) bool {
 		return false
 	}
 	Length := binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2])
-	fmt.Printf("IsHdCFrame: \n", Length, len(d) < HDC_HEADER_SIZE+int(Length))
+	fmt.Println("IsHdCFrame: \n", Length, len(d) < HDC_HEADER_SIZE+int(Length))
 	if len(d) < HDC_HEADER_SIZE+int(Length) {
 		return false
 	}

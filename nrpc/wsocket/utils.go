@@ -128,8 +128,12 @@ func getSliceBinaryArray(id uint64, message []byte, sliceSize int) ([]decoder.Hd
 	if totalSize%sliceSize != 0 {
 		totalSlice++
 	}
+	if totalSlice > 255 {
+		return nil, fmt.Errorf("totalSlice is greater than 255")
+	}
 	// 转换为字符串，判断真实长度
-
+	// HdCPiece(分片序号)从1开始
+	firstSlice[decoder.POS_PICESE] = byte(totalSlice) + 0x01
 	slices := []decoder.HdCFrame{}
 	// 第一个切片是6字节
 	slices = append(slices, firstSlice)
@@ -143,10 +147,10 @@ func getSliceBinaryArray(id uint64, message []byte, sliceSize int) ([]decoder.Hd
 }
 
 // 分块发送数据
-func slicesBinarySend(id uint64, conn *websocket.Conn, data []byte, sliceSize int) error {
+func slicesBinarySend(bid uint64, conn *websocket.Conn, data []byte, sliceSize int) error {
 	//第一个需要先发6字节，后续每个分片都需要先发1字节
-	// fmt.Println("slicesSend:", string(data))
-	slices, err := getSliceBinaryArray(id, data, sliceSize)
+	fmt.Println("slicesSend:", bid, string(data))
+	slices, err := getSliceBinaryArray(bid, data, sliceSize)
 	if err != nil {
 		return err
 	}
@@ -227,6 +231,7 @@ func receiveHdCFrame(conn *websocket.Conn, value []byte) ([]byte, error) {
 	// 如果当前数据不足，继续接收
 	// 用conn.NextReader()接收数据
 	fmt.Println(len(buf), requiredLen)
+	piece := header.Picese - 1
 	for len(buf) < requiredLen {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -237,6 +242,16 @@ func receiveHdCFrame(conn *websocket.Conn, value []byte) ([]byte, error) {
 		if len(buf) >= requiredLen {
 			fmt.Println("receiveHdCFrame:", len(buf), buf)
 			return buf[:requiredLen], nil
+		}
+		piece--
+		fmt.Println("receiveHdCFrame=======:", "piece:", piece)
+		if piece == 0 {
+			if len(buf) == requiredLen {
+				fmt.Println("receiveHdCFrame:", len(buf), buf)
+				return buf[:requiredLen], nil
+			}
+			fmt.Println("receiveHdCFrame:", "++++++++++++++++++++++++++++++++++++")
+			return nil, fmt.Errorf("piece not match")
 		}
 	}
 	return buf[:requiredLen], nil
