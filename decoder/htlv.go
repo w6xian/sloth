@@ -46,6 +46,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"log"
+
+	"github.com/w6xian/sloth/internal/utils"
 )
 
 const HEADER_SIZE = 6
@@ -71,7 +73,7 @@ func NewATLVCrcDecoder(address byte, functionCode byte, body []byte) *ATLVCrcDec
 		Body:         body,
 		Crc:          []byte{},
 	}
-	a.Crc = GetCrC(a.Body)
+	a.Crc = utils.GetCrC(a.Body)
 	return a
 }
 
@@ -85,7 +87,7 @@ func DecodeATLVCrc(data []byte) *ATLVCrcDecoder {
 	htlvData.Body = data[4 : datasize-2]
 	htlvData.Crc = data[datasize-2 : datasize]
 	// CRC
-	if !CheckCRC(htlvData.Body, htlvData.Crc) {
+	if !utils.CheckCRC(htlvData.Body, htlvData.Crc) {
 		log.Printf("crc check error %s %s\n", hex.EncodeToString(data), hex.EncodeToString(htlvData.Crc))
 		return nil
 	}
@@ -98,7 +100,7 @@ func EncodeATLVCrc(atlv *ATLVCrcDecoder) []byte {
 	buf[1] = atlv.FunctionCode
 	binary.BigEndian.PutUint16(buf[2:4], uint16(datasize)+2)
 	copy(buf[4:datasize+4], atlv.Body)
-	crc := GetCrC(atlv.Body)
+	crc := utils.GetCrC(atlv.Body)
 	copy(buf[datasize+4:], crc)
 	return buf
 }

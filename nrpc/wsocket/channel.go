@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 
@@ -109,7 +110,7 @@ func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 	// 如果是string类型，就设置msgType为TextMessage
 	msgType := BinaryMessage
 	f := data[0]
-	if f == '{' || f == '[' {
+	if f == '{' || f == '[' || f == '"' {
 		msgType = TextMessage
 	}
 
@@ -132,13 +133,23 @@ func (c *Channel) ReplyError(id uint64, err []byte) error {
 	return nil
 }
 
+// 服务器调用客户端方法
 func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	msg := message.NewWsJsonCallObject(mtd, utils.Serialize(args))
+	var msg *message.JsonCallObject
+	switch reflect.TypeOf(args).Kind() {
+	case reflect.Slice:
+		data := args.([]byte)
+		msg = message.NewWsJsonCallObject(mtd, data)
+	case reflect.String:
+		msg = message.NewWsJsonCallObject(mtd, []byte(args.(string)))
+	default:
+		msg = message.NewWsJsonCallObject(mtd, utils.Serialize(args))
+	}
 	// 发送调用请求
 	select {
 	case <-ticker.C:

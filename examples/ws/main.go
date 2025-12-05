@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/http"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
-	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/mux"
@@ -80,14 +78,16 @@ type HelloService struct {
 
 func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	h.Id = h.Id + 1
-	fmt.Println("HelloService.Test", h.Id)
-	if h.Id%2 == 1 {
+	fmt.Println("HelloService.Test", h.Id, string(data))
+	if h.Id%10 == 1 {
 		// return utils.Serialize([]string{"a", "b", "c"}), nil
-		hdc := decoder.NewHdCReply(0x01, 0x00, []byte(time.Now().Format("2006-01-02 15:04:05")+"a中c"))
-		return hdc.Frame(), nil
+		mapData := map[string]string{
+			"t": time.Now().Format("2006-01-02 15:04:05"),
+			"b": "2",
+			"c": "中国",
+		}
+		return sloth.Json(mapData, nil)
 	}
-	hdc := decoder.NewHdCReply(0x01, 0x01, []byte(time.Now().Format("2006-01-02 15:04:05")+id.RandStr(rand.Intn(50))))
-	return hdc.Frame(), nil
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 func (h *HelloService) Login(ctx context.Context, data []byte) ([]byte, error) {

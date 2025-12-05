@@ -33,7 +33,7 @@ type JsonBackObject struct {
 	Error string `json:"error,omitempty"` // error message
 }
 
-func NewWsJsonBackSuccess(id uint64, data []byte, msgType ...int) *JsonBackObject {
+func NewWsJsonBackSuccess(id uint64, data any, msgType ...int) *JsonBackObject {
 	//判断 msgType 是不是二进制
 	msgTypeVal := TextMessage
 	if len(msgType) > 0 {

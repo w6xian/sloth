@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+
+	"github.com/w6xian/sloth/internal/utils"
 )
 
 type HdCFrame []byte
@@ -25,12 +27,12 @@ const POS_CRC = 5 + ID_SIZE
 // | 1字节 | 1字节  | 1字节    |  2字节   |   2字节 |   N字节 |
 // +------+-------+---------+--------+--------+
 type HdCHeader struct {
-	Id           uint64 //Id(消息ID)
-	Address      byte   //Address(地址)
-	FunctionCode byte   //FunctionCode(功能码)
-	Picese       byte   //Picese(分片序号)
-	Length       uint16 //DataLength(数据长度)
-	HdC          []byte //CRC校验
+	Id           uint64  //Id(消息ID)
+	Address      byte    //Address(地址)
+	FunctionCode byte    //FunctionCode(功能码)
+	Picese       byte    //Picese(分片序号)
+	Length       uint16  //DataLength(数据长度)
+	HdC          [2]byte //CRC校验
 }
 
 type HdC struct {
@@ -78,7 +80,7 @@ func GetHdCDataLength(d []byte) *HdCHeader {
 		FunctionCode: d[POS_FUNCTION_CODE],
 		Picese:       d[POS_PICESE],
 		Length:       binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2]),
-		HdC:          d[POS_CRC : POS_CRC+2],
+		HdC:          [2]byte{d[POS_CRC], d[POS_CRC+1]},
 	}
 }
 
@@ -99,14 +101,41 @@ func NewHdC(id uint64, address byte, functionCode byte, body []byte) *HdC {
 	binary.BigEndian.PutUint16(buf, uint16(len(a.d)))
 	a.h[POS_LENGTH] = buf[0]
 	a.h[POS_LENGTH+1] = buf[1]
-	c := GetCrC(a.d)
+	c := utils.GetCrC(a.d)
 	a.h[POS_CRC] = c[0]
 	a.h[POS_CRC+1] = c[1]
 	return a
 }
 
+func NewHdCFrame(id uint64, address byte, functionCode byte, body []byte) HdCFrame {
+	idBytes := make([]byte, ID_SIZE)
+	binary.BigEndian.PutUint64(idBytes[0:], id)
+	buf := make([]byte, HDC_HEADER_SIZE+len(body))
+	copy(buf[POS_ID:ID_SIZE], idBytes)
+	buf[POS_ADDRESS] = address
+	buf[POS_FUNCTION_CODE] = functionCode
+	buf[POS_PICESE] = 0x01
+	lb := make([]byte, 2)
+	binary.BigEndian.PutUint16(lb, uint16(len(body)))
+	buf[POS_LENGTH] = lb[0]
+	buf[POS_LENGTH+1] = lb[1]
+	c := utils.GetCrC(body)
+	buf[POS_CRC] = c[0]
+	buf[POS_CRC+1] = c[1]
+	copy(buf[HDC_HEADER_SIZE:], body)
+	return buf
+}
+
 func NewHdCReply(address byte, functionCode byte, body []byte) *HdC {
 	return NewHdC(0, address, functionCode, body)
+}
+
+func NewHdCReplySuccess(body []byte) HdCFrame {
+	return NewHdCFrame(0, 0x01, 0x01, body)
+}
+
+func NewHdCReplyError(body []byte) HdCFrame {
+	return NewHdCFrame(0, 0x01, 0x00, body)
 }
 
 func IsHdCFrame(d []byte) bool {
@@ -114,12 +143,11 @@ func IsHdCFrame(d []byte) bool {
 		return false
 	}
 	Length := binary.BigEndian.Uint16(d[POS_LENGTH : POS_LENGTH+2])
-	fmt.Println("IsHdCFrame: \n", Length, len(d) < HDC_HEADER_SIZE+int(Length))
 	if len(d) < HDC_HEADER_SIZE+int(Length) {
 		return false
 	}
 	// CRC
-	if !CheckCRC(d[HDC_HEADER_SIZE:HDC_HEADER_SIZE+int(Length)], d[POS_CRC:POS_CRC+2]) {
+	if !utils.CheckCRC(d[HDC_HEADER_SIZE:HDC_HEADER_SIZE+int(Length)], d[POS_CRC:POS_CRC+2]) {
 		return false
 	}
 	return true
@@ -133,7 +161,7 @@ func DecodeHdC(d []byte) (*HdC, error) {
 	Crc := d[POS_CRC : POS_CRC+2]
 	data := d[HDC_HEADER_SIZE : HDC_HEADER_SIZE+int(Length)]
 	// CRC
-	if !CheckCRC(data, Crc) {
+	if !utils.CheckCRC(data, Crc) {
 		log.Printf("crc check error %s %s\n", hex.EncodeToString(data), hex.EncodeToString(Crc))
 		return nil, fmt.Errorf("crc check error")
 	}
@@ -147,7 +175,7 @@ func EncodeHdC(atlv *HdC) []byte {
 	datasize := len(atlv.Data())
 	buf := make([]byte, datasize+HDC_HEADER_SIZE)
 	copy(buf[0:HDC_HEADER_SIZE], atlv.h[0:HDC_HEADER_SIZE])
-	crc := GetCrC(atlv.Data())
+	crc := utils.GetCrC(atlv.Data())
 	buf[POS_CRC] = crc[0]
 	buf[POS_CRC+1] = crc[1]
 	copy(buf[HDC_HEADER_SIZE:], atlv.Data())

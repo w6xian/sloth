@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 
 	"github.com/gorilla/websocket"
@@ -86,15 +88,25 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 	return nil
 }
 
+// Call 客户端 调用远程方法
 func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
-	// fmt.Println("-=-=-=")
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	// fmt.Println("=-=-=-=-=-=-=")
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
-	msg := message.NewWsJsonCallObject(mtd, serialize(args))
+	var msg *message.JsonCallObject
+	switch reflect.TypeOf(args).Kind() {
+	case reflect.Slice:
+		if data, ok := args.(tlv.TLVFrame); ok {
+			msg = message.NewWsJsonCallObject(mtd, data)
+			break
+		}
+		msg = message.NewWsJsonCallObject(mtd, args.([]byte))
+	case reflect.String:
+		msg = message.NewWsJsonCallObject(mtd, []byte(args.(string)))
+	default:
+		msg = message.NewWsJsonCallObject(mtd, serialize(args))
+	}
 	// 发送调用请求
 	select {
 	case <-ticker.C:
@@ -110,7 +122,6 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("client call context done:", ctx.Err())
 			return []byte{}, ctx.Err()
 		case <-ticker.C:
 			// fmt.Println("client call ticker.C:", ticker.C)
@@ -121,9 +132,19 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 			case message.TextMessage:
 				if back.Id == msg.Id && ok {
 					if back.Error != "" {
-						return []byte{}, errors.New(back.Error)
+						return []byte(""), errors.New(back.Error)
 					}
-					return back.Data.([]byte), nil
+					gettype := reflect.TypeOf(back.Data)
+
+					//switch gettype.Kind() {
+					switch gettype.Kind() {
+					case reflect.String:
+						return []byte(back.Data.(string)), nil
+					case reflect.Slice:
+						// []byte 64转字符串 json
+						return []byte(back.Data.([]byte)), nil
+					}
+					return []byte{}, fmt.Errorf("unknown data type")
 				}
 			case message.BinaryMessage:
 				if back.Id == msg.Id && ok {

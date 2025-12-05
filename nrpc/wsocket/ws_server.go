@@ -104,7 +104,7 @@ func (s *WsServer) Broadcast(ctx context.Context, msg *message.Msg) error {
 
 func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("new client connect")
+		log.Println("new client connect")
 		s.serveWs(ctx, w, r)
 	})
 	return nil
@@ -185,7 +185,6 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 		case <-ticker.C:
 			//heartbeat，if ping error will exit and close current websocket conn
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
-			fmt.Println("piiiiiiiiiiiiiiiiiiiiiiiig")
 			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -227,7 +226,6 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 			return
 		}
 		if messageType == websocket.BinaryMessage {
-			fmt.Println("ws_server:", messageType)
 			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
 				// 处理HdC消息
 				handler.HandleMessage(ctx, s, ch, messageType, hdc)
@@ -291,3 +289,5 @@ func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.Rpc
 		return
 	}
 }
+
+//

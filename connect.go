@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/w6xian/sloth/decoder"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 )
@@ -101,6 +103,23 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		return nil, errors.New("call func error")
 	}
 	return rst, nil
+}
+
+// Result
+func Json(rst any, err error) (decoder.HdCFrame, error) {
+	if err != nil {
+		return decoder.NewHdCReplyError([]byte(err.Error())), nil
+	}
+	return decoder.NewHdCReplySuccess(tlv.FrameFromJson(rst)), nil
+}
+
+// Result
+func Bin(rst tlv.Bin, err error) (decoder.HdCFrame, error) {
+	if err != nil {
+		return decoder.NewHdCReplyError([]byte(err.Error())), nil
+	}
+
+	return decoder.NewHdCReplySuccess(tlv.FrameFromBinary(rst)), nil
 }
 
 func suitableMethods(typ reflect.Type) map[string]reflect.Method {

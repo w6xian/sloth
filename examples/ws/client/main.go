@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
@@ -32,17 +33,27 @@ func main() {
 			// 	server.Send(context.Background(), utils.Serialize(map[string]string{"user_id": "2", "room_id": "1"}))
 			// 	fmt.Println("Call success:", string(data))
 			// }
-			data, err := server.Call(context.Background(), "v1.Test", "abc")
+
+			data, err := server.Call(context.Background(), "v1.Test",
+				"HelloService.Test 302 [34 97 98 99 34]")
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
 			}
 			// fmt.Println("Call success:", "****************")
 			// fmt.Println("Call success:", data)
-			if utils.IsJson(data) {
-				fmt.Println("Call success:", string(data))
+			if tlv.IsTLVFrame(data) {
+				h := map[string]any{}
+				err := tlv.FrameToStruct(data, &h)
+				if err != nil {
+					fmt.Println("FrameToStruct error:", err)
+					continue
+				}
+				for k, v := range h {
+					fmt.Println(k, v)
+				}
 			} else {
-				fmt.Println("Call success:", string(data))
+				fmt.Println("Call success:", sloth.DecodeString(data))
 			}
 		}
 	}()
