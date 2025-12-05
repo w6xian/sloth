@@ -8,11 +8,17 @@ var Code = {
 }
 
 function rpc_call_struct(method, data) {
+    let callData = data;
+    if (isObject(data)) {
+        callData = JSON.stringify(data);
+    } else if (isUint8Array(data)) {
+        callData = data;
+    }
     const callObj = {
         id: Date.now(),
         action: -0xFF, // -0xFE 调用服务
         method: method,
-        data: isObject(data) ? JSON.stringify(data) : data,
+        data: callData,
     };
     return callObj;
 }
@@ -381,6 +387,10 @@ function isObject(param) {
     return Object.prototype.toString.call(param) === '[object Object]';
 }
 
+// [object Uint8Array]
+function isUint8Array(param) {
+    return Object.prototype.toString.call(param) === '[object Uint8Array]';
+}
 
 /**
  * 是否为字符串
@@ -498,4 +508,355 @@ var Base64 = {
         }
         return t
     }
+}
+
+
+const TLV_TYPE_STRING = 0x01
+const TLV_TYPE_JSON = 0x02
+const TLV_TYPE_BINARY = 0x03
+const TLV_TYPE_INT64 = 0x04
+const TLV_TYPE_UINT64 = 0x05
+const TLV_TYPE_FLOAT64 = 0x06
+
+
+// TLV
+class TlV {
+    constructor(tag, length, crc, value) {
+        this.T = tag;      // 1字节标签
+        this.L = length;  // 2字节长度(大端序)
+        this.C = crc;     // 2字节CRC校验值
+        this.V = value;   // 数据内容
+    }
+}
+
+function NewTLVFromFrame(b) {
+    try {
+        const [tag, data] = tlv_decode(b);
+        const crc = getCRC(data);
+        return new TlV(tag, data.length, crc, data);
+    } catch (err) {
+        throw err;
+    }
+}
+
+function isTLVFrame(b) {
+    if (b.length < 6) return false; // 至少需要6字节头部
+    const length = (b[1] << 8) | b[2]; // 大端序解析长度
+    if (b.length < 6 + length) return false;
+    const crc = b.slice(4, 6);
+    const data = b.slice(6, 6 + length);
+    return checkCRC(data, crc);
+}
+
+function tlv_encode(tag, data) {
+    if (data.length > 0xFFFF) throw new Error("Invalid value length");
+    const header = new Uint8Array(6 + data.length);
+    header[0] = tag; // 标签
+    // 大端序写入长度
+    header[1] = (data.length >> 8) & 0xFF;
+    header[2] = data.length & 0xFF;
+    // 计算并写入CRC
+    const crc = getCRC(data);
+    header.set(crc, 4);
+    // 写入数据
+    header.set(data, 6);
+    return header;
+}
+
+function tlv_decode(b) {
+    if (b.length < 6) throw new Error("Invalid frame length");
+    const length = (b[1] << 8) | b[2];
+    if (b.length < 6 + length) throw new Error("Invalid value length");
+    const crc = b.slice(4, 6);
+    const data = b.slice(6, 6 + length);
+    if (!checkCRC(data, crc)) throw new Error("Invalid CRC");
+    return [b[0], data];
+}
+// 假设使用CRC16算法(具体需根据原utils.GetCrC实现调整)
+function getCRC(data) {
+    let crc = 0xFFFF;
+    for (let i = 0; i < data.length; i++) {
+        crc ^= data[i] << 8;
+        for (let j = 0; j < 8; j++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc = crc << 1;
+            }
+            crc &= 0xFFFF;
+        }
+    }
+    return [(crc >> 8) & 0xFF, crc & 0xFF];
+}
+
+function checkCRC(data, crc) {
+    const calculated = getCRC(data);
+    return calculated[0] === crc[0] && calculated[1] === crc[1];
+}
+
+
+/**
+    const str = 'hello world';
+    const tlvFrame = frameFromString(str);
+    console.log('编码后的 TLV 帧:', tlvFrame);
+
+ */
+
+/**
+ * 将字符串转换为 TLV 帧
+ * @param {string} v - 要编码的字符串
+ * @returns {Uint8Array} 编码后的 TLV 帧
+ */
+function frameFromString(v) {
+    try {
+        // 将字符串转换为 UTF-8 字节数组
+        const data = new TextEncoder().encode(v);
+        // 调用 TLV 编码函数（之前实现的 tlv_encode）
+        const frame = tlv_encode(TLV_TYPE_STRING, data);
+        return frame;
+    } catch (err) {
+        // 错误处理：返回空数组
+        console.error('TLV 编码失败:', err);
+        return new Uint8Array();
+    }
+}
+
+
+// 错误定义
+const TLVErrors = {
+  ErrInvalidValueLength: new Error('Invalid value length'),
+  ErrInvalidFloat64: new Error('Invalid Float64 TLV frame'),
+  ErrInvalidFloat64Type: new Error('Invalid Float64 type'),
+  ErrInvalidInt64: new Error('Invalid Int64 TLV frame'),
+  ErrInvalidInt64Type: new Error('Invalid Int64 type'),
+  ErrInvalidUint64: new Error('Invalid Uint64 TLV frame'),
+  ErrInvalidUint64Type: new Error('Invalid Uint64 type'),
+  ErrInvalidStructType: new Error('Invalid Struct type'),
+  ErrInvalidBinType: new Error('Invalid Binary type')
+};
+
+/**
+ * 字符串转 TLV 帧
+ * @param {string} v - 输入字符串
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromString(v) {
+  try {
+    const data = new TextEncoder().encode(v);
+    const frame = tlv_encode(TLV_TYPE_STRING, data);
+    return frame;
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * JSON 对象转 TLV 帧
+ * @param {any} v - 输入 JSON 对象
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromJson(v) {
+  try {
+    const jsonData = new TextEncoder().encode(JSON.stringify(v));
+    const frame = tlv_encode(TLV_TYPE_JSON, jsonData);
+    return frame;
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * 二进制数据转 TLV 帧
+ * @param {Uint8Array} v - 二进制数据
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromBinary(v) {
+  try {
+    return tlv_encode(TLV_TYPE_BINARY, v);
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * Float64 转 TLV 帧
+ * @param {number} v - 输入浮点数
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromFloat64(v) {
+  try {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setFloat64(0, v, false); // 大端序
+    const bytes = new Uint8Array(buffer);
+    return tlv_encode(TLV_TYPE_FLOAT64, bytes);
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * Int64 转 TLV 帧
+ * @param {number} v - 输入整数
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromInt64(v) {
+  try {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setBigInt64(0, BigInt(v), false); // 大端序
+    const bytes = new Uint8Array(buffer);
+    return tlv_encode(TLV_TYPE_INT64, bytes);
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * Uint64 转 TLV 帧
+ * @param {number} v - 输入无符号整数
+ * @returns {Uint8Array} TLV 帧
+ */
+function frameFromUint64(v) {
+  try {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setBigUint64(0, BigInt(v), false); // 大端序
+    const bytes = new Uint8Array(buffer);
+    return tlv_encode(TLV_TYPE_UINT64, bytes);
+  } catch (err) {
+    return new Uint8Array();
+  }
+}
+
+/**
+ * 字节数组转 Float64
+ * @param {Uint8Array} v - 字节数组
+ * @returns {number} 浮点数
+ */
+function bytes2Float64(v) {
+  const view = new DataView(v.buffer);
+  return view.getFloat64(0, false); // 大端序
+}
+
+/**
+ * TLV 帧转 Float64
+ * @param {Uint8Array} v - TLV 帧
+ * @returns {number} 浮点数
+ * @throws {Error} 转换错误
+ */
+function frameToFloat64(v) {
+  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidFloat64;
+  if (v[0] !== TLV_TYPE_FLOAT64) throw TLVErrors.ErrInvalidFloat64Type;
+  return bytes2Float64(v.subarray(TLVX_HEADDER_SIZE));
+}
+
+/**
+ * 字节数组转 Int64
+ * @param {Uint8Array} v - 字节数组
+ * @returns {bigint} 整数
+ */
+function bytes2Int64(v) {
+  const view = new DataView(v.buffer);
+  return view.getBigInt64(0, false); // 大端序
+}
+
+/**
+ * TLV 帧转 Int64
+ * @param {Uint8Array} v - TLV 帧
+ * @returns {bigint} 整数
+ * @throws {Error} 转换错误
+ */
+function frameToInt64(v) {
+  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidInt64;
+  if (v[0] !== TLV_TYPE_INT64) throw TLVErrors.ErrInvalidInt64Type;
+  return bytes2Int64(v.subarray(TLVX_HEADDER_SIZE));
+}
+
+/**
+ * 字节数组转 Uint64
+ * @param {Uint8Array} v - 字节数组
+ * @returns {bigint} 无符号整数
+ */
+function bytes2Uint64(v) {
+  const view = new DataView(v.buffer);
+  return view.getBigUint64(0, false); // 大端序
+}
+
+/**
+ * TLV 帧转 Uint64
+ * @param {Uint8Array} v - TLV 帧
+ * @returns {bigint} 无符号整数
+ * @throws {Error} 转换错误
+ */
+function frameToUint64(v) {
+  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidUint64;
+  if (v[0] !== TLV_TYPE_UINT64) throw TLVErrors.ErrInvalidUint64Type;
+  return bytes2Uint64(v.subarray(TLVX_HEADDER_SIZE));
+}
+
+/**
+ * TLV 帧转 JSON 对象
+ * @param {Uint8Array} v - TLV 帧
+ * @param {any} t - 目标对象
+ * @returns {any} 解析后的对象
+ * @throws {Error} 转换错误
+ */
+function frameToStruct(v, t) {
+  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+  if (v[0] !== TLV_TYPE_JSON) throw TLVErrors.ErrInvalidStructType;
+  const [, data] = tlv_decode(v);
+  return JSON.parse(new TextDecoder().decode(data));
+}
+
+/**
+ * TLV 帧转二进制数据
+ * @param {Uint8Array} v - TLV 帧
+ * @returns {Uint8Array} 二进制数据
+ * @throws {Error} 转换错误
+ */
+function frameToBin(v) {
+  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+  if (v[0] !== TLV_TYPE_BINARY) throw TLVErrors.ErrInvalidBinType;
+  const [, data] = tlv_decode(v);
+  return data;
+}
+
+/**
+ * 反序列化 TLV 帧
+ * @param {Uint8Array} v - TLV 帧
+ * @returns {Object} TLV 对象
+ * @throws {Error} 转换错误
+ */
+function deserialize(v) {
+  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+  return newTLVFromFrame(v);
+}
+
+/**
+ * 序列化任意类型数据为 TLV 帧
+ * @param {any} v - 任意类型数据
+ * @returns {Uint8Array} TLV 帧
+ */
+function serialize(v) {
+  if (v === null || v === undefined) return new Uint8Array();
+
+  switch (typeof v) {
+    case 'string':
+      return frameFromString(v);
+    case 'number':
+      if (Number.isInteger(v)) {
+        if (v >= 0) return frameFromUint64(BigInt(v));
+        return frameFromInt64(BigInt(v));
+      }
+      return frameFromFloat64(v);
+    case 'boolean':
+      return frameFromInt64(BigInt(v ? 1 : 0));
+    case 'object':
+      if (v instanceof Uint8Array) return frameFromBinary(v);
+      if (Array.isArray(v)) return frameFromJson(v);
+      return frameFromJson(v);
+    default:
+      return frameFromJson(v);
+  }
 }

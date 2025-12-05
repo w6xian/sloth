@@ -1,2 +1,4 @@
 /vendor
 *.exe
+examples/ws/web/web
+examples/ws/client/client
