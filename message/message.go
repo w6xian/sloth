@@ -3,23 +3,54 @@ package message
 import (
 	"github.com/w6xian/sloth/actions"
 	"github.com/w6xian/sloth/decoder"
+	"github.com/w6xian/sloth/internal/utils"
 )
 
 type JsonCallObject struct {
 	Id     uint64 `json:"id"`              // user id
 	Action int    `json:"action"`          // operation for request
+	Type   int    `json:"type"`            // message type 1 textMessage or 2 binaryMessage1
 	Method string `json:"method"`          // service method name
-	Data   string `json:"data"`            // binary body bytes
+	Data   []byte `json:"data,omitempty"`  // binary body bytes
 	Error  string `json:"error,omitempty"` // error message
 }
 
-func NewWsJsonCallObject(method string, data []byte) *JsonCallObject {
+func NewWsJsonCallObject(method string, data []byte, msgType ...int) *JsonCallObject {
+	//判断 msgType 是不是二进制
+	msgTypeVal := TextMessage
+	if len(msgType) > 0 {
+		msgTypeVal = msgType[0]
+	}
+	if msgTypeVal != TextMessage && msgTypeVal != BinaryMessage {
+		msgTypeVal = TextMessage
+	}
 	return &JsonCallObject{
 		Id:     decoder.NextId(),
 		Action: actions.ACTION_CALL,
+		Type:   msgTypeVal,
 		Method: method,
-		Data:   string(data),
+		Data:   data,
 	}
+}
+
+func (j *JsonCallObject) IsBinary() bool {
+	return j.Type == BinaryMessage
+}
+
+// 转成二进制消息
+func (j *JsonCallObject) ToBytes() []byte {
+	if j.IsBinary() {
+		return utils.Serialize(j.Data)
+	}
+	return utils.Serialize(j)
+}
+
+type IJsonCallObject interface {
+	Id() uint64
+	Action() int
+	Method() string
+	Data() []byte
+	Error() string
 }
 
 type JsonBackObject struct {
@@ -28,12 +59,24 @@ type JsonBackObject struct {
 	// action
 	Action int64 `json:"action"`
 	//data binary body bytes
-	Data any `json:"data,omitempty"`
+	Data []byte `json:"data,omitempty"`
 	// error
 	Error string `json:"error,omitempty"` // error message
 }
 
-func NewWsJsonBackSuccess(id uint64, data any, msgType ...int) *JsonBackObject {
+func (j *JsonBackObject) IsBinary() bool {
+	return j.Type == BinaryMessage
+}
+
+// 转成二进制消息
+func (j *JsonBackObject) ToBytes() []byte {
+	if j.IsBinary() {
+		return utils.Serialize(j.Data)
+	}
+	return utils.Serialize(j)
+}
+
+func NewWsJsonBackSuccess(id uint64, data []byte, msgType ...int) *JsonBackObject {
 	//判断 msgType 是不是二进制
 	msgTypeVal := TextMessage
 	if len(msgType) > 0 {

@@ -33,9 +33,10 @@ func main() {
 			// 	server.Send(context.Background(), utils.Serialize(map[string]string{"user_id": "2", "room_id": "1"}))
 			// 	fmt.Println("Call success:", string(data))
 			// }
-
+			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
+			args := "HelloService.Test 302 [34 97 98 99 34]"
 			data, err := server.Call(context.Background(), "v1.Test",
-				"HelloService.Test 302 [34 97 98 99 34]")
+				tlv.Serialize(args))
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
@@ -53,7 +54,7 @@ func main() {
 					fmt.Println(k, v)
 				}
 			} else {
-				fmt.Println("Call success:", sloth.DecodeString(data))
+				fmt.Println("Call success:", string(data))
 			}
 		}
 	}()

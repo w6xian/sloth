@@ -9,6 +9,7 @@ import (
 
 	"github.com/w6xian/sloth"
 	"github.com/w6xian/sloth/decoder"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
@@ -33,7 +34,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(5 * time.Second)
-			data, err := client.Call(context.Background(), 2, "shop.Test", "abc")
+			data, err := client.Call(context.Background(), 2, "shop.Test", []byte("abc"))
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
@@ -78,9 +79,24 @@ type HelloService struct {
 
 func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	h.Id = h.Id + 1
-	fmt.Println("HelloService.Test", h.Id, string(data))
+	// c, err := sloth.Decode64ToTlv(data)
+	// if err != nil {
+	// 	fmt.Println("Decode64ToTlv error:", err)
+	// 	return nil, err
+	// }
+	// fmt.Println("Decode64ToTlv success:", c)
+	// fmt.Println("Decode64ToTlv success:", c.String())
+	if tlv.IsTLVFrame(data) {
+		args, err := tlv.Deserialize(data)
+		if err != nil {
+			fmt.Println("Deserialize error:", err)
+			return nil, err
+		}
+		fmt.Println("Test success:", args.String())
+	}
+	fmt.Println(string(data))
 	if h.Id%10 == 1 {
-		// return utils.Serialize([]string{"a", "b", "c"}), nil
+		return utils.Serialize([]string{"a", "b", "c"}), nil
 		mapData := map[string]string{
 			"t": time.Now().Format("2006-01-02 15:04:05"),
 			"b": "2",

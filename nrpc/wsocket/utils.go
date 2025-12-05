@@ -171,7 +171,6 @@ func slicesBinarySend(bid uint64, conn *websocket.Conn, data []byte, sliceSize i
 }
 
 func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]byte, error) {
-	// log.Printf("receiveMessage messageType: %d, message: %s", messageType, string(message))
 	sc, err := getSlice(message)
 	if err != nil {
 		return nil, err

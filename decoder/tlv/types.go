@@ -156,3 +156,57 @@ func FrameToBin(v TLVFrame) (Bin, error) {
 	}
 	return data, nil
 }
+
+func Deserialize(v []byte) (*TlV, error) {
+	if v == nil {
+		return nil, ErrInvalidValueLength
+	}
+	if len(v) < TLVX_HEADDER_SIZE {
+		return nil, ErrInvalidValueLength
+	}
+	tlv, err := NewTLVFromFrame(v)
+	if tlv == nil {
+		return nil, err
+	}
+	return tlv, nil
+}
+func Serialize(v any) []byte {
+	var key string
+	if v == nil {
+		return []byte(key)
+	}
+	switch ft := v.(type) {
+	case float64:
+		return FrameFromFloat64(float64(ft))
+	case float32:
+		return FrameFromFloat64(float64(ft))
+	case int:
+		return FrameFromInt64(int64(ft))
+	case uint:
+		return FrameFromUint64(uint64(ft))
+	case int8:
+		return FrameFromInt64(int64(ft))
+	case uint8:
+		return FrameFromUint64(uint64(ft))
+	case int16:
+		return FrameFromInt64(int64(ft))
+	case uint16:
+		return FrameFromUint64(uint64(ft))
+	case int32:
+		return FrameFromInt64(int64(ft))
+	case uint32:
+		return FrameFromUint64(uint64(ft))
+	case int64:
+		return FrameFromInt64(ft)
+	case uint64:
+		return FrameFromUint64(ft)
+	case Bin:
+		return FrameFromBinary(ft)
+	case []byte:
+		return FrameFromBinary(ft)
+	case string:
+		return FrameFromString(ft)
+	default:
+		return FrameFromJson(v)
+	}
+}

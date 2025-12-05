@@ -177,9 +177,9 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 				}
 				switch back.Type {
 				case message.TextMessage:
-					return back.Data.([]byte), nil
+					return back.Data, nil
 				case message.BinaryMessage:
-					return back.Data.([]byte), nil
+					return back.Data, nil
 				}
 				return []byte{}, fmt.Errorf("unknown message type")
 			}

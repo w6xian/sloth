@@ -14,7 +14,7 @@ type RpcCaller struct {
 	Id     uint64 `json:"id"`
 	Action int    `json:"action"`
 	Method string `json:"method"`
-	Data   string `json:"data"`
+	Data   []byte `json:"data"`
 	Error  string `json:"error,omitempty"` // error message
 }
 

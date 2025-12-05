@@ -176,7 +176,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 				return
 			}
 			if msg.Type == websocket.BinaryMessage {
-				slicesBinarySend(msg.Id, ch.Conn, msg.Data.([]byte), 512)
+				slicesBinarySend(msg.Id, ch.Conn, msg.Data, 512)
 				continue
 			}
 			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
@@ -234,12 +234,13 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
+		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
 		m, err := receiveMessage(ch.Conn, messageType, msg)
 		if err != nil {
 			log.Println("server receiveMessage err = ", err.Error())
 			continue
 		}
-		// fmt.Println("readPump msgType:", msgType, "message:", string(m))
+		// fmt.Printf("readPump msgType:%d message:%s\n", messageType, string(m))
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			if connReq.Action == actions.ACTION_CALL {

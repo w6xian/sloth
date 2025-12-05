@@ -139,16 +139,72 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, err
 					//switch gettype.Kind() {
 					switch gettype.Kind() {
 					case reflect.String:
-						return []byte(back.Data.(string)), nil
+						return back.Data, nil
 					case reflect.Slice:
 						// []byte 64转字符串 json
-						return []byte(back.Data.([]byte)), nil
+						return back.Data, nil
 					}
 					return []byte{}, fmt.Errorf("unknown data type")
 				}
 			case message.BinaryMessage:
 				if back.Id == msg.Id && ok {
-					return back.Data.([]byte), nil
+					return back.Data, nil
+				}
+			}
+			return []byte{}, fmt.Errorf("unknown message type")
+
+		}
+	}
+}
+
+func (ch *WsClient) CallBin(ctx context.Context, mtd string, args []byte) ([]byte, error) {
+	ch.Lock.Lock()
+	defer ch.Lock.Unlock()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	msg := message.NewWsJsonCallObject(mtd, args)
+	// 发送调用请求
+	select {
+	case <-ticker.C:
+		return []byte{}, fmt.Errorf("call timeout")
+	case ch.rpcCaller <- msg:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	// fmt.Println("client call 107:", msg.Id)
+	ticker.Reset(5 * time.Second)
+	// 等待调用结果
+	for {
+		select {
+		case <-ctx.Done():
+			return []byte{}, ctx.Err()
+		case <-ticker.C:
+			// fmt.Println("client call ticker.C:", ticker.C)
+			return []byte{}, fmt.Errorf("reply timeout")
+		case back, ok := <-ch.rpcBacker:
+			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
+			switch back.Type {
+			case message.TextMessage:
+				if back.Id == msg.Id && ok {
+					if back.Error != "" {
+						return []byte(""), errors.New(back.Error)
+					}
+					gettype := reflect.TypeOf(back.Data)
+
+					//switch gettype.Kind() {
+					switch gettype.Kind() {
+					case reflect.String:
+						return back.Data, nil
+					case reflect.Slice:
+						// []byte 64转字符串 json
+						return back.Data, nil
+					}
+					return []byte{}, fmt.Errorf("unknown data type")
+				}
+			case message.BinaryMessage:
+				if back.Id == msg.Id && ok {
+					return back.Data, nil
 				}
 			}
 			return []byte{}, fmt.Errorf("unknown message type")

@@ -88,7 +88,7 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 	ret := mtd.Func.Call([]reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),
-		reflect.ValueOf([]byte(msgReq.Data)),
+		reflect.ValueOf(msgReq.Data),
 	})
 	if len(ret) != 2 {
 		return nil, errors.New("call func error")

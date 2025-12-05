@@ -33,7 +33,8 @@ func NewClientRpc() *ClientRpc {
 	return ClientObjc
 }
 
-func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data any) ([]byte, error) {
+// @call client
+func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data []byte) ([]byte, error) {
 	if c.Serve == nil {
 		return nil, errors.New("server not found")
 	}

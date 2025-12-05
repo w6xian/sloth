@@ -32,33 +32,39 @@ const (
 
 const TLVX_HEADDER_SIZE = 5
 
-type TLV struct {
+type TlV struct {
 	T byte    // tag type
 	L uint16  // value length
 	C [2]byte // crc16
 	V []byte  // value
 }
 
-func NewTLVFromFrame(b []byte) (*TLV, error) {
+func NewTLVFromFrame(b []byte) (*TlV, error) {
 	tag, data, err := tlv_decode(b)
 	if err != nil {
 		return nil, err
 	}
 	crc := utils.GetCrC(data)
-	return &TLV{
+	return &TlV{
 		T: tag,
 		L: uint16(len(data)),
 		C: [2]byte{crc[0], crc[1]},
 		V: data,
 	}, nil
 }
-func (t *TLV) GetValue() []byte {
+func (t *TlV) Tag() byte {
+	return t.T
+}
+func (t *TlV) Type() byte {
+	return t.T
+}
+func (t *TlV) Value() []byte {
 	return t.V
 }
-func (t *TLV) GetString() string {
+func (t *TlV) String() string {
 	return string(t.V)
 }
-func (t *TLV) GetJson(v any) error {
+func (t *TlV) Json(v any) error {
 	return json.Unmarshal(t.V, v)
 }
 

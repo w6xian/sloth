@@ -9,7 +9,7 @@ var Code = {
 
 function rpc_call_struct(method, data) {
     const callObj = {
-        id: getMsgId(8),
+        id: Date.now(),
         action: -0xFF, // -0xFE 调用服务
         method: method,
         data: isObject(data) ? JSON.stringify(data) : data,
@@ -260,15 +260,12 @@ class SockRpc {
 
 function send_message(wsock, data) {
     if (wsock) {
-        const sliceData = sliceMessage(wsock, getMsgId(2), data, 64)
+        const sliceData = sliceMessage(wsock, getMsgId(2), data, 512)
         for (const item of sliceData) {
-            // console.log('item', item)
-            if (isObject(item)) {
-                const data = JSON.stringify(item)
-                wsock.send(isNeedArrayBuffer(wsock) ? new TextEncoder().encode(data) : data);
-            } else {
-                wsock.send(isNeedArrayBuffer(wsock) ? new TextEncoder().encode(item) : item);
-            }
+            const itemStr = JSON.stringify(item)
+            const d = isNeedArrayBuffer(wsock) ? new TextEncoder().encode(itemStr) : itemStr
+            wsock.send(d);
+
         }
     }
 }
@@ -335,7 +332,9 @@ function isNeedArrayBuffer(wsock) {
  * @returns {*[]}
  */
 function sliceMessage(wsock, name, data, len) {
+
     if (isObject(data)) {
+        data.data = Base64.encode(data.data)
         data = JSON.stringify(data)
     }
     // "arraybuffer" || "blob"
@@ -360,6 +359,7 @@ function sliceMessage(wsock, name, data, len) {
             d: isNeedArrayBuffer(wsock) ? sData : Base64.encode(sData),
         })
     }
+    // console.log('slices', slices)
     return slices
 }
 

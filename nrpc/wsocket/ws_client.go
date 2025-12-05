@@ -150,18 +150,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				return
 			}
 		case msg, ok := <-ch.rpcCaller:
-			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
-			if !ok {
-				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
-				fmt.Println("slicesTextSend err = ", err.Error())
-				return
-			}
-			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
-		case msg, ok := <-ch.rpcBacker:
+			// @call  调用服务器方法
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
@@ -169,7 +158,25 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				return
 			}
 			if msg.Type == websocket.BinaryMessage {
-				slicesBinarySend(msg.Id, ch.conn, msg.Data.([]byte), 512)
+				slicesBinarySend(msg.Id, ch.conn, msg.Data, 512)
+				continue
+			}
+
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
+				fmt.Println("slicesTextSend err = ", err.Error())
+				return
+			}
+			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
+		case msg, ok := <-ch.rpcBacker:
+			// @reply  服务器返回调用结果
+			//write data dead time , like http timeout , default 10s
+			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			if !ok {
+				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if msg.Type == websocket.BinaryMessage {
+				slicesBinarySend(msg.Id, ch.conn, msg.Data, 512)
 				continue
 			}
 
@@ -280,7 +287,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 					ch.rpcBacker <- backObj
 					continue
 				}
-				backObj := message.NewWsJsonBackSuccess(connReq.Id, []byte(connReq.Data))
+				backObj := message.NewWsJsonBackSuccess(connReq.Id, connReq.Data)
 				ch.rpcBacker <- backObj
 				continue
 			} else if connReq.Action == actions.ACTION_CALL {

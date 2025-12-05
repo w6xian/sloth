@@ -26,7 +26,8 @@ func NewServerRpc() *ServerRpc {
 	return ServerObjc
 }
 
-func (c *ServerRpc) Call(ctx context.Context, mtd string, data any) ([]byte, error) {
+// @call server
+func (c *ServerRpc) Call(ctx context.Context, mtd string, data []byte) ([]byte, error) {
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
@@ -36,6 +37,7 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, data any) ([]byte, err
 	}
 	return resp, nil
 }
+
 func (c *ServerRpc) Send(ctx context.Context, data []byte) error {
 	if c.Listen == nil {
 		return errors.New("server not found")
