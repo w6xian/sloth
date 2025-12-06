@@ -30,6 +30,7 @@ type LocalClient struct {
 	client  nrpc.ICall
 
 	WriteWait       time.Duration
+	ReadWait        time.Duration
 	PongWait        time.Duration
 	PingPeriod      time.Duration
 	MaxMessageSize  int64
@@ -46,13 +47,15 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 
 	s.serviceMapMu = sync.RWMutex{}
 
-	s.WriteWait = 10 * time.Second
-	s.PongWait = 60 * time.Second
-	s.PingPeriod = 54 * time.Second
-	s.MaxMessageSize = 2048
-	s.ReadBufferSize = 4096
-	s.WriteBufferSize = 4096
-	s.BroadcastSize = 1024
+	opt := s.Connect.Options()
+	s.WriteWait = opt.WriteWait
+	s.ReadWait = opt.ReadWait
+	s.PongWait = opt.PongWait
+	s.PingPeriod = opt.PingPeriod
+	s.MaxMessageSize = opt.MaxMessageSize
+	s.ReadBufferSize = opt.ReadBufferSize
+	s.WriteBufferSize = opt.WriteBufferSize
+	s.BroadcastSize = opt.BroadcastSize
 
 	s.handler = nil
 	for _, opt := range options {
@@ -99,7 +102,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	c.ListenAndServe(ctx)
 }
 
-func (s *LocalClient) Call(ctx context.Context, mtd string, data any) ([]byte, error) {
+func (s *LocalClient) Call(ctx context.Context, mtd string, data []byte) ([]byte, error) {
 	if s.client == nil {
 		return nil, errors.New("server not found")
 	}
@@ -205,7 +208,6 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			ch.conn = nil
 			return
 		}
-
 		ch.conn.Close()
 		ch.conn = nil
 		closeChan <- true
@@ -214,29 +216,26 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 	ch.conn.SetReadLimit(c.MaxMessageSize)
 	ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 	ch.conn.SetPongHandler(func(string) error {
-		fmt.Println("pooooooooong")
+		// fmt.Println("pooooooooong")
 		ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 		return nil
 	})
-
+	// onOpen
+	handler.OnOpen(ctx, c, ch)
 	for {
 		// 来自服务器的消息
 		messageType, msg, err := ch.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Println("readPump ReadMessage err = ", err.Error())
+				handler.OnError(ctx, c, ch, err)
 				return
 			}
 		}
 		if msg == nil || messageType == -1 {
-			fmt.Println("readPump messageType:", messageType)
+			// handler.onClose(ctx, c, ch)
 			return
 		}
-		// fmt.Println("------------", len(msg))
-		// fmt.Println("readPump messageType:", messageType, "message:", string(msg))
 		if messageType == websocket.BinaryMessage {
-			// fmt.Println("010101010101010101010101010101010101010101010101")
-			// fmt.Println("readPump messageType:", messageType, "message:", string(msg))
 			if frame, hdcErr := receiveHdCFrame(ch.conn, msg); hdcErr == nil {
 				hdc, err := decoder.DecodeHdC(frame)
 				if err != nil {
@@ -265,7 +264,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 					continue
 				}
 				// 处理HdC消息
-				handler.HandleMessage(ctx, c, ch, messageType, frame)
+				handler.OnData(ctx, c, ch, messageType, frame)
 				continue
 			}
 		}
@@ -273,10 +272,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 		// 实现分片接收的函数
 		m, err := receiveMessage(ch.conn, messageType, msg)
 		if err != nil {
-			fmt.Println("client receiveMessage err = ", err.Error())
+			handler.OnError(ctx, c, ch, err)
 			continue
 		}
-		// fmt.Println("readPump messageType:", messageType, "message:", string(m))
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			if connReq.Action == actions.ACTION_REPLY {
@@ -297,7 +295,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 		}
 
 		if handler != nil {
-			handler.HandleMessage(ctx, c, ch, messageType, m)
+			handler.OnData(ctx, c, ch, messageType, m)
 		}
 	}
 }

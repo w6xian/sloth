@@ -29,7 +29,7 @@ func main() {
 	newConnect.RegisterRpc("v1", &HelloService{}, "")
 	newConnect.StartWebsocketServer(
 		wsocket.WithRouter(r),
-		wsocket.WithHandleMessage(&Handler{}),
+		wsocket.WithServerHandle(&Handler{}),
 	)
 	go func() {
 		for {
@@ -49,7 +49,25 @@ func main() {
 type Handler struct {
 }
 
-func (h *Handler) HandleMessage(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
+// OnClose implements wsocket.IServerHandleMessage.
+func (h *Handler) OnClose(ctx context.Context, s *wsocket.WsServer, ch group.IChannel) error {
+	fmt.Println("OnClose")
+	return nil
+}
+
+// OnError implements wsocket.IServerHandleMessage.
+func (h *Handler) OnError(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, err error) error {
+	fmt.Println("OnError:", err)
+	return nil
+}
+
+// OnOpen implements wsocket.IServerHandleMessage.
+func (h *Handler) OnOpen(ctx context.Context, s *wsocket.WsServer, ch group.IChannel) error {
+	fmt.Println("OnOpen")
+	return nil
+}
+
+func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		// fmt.Println("------------login------------")
 		if ch.UserId() == 0 {

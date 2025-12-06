@@ -12,8 +12,14 @@ type IWsReply interface {
 }
 
 type IServerHandleMessage interface {
-	HandleMessage(ctx context.Context, s *WsServer, ch group.IChannel, msgType int, message []byte) error
+	OnData(ctx context.Context, s *WsServer, ch group.IChannel, msgType int, message []byte) error
+	OnClose(ctx context.Context, s *WsServer, ch group.IChannel) error
+	OnError(ctx context.Context, s *WsServer, ch group.IChannel, err error) error
+	OnOpen(ctx context.Context, s *WsServer, ch group.IChannel) error
 }
 type IClientHandleMessage interface {
-	HandleMessage(ctx context.Context, c *LocalClient, ch *WsClient, msgType int, message []byte) error
+	OnData(ctx context.Context, c *LocalClient, ch *WsClient, msgType int, message []byte) error
+	OnClose(ctx context.Context, c *LocalClient, ch *WsClient) error
+	OnError(ctx context.Context, c *LocalClient, ch *WsClient, err error) error
+	OnOpen(ctx context.Context, c *LocalClient, ch *WsClient) error
 }

@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
 	"sync"
 	"time"
 
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 
 	"github.com/gorilla/websocket"
@@ -26,6 +24,11 @@ type WsClient struct {
 	conn    *websocket.Conn
 	connTcp *net.TCPConn
 	Lock    sync.Mutex
+
+	// writeWait default eq 10s
+	writeWait time.Duration
+	// readWait default eq 10s
+	readWait time.Duration
 }
 
 func NewWsClient(userId int64, size int) (c *WsClient) {
@@ -37,6 +40,8 @@ func NewWsClient(userId int64, size int) (c *WsClient) {
 	c.UserId = userId
 	c.conn = nil
 	c.connTcp = nil
+	c.writeWait = 10 * time.Second
+	c.readWait = 10 * time.Second
 	return
 }
 func (c *WsClient) Login(roomId int64, userId int64) (err error) {
@@ -89,78 +94,10 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 }
 
 // Call 客户端 调用远程方法
-func (ch *WsClient) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
+func (ch *WsClient) Call(ctx context.Context, mtd string, args []byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	var msg *message.JsonCallObject
-	switch reflect.TypeOf(args).Kind() {
-	case reflect.Slice:
-		if data, ok := args.(tlv.TLVFrame); ok {
-			msg = message.NewWsJsonCallObject(mtd, data)
-			break
-		}
-		msg = message.NewWsJsonCallObject(mtd, args.([]byte))
-	case reflect.String:
-		msg = message.NewWsJsonCallObject(mtd, []byte(args.(string)))
-	default:
-		msg = message.NewWsJsonCallObject(mtd, serialize(args))
-	}
-	// 发送调用请求
-	select {
-	case <-ticker.C:
-		return []byte{}, fmt.Errorf("call timeout")
-	case ch.rpcCaller <- msg:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	// fmt.Println("client call 107:", msg.Id)
-	ticker.Reset(5 * time.Second)
-	// 等待调用结果
-	for {
-		select {
-		case <-ctx.Done():
-			return []byte{}, ctx.Err()
-		case <-ticker.C:
-			// fmt.Println("client call ticker.C:", ticker.C)
-			return []byte{}, fmt.Errorf("reply timeout")
-		case back, ok := <-ch.rpcBacker:
-			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
-			switch back.Type {
-			case message.TextMessage:
-				if back.Id == msg.Id && ok {
-					if back.Error != "" {
-						return []byte(""), errors.New(back.Error)
-					}
-					gettype := reflect.TypeOf(back.Data)
-
-					//switch gettype.Kind() {
-					switch gettype.Kind() {
-					case reflect.String:
-						return back.Data, nil
-					case reflect.Slice:
-						// []byte 64转字符串 json
-						return back.Data, nil
-					}
-					return []byte{}, fmt.Errorf("unknown data type")
-				}
-			case message.BinaryMessage:
-				if back.Id == msg.Id && ok {
-					return back.Data, nil
-				}
-			}
-			return []byte{}, fmt.Errorf("unknown message type")
-
-		}
-	}
-}
-
-func (ch *WsClient) CallBin(ctx context.Context, mtd string, args []byte) ([]byte, error) {
-	ch.Lock.Lock()
-	defer ch.Lock.Unlock()
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
 	msg := message.NewWsJsonCallObject(mtd, args)
 	// 发送调用请求
@@ -172,8 +109,7 @@ func (ch *WsClient) CallBin(ctx context.Context, mtd string, args []byte) ([]byt
 		return nil, ctx.Err()
 	default:
 	}
-	// fmt.Println("client call 107:", msg.Id)
-	ticker.Reset(5 * time.Second)
+	ticker.Reset(ch.readWait)
 	// 等待调用结果
 	for {
 		select {
@@ -184,28 +120,11 @@ func (ch *WsClient) CallBin(ctx context.Context, mtd string, args []byte) ([]byt
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
 			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
-			switch back.Type {
-			case message.TextMessage:
-				if back.Id == msg.Id && ok {
-					if back.Error != "" {
-						return []byte(""), errors.New(back.Error)
-					}
-					gettype := reflect.TypeOf(back.Data)
-
-					//switch gettype.Kind() {
-					switch gettype.Kind() {
-					case reflect.String:
-						return back.Data, nil
-					case reflect.Slice:
-						// []byte 64转字符串 json
-						return back.Data, nil
-					}
-					return []byte{}, fmt.Errorf("unknown data type")
+			if back.Id == msg.Id && ok {
+				if back.Error != "" {
+					return []byte(""), errors.New(back.Error)
 				}
-			case message.BinaryMessage:
-				if back.Id == msg.Id && ok {
-					return back.Data, nil
-				}
+				return back.Data, nil
 			}
 			return []byte{}, fmt.Errorf("unknown message type")
 

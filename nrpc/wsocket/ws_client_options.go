@@ -2,7 +2,7 @@ package wsocket
 
 type LocalClientOption func(s *LocalClient)
 
-func WithClientHandleMessage(handler IClientHandleMessage) ClientOption {
+func WithClientHandle(handler IClientHandleMessage) ClientOption {
 	return func(s *LocalClient) {
 		s.handler = handler
 	}

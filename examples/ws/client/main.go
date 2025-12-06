@@ -59,7 +59,7 @@ func main() {
 		}
 	}()
 	newConnect.StartWebsocketClient(
-		wsocket.WithClientHandleMessage(&Handler{}),
+		wsocket.WithClientHandle(&Handler{}),
 		wsocket.WithClientUriPath("/ws"),
 		wsocket.WithClientServerUri("localhost:8990"),
 	)
@@ -69,11 +69,30 @@ func main() {
 type Handler struct {
 }
 
-func (h *Handler) HandleMessage(ctx context.Context, s *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
+// OnClose implements wsocket.IClientHandleMessage.
+func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient) error {
+	fmt.Println("OnClose:", ch.UserId)
+	return nil
+}
+
+// OnData implements wsocket.IClientHandleMessage.
+func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}
 	fmt.Println(string(message))
+	return nil
+}
+
+// OnError implements wsocket.IClientHandleMessage.
+func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient, err error) error {
+	fmt.Println("OnError:", err.Error())
+	return nil
+}
+
+// onOpen implements wsocket.IClientHandleMessage.
+func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient) error {
+	fmt.Println("OnOpen:", ch.UserId)
 	return nil
 }
 

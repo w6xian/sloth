@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
 	"sync"
 	"time"
 
 	"github.com/w6xian/sloth/group"
-	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/message"
 
 	"github.com/gorilla/websocket"
@@ -32,6 +30,7 @@ type Channel struct {
 
 	pongTimeout    time.Duration
 	writeWait      time.Duration
+	readWait       time.Duration
 	maxMessageSize int64
 	// ping period default eq 54s
 	pingPeriod time.Duration
@@ -76,6 +75,7 @@ func NewChannel(size int, opts ...ChannelOption) (c *Channel) {
 	c.Prev(nil)
 	c.pongTimeout = 54 * time.Second
 	c.writeWait = 10 * time.Second
+	c.readWait = 10 * time.Second
 	c.maxMessageSize = 1024 * 1024
 	c.pingPeriod = 54 * time.Second
 	c.errHandler = func(err error) {
@@ -134,22 +134,14 @@ func (c *Channel) ReplyError(id uint64, err []byte) error {
 }
 
 // 服务器调用客户端方法
-func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, error) {
+func (ch *Channel) Call(ctx context.Context, mtd string, args []byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
 
-	var msg *message.JsonCallObject
-	switch reflect.TypeOf(args).Kind() {
-	case reflect.Slice:
-		data := args.([]byte)
-		msg = message.NewWsJsonCallObject(mtd, data)
-	case reflect.String:
-		msg = message.NewWsJsonCallObject(mtd, []byte(args.(string)))
-	default:
-		msg = message.NewWsJsonCallObject(mtd, utils.Serialize(args))
-	}
+	msg := message.NewWsJsonCallObject(mtd, args)
+
 	// 发送调用请求
 	select {
 	case <-ticker.C:
@@ -159,9 +151,7 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 		return nil, ctx.Err()
 	default:
 	}
-	// fmt.Println("call:", msg.Id)
-	// fmt.Println("***************call***************")
-	ticker.Reset(5 * time.Second)
+	ticker.Reset(ch.readWait)
 	// 等待调用结果
 	for {
 		select {
@@ -170,18 +160,11 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
-			// fmt.Println("call back:", back.Id, msg.Id)
 			if back.Id == msg.Id && ok {
 				if back.Error != "" {
 					return []byte{}, errors.New(back.Error)
 				}
-				switch back.Type {
-				case message.TextMessage:
-					return back.Data, nil
-				case message.BinaryMessage:
-					return back.Data, nil
-				}
-				return []byte{}, fmt.Errorf("unknown message type")
+				return back.Data, nil
 			}
 		}
 	}

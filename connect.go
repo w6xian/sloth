@@ -14,6 +14,7 @@ import (
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
+	"github.com/w6xian/sloth/options"
 )
 
 // Precompute the reflect type for context.
@@ -31,6 +32,11 @@ type Connect struct {
 	times      int
 	cpuNum     int
 	tlsConfig  *tls.Config
+	Option     *options.Options
+}
+
+func (c *Connect) Options() *options.Options {
+	return c.Option
 }
 
 func NewConnect(opts ...ConnOption) *Connect {
@@ -41,6 +47,7 @@ func NewConnect(opts ...ConnOption) *Connect {
 	svr.cpuNum = runtime.NumCPU()
 	svr.client = NewClientRpc()
 	svr.server = NewServerRpc()
+	svr.Option = options.NewOptions()
 	for _, opt := range opts {
 		opt(svr)
 	}

@@ -4,10 +4,12 @@ import (
 	"context"
 
 	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/options"
 )
 
 type ICallRpc interface {
 	CallFunc(ctx context.Context, msgReq *RpcCaller) ([]byte, error)
+	Options() *options.Options
 }
 
 type RpcCaller struct {
@@ -19,6 +21,6 @@ type RpcCaller struct {
 }
 
 type ICall interface {
-	Call(ctx context.Context, mtd string, args any) ([]byte, error)
+	Call(ctx context.Context, mtd string, args []byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) (err error)
 }

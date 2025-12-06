@@ -16,7 +16,7 @@ func WithRouter(router *mux.Router) ServerOption {
 	}
 }
 
-func WithHandleMessage(handler IServerHandleMessage) ServerOption {
+func WithServerHandle(handler IServerHandleMessage) ServerOption {
 	return func(s *WsServer) {
 		s.handler = handler
 	}

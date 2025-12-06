@@ -20,7 +20,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"modernc.org/mathutil"
 )
 
 type WsServer struct {
@@ -32,6 +31,7 @@ type WsServer struct {
 	handler         IServerHandleMessage
 	router          *mux.Router
 	WriteWait       time.Duration
+	ReadWait        time.Duration
 	PongWait        time.Duration
 	PingPeriod      time.Duration
 	MaxMessageSize  int64
@@ -42,15 +42,16 @@ type WsServer struct {
 
 func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	bsNum := 1
-	bsNum = mathutil.Min(bsNum, runtime.NumCPU())
+	bsNum = max(bsNum, runtime.NumCPU())
 	//init Connect layer rpc server, logic client will call this
 	bs := make([]*group.Bucket, bsNum)
+	opt := server.Options()
 	for i := 0; i < bsNum; i++ {
 		bs[i] = group.NewBucket(
-			group.WithChannelSize(1024),
-			group.WithRoomSize(1024),
-			group.WithRoutineAmount(32),
-			group.WithRoutineSize(20),
+			group.WithChannelSize(opt.ChannelSize),
+			group.WithRoomSize(opt.RoomSize),
+			group.WithRoutineAmount(opt.RoutineAmount),
+			group.WithRoutineSize(opt.RoutineSize),
 		)
 	}
 	s := &WsServer{
@@ -60,13 +61,14 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 		uriPath:         "/ws",
 		handler:         nil,
 		router:          mux.NewRouter(),
-		WriteWait:       10 * time.Second,
-		PongWait:        60 * time.Second,
-		PingPeriod:      54 * time.Second,
-		MaxMessageSize:  2048,
-		ReadBufferSize:  4096,
-		WriteBufferSize: 4096,
-		BroadcastSize:   1024,
+		WriteWait:       opt.WriteWait,
+		ReadWait:        opt.ReadWait,
+		PongWait:        opt.PongWait,
+		PingPeriod:      opt.PingPeriod,
+		MaxMessageSize:  opt.MaxMessageSize,
+		ReadBufferSize:  opt.ReadBufferSize,
+		WriteBufferSize: opt.WriteBufferSize,
+		BroadcastSize:   opt.BroadcastSize,
 	}
 	for _, opt := range options {
 		opt(s)
@@ -75,9 +77,7 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 }
 func (s *WsServer) Bucket(userId int64) *group.Bucket {
 	userIdStr := fmt.Sprintf("%d", userId)
-	// fmt.Println("userIdStr:", userIdStr)
 	idx := tools.CityHash32([]byte(userIdStr), uint32(len(userIdStr))) % s.bucketIdx
-	// fmt.Println("userId:", userId, "idx:", idx)
 	return s.Buckets[idx]
 }
 
@@ -111,8 +111,8 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 }
 func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var upGrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  s.ReadBufferSize,
+		WriteBufferSize: s.WriteBufferSize,
 	}
 	//cross origin domain support
 	upGrader.CheckOrigin = func(r *http.Request) bool { return true }
@@ -213,22 +213,26 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		ch.Conn.SetReadDeadline(time.Now().Add(s.PongWait))
 		return nil
 	})
-	// log.Println("readPump start")
+	// OnOpen
+	if err := handler.OnOpen(ctx, s, ch); err != nil {
+		return
+	}
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				handler.OnError(ctx, s, ch, err)
 				return
 			}
 		}
 		if msg == nil || messageType == -1 {
-			log.Println("readPump messageType:", messageType)
+			handler.OnClose(ctx, s, ch)
 			return
 		}
 		if messageType == websocket.BinaryMessage {
 			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
 				// 处理HdC消息
-				handler.HandleMessage(ctx, s, ch, messageType, hdc)
+				handler.OnData(ctx, s, ch, messageType, hdc)
 				continue
 			}
 		}
@@ -237,7 +241,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
 		m, err := receiveMessage(ch.Conn, messageType, msg)
 		if err != nil {
-			log.Println("server receiveMessage err = ", err.Error())
+			handler.OnError(ctx, s, ch, err)
 			continue
 		}
 		// fmt.Printf("readPump msgType:%d message:%s\n", messageType, string(m))
@@ -266,7 +270,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		}
 
 		if handler != nil {
-			handler.HandleMessage(ctx, s, ch, messageType, m)
+			handler.OnData(ctx, s, ch, messageType, m)
 		}
 	}
 }

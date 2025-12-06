@@ -7,7 +7,7 @@ import (
 )
 
 type IChannel interface {
-	Call(ctx context.Context, mtd string, args any) ([]byte, error)
+	Call(ctx context.Context, mtd string, args []byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) error
 	ReplySuccess(id uint64, data []byte) error
 	ReplyError(id uint64, err []byte) error
