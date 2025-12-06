@@ -159,7 +159,7 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 		return nil, ctx.Err()
 	default:
 	}
-	fmt.Println("call:", msg.Id)
+	// fmt.Println("call:", msg.Id)
 	// fmt.Println("***************call***************")
 	ticker.Reset(5 * time.Second)
 	// 等待调用结果
@@ -170,7 +170,7 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args any) ([]byte, erro
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
-			fmt.Println("call back:", back.Id, msg.Id)
+			// fmt.Println("call back:", back.Id, msg.Id)
 			if back.Id == msg.Id && ok {
 				if back.Error != "" {
 					return []byte{}, errors.New(back.Error)

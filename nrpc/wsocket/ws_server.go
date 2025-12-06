@@ -213,7 +213,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		ch.Conn.SetReadDeadline(time.Now().Add(s.PongWait))
 		return nil
 	})
-	log.Println("readPump start")
+	// log.Println("readPump start")
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
