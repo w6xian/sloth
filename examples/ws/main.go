@@ -86,6 +86,7 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	// }
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
+	fmt.Println("Test success:", string(data))
 	if tlv.IsTLVFrame(data) {
 		args, err := tlv.Deserialize(data)
 		if err != nil {
@@ -96,7 +97,7 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	}
 	fmt.Println(string(data))
 	if h.Id%10 == 1 {
-		return utils.Serialize([]string{"a", "b", "c"}), nil
+		// return utils.Serialize([]string{"a", "b", "c"}), nil
 		mapData := map[string]string{
 			"t": time.Now().Format("2006-01-02 15:04:05"),
 			"b": "2",

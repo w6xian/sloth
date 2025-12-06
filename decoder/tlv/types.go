@@ -9,28 +9,45 @@ import (
 type Bin []byte
 type TLVFrame []byte
 
-func FrameFromString(v string) TLVFrame {
-	r, err := tlv_encode(TLV_TYPE_STRING, []byte(v))
+type Option struct {
+	CheckCRC   bool
+	LengthSize byte
+}
+
+func newOption(opts ...FrameOption) Option {
+	opt := Option{
+		CheckCRC:   false,
+		LengthSize: 1,
+	}
+	for _, o := range opts {
+		o(&opt)
+	}
+	return opt
+}
+
+func FrameFromString(v string, opts ...FrameOption) TLVFrame {
+	r, err := tlv_encode(TLV_TYPE_STRING, []byte(v), opts...)
 	if err != nil {
 		return []byte{}
 	}
 	return r
 }
 
-func FrameFromJson(v any) TLVFrame {
+func FrameFromJson(v any, opts ...FrameOption) TLVFrame {
 	jsonData, err := json.Marshal(v)
 	if err != nil {
 		return []byte{}
 	}
-	r, err := tlv_encode(TLV_TYPE_JSON, jsonData)
+
+	r, err := tlv_encode(TLV_TYPE_JSON, jsonData, opts...)
 	if err != nil {
 		return []byte{}
 	}
 	return r
 }
 
-func FrameFromBinary(v Bin) TLVFrame {
-	r, err := tlv_encode(TLV_TYPE_BINARY, v)
+func FrameFromBinary(v Bin, opts ...FrameOption) TLVFrame {
+	r, err := tlv_encode(TLV_TYPE_BINARY, v, opts...)
 	if err != nil {
 		return []byte{}
 	}
@@ -38,11 +55,11 @@ func FrameFromBinary(v Bin) TLVFrame {
 }
 
 // Float64 从float64编码为tlv
-func FrameFromFloat64(v float64) TLVFrame {
+func FrameFromFloat64(v float64, opts ...FrameOption) TLVFrame {
 	bits := math.Float64bits(v)
 	bytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(bytes, bits)
-	r, err := tlv_encode(TLV_TYPE_FLOAT64, bytes)
+	r, err := tlv_encode(TLV_TYPE_FLOAT64, bytes, opts...)
 	if err != nil {
 		return []byte{}
 	}
@@ -50,10 +67,10 @@ func FrameFromFloat64(v float64) TLVFrame {
 }
 
 // Int64 从int64编码为tlv
-func FrameFromInt64(v int64) TLVFrame {
+func FrameFromInt64(v int64, opts ...FrameOption) TLVFrame {
 	bytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(bytes, uint64(v))
-	r, err := tlv_encode(TLV_TYPE_INT64, bytes)
+	r, err := tlv_encode(TLV_TYPE_INT64, bytes, opts...)
 	if err != nil {
 		return []byte{}
 	}
@@ -61,10 +78,10 @@ func FrameFromInt64(v int64) TLVFrame {
 }
 
 // Uint64 从uint64编码为tlv
-func FrameFromUint64(v uint64) TLVFrame {
+func FrameFromUint64(v uint64, opts ...FrameOption) TLVFrame {
 	bytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(bytes, v)
-	r, err := tlv_encode(TLV_TYPE_UINT64, bytes)
+	r, err := tlv_encode(TLV_TYPE_UINT64, bytes, opts...)
 	if err != nil {
 		return []byte{}
 	}

@@ -8,22 +8,18 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/decoder"
-	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/message"
 )
 
 var once sync.Once
 var ClientObjc *ClientRpc
 
-type IServer interface {
-	Bucket(userId int64) *group.Bucket
-	Room(roomId int64) *group.Room
-	Channel(userId int64) group.IChannel
-	Broadcast(ctx context.Context, msg *message.Msg) error
-}
-
 type ClientRpc struct {
 	Serve IServer
+}
+
+func (c *ClientRpc) SetProtocol(protocol string) {
+
 }
 
 func NewClientRpc() *ClientRpc {

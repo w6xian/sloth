@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -52,7 +53,7 @@ func TestAll(t *testing.T) {
 	for _, tt := range tests {
 		switch tt.tag {
 		case TLV_TYPE_STRING:
-			from := FrameFromString(tt.data.(string))
+			from := FrameFromString(tt.data.(string), CheckCRC())
 			tag, data, err := tlv_decode(from)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
@@ -63,6 +64,19 @@ func TestAll(t *testing.T) {
 			if !bytes.Equal(data, []byte(tt.data.(string))) {
 				t.Errorf("tlv_decode() = %v, want %v", data, []byte(tt.data.(string)))
 			}
+			t255 := strings.Repeat("ABC", 0x100)
+			from = FrameFromString(t255)
+			tag, data, err = tlv_decode(from)
+			if err != nil {
+				t.Errorf("tlv_decode() = %v, want %v", err, nil)
+			}
+			if tag != TLV_TYPE_STRING {
+				t.Errorf("tlv_decode() = %v, want %v", tag, TLV_TYPE_STRING)
+			}
+			if !bytes.Equal(data, []byte(t255)) {
+				t.Errorf("tlv_decode() = %v, want %v", data, []byte(tt.data.(string)))
+			}
+			return
 		case TLV_TYPE_JSON:
 			from := FrameFromJson(tt.data)
 			tag, data, err := tlv_decode(from)
@@ -70,7 +84,7 @@ func TestAll(t *testing.T) {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
 			if tag != TLV_TYPE_JSON {
-				t.Errorf("tlv_decode() = %v, want %v", tag, TLV_TYPE_JSON)
+				t.Errorf("tlv_decode_def() = %v, want %v", tag, TLV_TYPE_JSON)
 			}
 
 			// 需要比较json字符串是否相等
@@ -80,7 +94,7 @@ func TestAll(t *testing.T) {
 			}
 
 			if !bytes.Equal(data, jsonData) {
-				t.Errorf("tlv_decode() = %v, want %v", data, jsonData)
+				t.Errorf("tlv_decode_def() = %v, want %v", data, jsonData)
 			}
 		case TLV_TYPE_INT64:
 			from := FrameFromInt64(tt.data.(int64))

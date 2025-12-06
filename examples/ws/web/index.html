@@ -35,10 +35,10 @@
             rpc.Send(authMsg)
             setInterval(() => {
 
-                rpc.Call("v1.Test", {
+                rpc.Call("v1.Test", frameFromJson({
                     a: 1,
                     b: 2,
-                }, data => {
+                }), data => {
                     console.log('call success', Base64.decode(data))
                 })
             }, 2000)

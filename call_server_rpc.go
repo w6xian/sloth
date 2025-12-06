@@ -19,10 +19,23 @@ type ServerRpc struct {
 	UserId int64
 }
 
-func NewServerRpc() *ServerRpc {
+func (c *ServerRpc) SetProtocol(protocol string) {
+
+}
+
+func WithProtocol(protocol string) IRpcOption {
+	return func(c IRpc) {
+		c.SetProtocol(protocol)
+	}
+}
+
+func NewServerRpc(opts ...IRpcOption) *ServerRpc {
 	svr_once.Do(func() {
 		ServerObjc = &ServerRpc{}
 	})
+	for _, opt := range opts {
+		opt(ServerObjc)
+	}
 	return ServerObjc
 }
 

@@ -163,7 +163,7 @@ class SockRpc {
     Connect(option) {
         const options = option || {};
         const tmp = options.binaryType;
-        if (tmp === "arraybuffer" || tmp === "blob") {
+        if (tmp !== "arraybuffer" && tmp !== "blob") {
             this.binaryType = tmp;
         }
         const binaryType = this.binaryType || "blob";
@@ -257,12 +257,6 @@ class SockRpc {
         }
     }
 }
-
-
-
-
-
-
 
 function send_message(wsock, data) {
     if (wsock) {

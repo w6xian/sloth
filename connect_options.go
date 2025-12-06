@@ -2,6 +2,10 @@ package sloth
 
 // connect options
 
+type IRpcOption func(IRpc)
+type ServerRpcOption func(*ServerRpc)
+type ClientRpcOption func(*ClientRpc)
+
 type ConnOption func(*Connect)
 
 func WithSleepTimes(times int) ConnOption {

@@ -15,7 +15,7 @@ import (
 
 func main() {
 
-	server := sloth.NewServerRpc()
+	server := sloth.NewServerRpc(sloth.WithProtocol(sloth.PROTOCOL_TLV))
 	newConnect := sloth.NewConnect(sloth.WithServerLogic(server))
 	newConnect.RegisterRpc("shop", &HelloService{}, "")
 

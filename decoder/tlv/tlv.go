@@ -17,10 +17,12 @@ var (
 	ErrInvalidInt64Type   = errors.New("invalid int64 type")
 	ErrInvalidUint64      = errors.New("invalid uint64")
 	ErrInvalidUint64Type  = errors.New("invalid uint64 type")
-	ErrInvalidStructType  = errors.New("invalid type")
+	ErrInvalidStructType  = errors.New("invalid type 0x00< tax >0x40(64)")
 	ErrInvalidBinType     = errors.New("invalid binary type")
+	ErrInvalidLengthSize  = errors.New("invalid length size,1-4")
 )
 
+// tag/type 只支持 0x01-0x40（1-63）
 const (
 	TLV_TYPE_STRING  = 0x01
 	TLV_TYPE_JSON    = 0x02
@@ -33,24 +35,25 @@ const (
 const TLVX_HEADDER_SIZE = 5
 
 type TlV struct {
-	T byte    // tag type
-	L uint16  // value length
-	C [2]byte // crc16
-	V []byte  // value
+	T byte   // tag type
+	L uint16 // value length
+	V []byte // value
 }
 
-func NewTLVFromFrame(b []byte) (*TlV, error) {
+func NewTLVFromFrame(b []byte, opts ...FrameOption) (*TlV, error) {
+	t := &TlV{
+		T: 0,
+		L: 0,
+		V: []byte{},
+	}
 	tag, data, err := tlv_decode(b)
 	if err != nil {
 		return nil, err
 	}
-	crc := utils.GetCrC(data)
-	return &TlV{
-		T: tag,
-		L: uint16(len(data)),
-		C: [2]byte{crc[0], crc[1]},
-		V: data,
-	}, nil
+	t.T = tag
+	t.L = uint16(len(data))
+	t.V = data
+	return t, nil
 }
 func (t *TlV) Tag() byte {
 	return t.T
@@ -80,35 +83,101 @@ func IsTLVFrame(b []byte) bool {
 	return true
 }
 
-func tlv_encode(tag byte, data []byte) ([]byte, error) {
+func get_header_size(lLen byte, checkCRC bool) byte {
+	c := byte(0x02)
+	if !checkCRC {
+		c = 0
+	}
+	return lLen + 1 + c
+}
+
+func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
+	opt := newOption(opts...)
 	l := len(data)
+	if tag > 0x40 {
+		return nil, ErrInvalidStructType
+	}
+	// 最大支持 0xFFFF 字节
 	if l > 0xFFFF {
 		return nil, ErrInvalidValueLength
 	}
-	header := make([]byte, 6+l)
-	header[0] = tag
+	// 根据长度大小判断是否需要扩展tag
+	if l > 0xFF {
+		tag |= 0x80
+		opt.LengthSize = 2
+	} else {
+		opt.LengthSize = 1
+	}
+
+	headerSize := get_header_size(opt.LengthSize, opt.CheckCRC)
+	buf := make([]byte, int(headerSize)+int(l))
+	buf[0] = tag
+	if opt.LengthSize == 2 {
+		buf[0] |= 0x80
+	}
+	if opt.CheckCRC {
+		buf[0] |= 0x40
+	}
+
 	lb := make([]byte, 2)
 	binary.BigEndian.PutUint16(lb, uint16(l))
-	header[1] = lb[0]
-	header[2] = lb[1]
-	crc := utils.GetCrC(data)
-	// 写入crc
-	header[4] = crc[0]
-	header[5] = crc[1]
+
+	switch opt.LengthSize {
+	case 1:
+		buf[1] = lb[1]
+	case 2:
+		buf[1] = lb[0]
+		buf[2] = lb[1]
+	default:
+		return nil, ErrInvalidLengthSize
+	}
+
+	//
+	if opt.CheckCRC {
+		crc := utils.GetCrC(data)
+		// 写入crc
+		buf[headerSize-2] = crc[0]
+		buf[headerSize-1] = crc[1]
+	}
 	// 写入数据
-	copy(header[6:], data)
-	return header, nil
+	copy(buf[headerSize:], data)
+
+	return buf, nil
 }
 
 func tlv_decode(b []byte) (byte, []byte, error) {
-	l := binary.BigEndian.Uint16(b[1:3])
-	if len(b) < int(6+l) {
+	tag := b[0]
+
+	// 64 32 24 16 | 8 4 2 1
+	lengthSize := byte(1)
+	checkCRC := false
+	if tag&0x80 > 0 {
+		lengthSize = 2
+	}
+	if tag&0x40 > 0 {
+		checkCRC = true
+	}
+	// 需要去掉高2位（64 32）有效tag只有6位 1-63
+	tag &= 0x3F
+	headerSize := get_header_size(lengthSize, checkCRC)
+	l := 0
+	switch lengthSize {
+	case 1:
+		l = int(b[1])
+	case 2:
+		l = int(binary.BigEndian.Uint16(b[1 : 1+lengthSize]))
+	default:
+		return 0, nil, ErrInvalidLengthSize
+	}
+	if len(b) < int(int(headerSize)+l) {
 		return 0, nil, ErrInvalidValueLength
 	}
-	crc := b[4:6]
-	dataBuf := b[6 : 6+l]
-	if !utils.CheckCRC(dataBuf, crc) {
-		return 0, nil, ErrInvalidCrc
+	dataBuf := b[headerSize : int(headerSize)+l] // b[6:6+l]
+	if checkCRC {
+		crc := b[headerSize-2 : headerSize]
+		if !utils.CheckCRC(dataBuf, crc) {
+			return 0, nil, ErrInvalidCrc
+		}
 	}
-	return b[0], dataBuf, nil
+	return tag, dataBuf, nil
 }
