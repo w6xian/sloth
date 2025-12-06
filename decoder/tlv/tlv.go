@@ -24,6 +24,7 @@ var (
 
 // tag/type 只支持 0x01-0x40（1-63）
 const (
+	TLV_TYPE_FRAME   = 0x00
 	TLV_TYPE_STRING  = 0x01
 	TLV_TYPE_JSON    = 0x02
 	TLV_TYPE_BINARY  = 0x03
@@ -72,15 +73,8 @@ func (t *TlV) Json(v any) error {
 }
 
 func IsTLVFrame(b []byte) bool {
-	l := binary.BigEndian.Uint16(b[1:3])
-	crc := b[4:6]
-	if len(b) < int(6+l) {
-		return false
-	}
-	if !utils.CheckCRC(b[6:6+l], crc) {
-		return false
-	}
-	return true
+	_, _, err := tlv_decode(b)
+	return err == nil
 }
 
 func get_header_size(lLen byte, checkCRC bool) byte {
@@ -94,6 +88,9 @@ func get_header_size(lLen byte, checkCRC bool) byte {
 func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	opt := newOption(opts...)
 	l := len(data)
+	if l == 0x00 {
+		return []byte{0, 0}, nil
+	}
 	if tag > 0x40 {
 		return nil, ErrInvalidStructType
 	}

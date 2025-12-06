@@ -24,6 +24,13 @@ func newOption(opts ...FrameOption) Option {
 	}
 	return opt
 }
+func EmptyFrame(opts ...FrameOption) TLVFrame {
+	r, err := tlv_encode(0x00, []byte(""), opts...)
+	if err != nil {
+		return []byte{}
+	}
+	return r
+}
 
 func FrameFromString(v string, opts ...FrameOption) TLVFrame {
 	r, err := tlv_encode(TLV_TYPE_STRING, []byte(v), opts...)

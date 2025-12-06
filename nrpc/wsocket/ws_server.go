@@ -243,8 +243,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		// fmt.Printf("readPump msgType:%d message:%s\n", messageType, string(m))
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
-			fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg), connReq)
-			fmt.Println("----------", connReq.Action)
+			// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg), connReq)
+			// fmt.Println("----------", connReq.Action)
 			if connReq.Action == actions.ACTION_CALL {
 				// 调用方法
 				s.HandleCall(ctx, ch, connReq)
