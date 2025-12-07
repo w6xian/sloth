@@ -58,12 +58,11 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, data any) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("resp:", resp)
-	// // 解码
-	// resp, err = c.Decoder(resp)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	// 解码
+	resp, err = c.Decoder(resp)
+	if err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 

@@ -115,11 +115,11 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 	}
 	// 调用成功，返回结果
 	data := ret[0].Interface()
-	rst, ok := data.([]byte)
-	if !ok {
-		return nil, errors.New("call func error")
+	resp, err := c.Encoder(data)
+	if err != nil {
+		return nil, err
 	}
-	return rst, nil
+	return resp, nil
 }
 
 // Result

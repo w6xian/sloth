@@ -116,7 +116,7 @@ func (h *HelloService) Test(ctx context.Context, data []byte) (any, error) {
 		}
 		return mapData, nil
 	}
-	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
+	return map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}, nil
 }
 func (h *HelloService) Login(ctx context.Context, data []byte) ([]byte, error) {
 	return utils.Serialize(map[string]string{"user_id": "2", "time": time.Now().Format("2006-01-02 15:04:05")}), nil

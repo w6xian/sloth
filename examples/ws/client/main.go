@@ -15,7 +15,9 @@ import (
 
 func main() {
 
-	server := sloth.NewServerRpc(sloth.UseEncoder(tlv.DefaultEncoder), sloth.UseDecoder(tlv.DefaultDecoder))
+	server := sloth.NewServerRpc(
+		sloth.UseEncoder(tlv.DefaultEncoder),
+		sloth.UseDecoder(tlv.DefaultDecoder))
 	newConnect := sloth.NewConnect(sloth.WithServerLogic(server))
 	newConnect.RegisterRpc("shop", &HelloService{}, "")
 

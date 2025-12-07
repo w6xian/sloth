@@ -229,6 +229,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 			handler.OnClose(ctx, s, ch)
 			return
 		}
+		//@call HandleCall 处理调用方法
+		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
 		if messageType == websocket.BinaryMessage {
 			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
 				// 处理HdC消息
@@ -288,13 +290,16 @@ func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.Rpc
 			log.Println("HandleMessage recover err :", err)
 		}
 	}()
-
+	// @call HandleCall 处理调用方法
 	if msgReq.Action == actions.ACTION_CALL {
+		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data))
 		rst, err := s.Connect.CallFunc(ctx, msgReq)
+		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data), "rst:", string(rst), "err:", err)
 		if err != nil {
 			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
+		// fmt.Println("ws_server HandleCall ReplySuccess")
 		ch.ReplySuccess(msgReq.Id, rst)
 		return
 	}

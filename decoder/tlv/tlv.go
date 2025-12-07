@@ -138,7 +138,6 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	}
 	// 写入数据
 	copy(buf[headerSize:], data)
-
 	return buf, nil
 }
 

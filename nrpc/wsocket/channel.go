@@ -101,6 +101,7 @@ func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
+// @call ReplySuccess 回复调用成功
 func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
@@ -108,11 +109,7 @@ func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 
 	// 判断data 是否是string类型
 	// 如果是string类型，就设置msgType为TextMessage
-	msgType := BinaryMessage
-	f := data[0]
-	if f == '{' || f == '[' || f == '"' {
-		msgType = TextMessage
-	}
+	msgType := TextMessage
 
 	msg := message.NewWsJsonBackSuccess(id, data, msgType)
 	select {

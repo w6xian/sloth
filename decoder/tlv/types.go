@@ -45,7 +45,6 @@ func FrameFromJson(v any, opts ...FrameOption) TLVFrame {
 	if err != nil {
 		return []byte{}
 	}
-
 	r, err := tlv_encode(TLV_TYPE_JSON, jsonData, opts...)
 	if err != nil {
 		return []byte{}
