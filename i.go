@@ -12,7 +12,8 @@ type RpcServer interface {
 }
 
 type IRpc interface {
-	SetProtocol(protocol string)
+	SetEncoder(encoder Encoder)
+	SetDecoder(decoder Decoder)
 }
 
 type IServer interface {

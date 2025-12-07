@@ -144,7 +144,6 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 
 func tlv_decode(b []byte) (byte, []byte, error) {
 	tag := b[0]
-
 	// 64 32 24 16 | 8 4 2 1
 	lengthSize := byte(1)
 	checkCRC := false

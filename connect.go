@@ -33,6 +33,8 @@ type Connect struct {
 	cpuNum     int
 	tlsConfig  *tls.Config
 	Option     *options.Options
+	Encoder    func(any) ([]byte, error)
+	Decoder    func([]byte) ([]byte, error)
 }
 
 func (c *Connect) Options() *options.Options {
@@ -48,6 +50,8 @@ func NewConnect(opts ...ConnOption) *Connect {
 	svr.client = NewClientRpc()
 	svr.server = NewServerRpc()
 	svr.Option = options.NewOptions()
+	svr.Encoder = nrpc.DefaultEncoder
+	svr.Decoder = nrpc.DefaultDecoder
 	for _, opt := range opts {
 		opt(svr)
 	}
@@ -92,20 +96,26 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 	if !ok {
 		return nil, errors.New("method not found")
 	}
+	// 编码
+	args, err := c.Decoder(msgReq.Data)
+	if err != nil {
+		return nil, err
+	}
 	ret := mtd.Func.Call([]reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),
-		reflect.ValueOf(msgReq.Data),
+		reflect.ValueOf(args),
 	})
 	if len(ret) != 2 {
 		return nil, errors.New("call func error")
 	}
-	err, ok := ret[1].Interface().(error)
+	err, ok = ret[1].Interface().(error)
 	if ok && err != nil {
 		return nil, err
 	}
 	// 调用成功，返回结果
-	rst, ok := ret[0].Interface().([]byte)
+	data := ret[0].Interface()
+	rst, ok := data.([]byte)
 	if !ok {
 		return nil, errors.New("call func error")
 	}

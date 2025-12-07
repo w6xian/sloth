@@ -9,28 +9,41 @@ import (
 
 	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 )
 
 var once sync.Once
 var ClientObjc *ClientRpc
 
 type ClientRpc struct {
-	Serve IServer
+	Serve   IServer
+	Encoder func(any) ([]byte, error)
+	Decoder func([]byte) ([]byte, error)
 }
 
-func (c *ClientRpc) SetProtocol(protocol string) {
-
-}
-
-func NewClientRpc() *ClientRpc {
+func NewClientRpc(opts ...IRpcOption) *ClientRpc {
 	once.Do(func() {
-		ClientObjc = &ClientRpc{}
+		ClientObjc = &ClientRpc{
+			Encoder: nrpc.DefaultEncoder,
+			Decoder: nrpc.DefaultDecoder,
+		}
 	})
+	for _, opt := range opts {
+		opt(ClientObjc)
+	}
 	return ClientObjc
 }
 
+func (c *ClientRpc) SetEncoder(encoder Encoder) {
+	c.Encoder = encoder
+}
+
+func (c *ClientRpc) SetDecoder(decoder Decoder) {
+	c.Decoder = decoder
+}
+
 // @call client
-func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data []byte) ([]byte, error) {
+func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data any) ([]byte, error) {
 	if c.Serve == nil {
 		return nil, errors.New("server not found")
 	}
@@ -40,7 +53,17 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data []b
 		return nil, errors.New("channel not found")
 	}
 
-	resp, err := ch.Call(ctx, mtd, data)
+	// 编码
+	args, err := c.Encoder(data)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := ch.Call(ctx, mtd, args)
+	if err != nil {
+		return nil, err
+	}
+	// 解码
+	resp, err = c.Decoder(resp)
 	if err != nil {
 		return nil, err
 	}

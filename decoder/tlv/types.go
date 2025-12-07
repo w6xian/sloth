@@ -234,3 +234,17 @@ func Serialize(v any) []byte {
 		return FrameFromJson(v)
 	}
 }
+
+// DefaultEncoder is the default encoder.
+func DefaultEncoder(v any) ([]byte, error) {
+	return Serialize(v), nil
+}
+
+// DefaultDecoder is the default decoder.
+func DefaultDecoder(data []byte) ([]byte, error) {
+	d, err := Deserialize(data)
+	if err != nil {
+		return nil, err
+	}
+	return d.Value(), nil
+}

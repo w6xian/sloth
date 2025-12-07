@@ -15,7 +15,7 @@ import (
 
 func main() {
 
-	server := sloth.NewServerRpc(sloth.WithProtocol(sloth.PROTOCOL_TLV))
+	server := sloth.NewServerRpc(sloth.UseEncoder(tlv.DefaultEncoder), sloth.UseDecoder(tlv.DefaultDecoder))
 	newConnect := sloth.NewConnect(sloth.WithServerLogic(server))
 	newConnect.RegisterRpc("shop", &HelloService{}, "")
 
@@ -35,27 +35,12 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			args := "HelloService.Test 302 [34 97 98 99 34]"
-			data, err := server.Call(context.Background(), "v1.Test",
-				tlv.Serialize(args))
+			data, err := server.Call(context.Background(), "v1.Test", args)
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
 			}
-			// fmt.Println("Call success:", "****************")
-			// fmt.Println("Call success:", data)
-			if tlv.IsTLVFrame(data) {
-				h := map[string]any{}
-				err := tlv.FrameToStruct(data, &h)
-				if err != nil {
-					fmt.Println("FrameToStruct error:", err)
-					continue
-				}
-				for k, v := range h {
-					fmt.Println(k, v)
-				}
-			} else {
-				fmt.Println("Call success:", string(data))
-			}
+			fmt.Println("Call success:", string(data))
 		}
 	}()
 	newConnect.StartWebsocketClient(

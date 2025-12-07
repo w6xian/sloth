@@ -24,7 +24,9 @@ func main() {
 		panic(err)
 	}
 	r := mux.NewRouter()
-	client := sloth.NewClientRpc()
+	client := sloth.NewClientRpc(
+		sloth.UseEncoder(tlv.DefaultEncoder),
+		sloth.UseDecoder(tlv.DefaultDecoder))
 	newConnect := sloth.NewConnect(sloth.WithClientLogic(client))
 	newConnect.RegisterRpc("v1", &HelloService{}, "")
 	newConnect.StartWebsocketServer(
@@ -34,7 +36,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(5 * time.Second)
-			data, err := client.Call(context.Background(), 2, "shop.Test", []byte("abc"))
+			data, err := client.Call(context.Background(), 2, "shop.Test", "abc")
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
@@ -95,7 +97,7 @@ type HelloService struct {
 	Id int64 `json:"id"`
 }
 
-func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
+func (h *HelloService) Test(ctx context.Context, data []byte) (any, error) {
 	h.Id = h.Id + 1
 	// c, err := sloth.Decode64ToTlv(data)
 	// if err != nil {
@@ -104,16 +106,7 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 	// }
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
-	fmt.Println("Test success:", string(data))
-	if tlv.IsTLVFrame(data) {
-		args, err := tlv.Deserialize(data)
-		if err != nil {
-			fmt.Println("Deserialize error:", err)
-			return nil, err
-		}
-		fmt.Println("Test success:", args.String())
-	}
-	fmt.Println(string(data))
+	fmt.Println("Test args:", string(data))
 	if h.Id%10 == 1 {
 		// return utils.Serialize([]string{"a", "b", "c"}), nil
 		mapData := map[string]string{
@@ -121,7 +114,7 @@ func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
 			"b": "2",
 			"c": "中国",
 		}
-		return sloth.Json(mapData, nil)
+		return mapData, nil
 	}
 	return utils.Serialize(map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }

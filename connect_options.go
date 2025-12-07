@@ -32,11 +32,15 @@ func WithCpuNum(cpuNum int) ConnOption {
 func WithClientLogic(l *ClientRpc) ConnOption {
 	return func(c *Connect) {
 		c.client = l
+		c.Encoder = l.Encoder
+		c.Decoder = l.Decoder
 	}
 }
 func WithServerLogic(l *ServerRpc) ConnOption {
 	return func(c *Connect) {
 		c.server = l
+		c.Encoder = l.Encoder
+		c.Decoder = l.Decoder
 	}
 }
 
@@ -99,5 +103,19 @@ func WithRoutineAmount(routineAmount uint64) ConnOption {
 func WithRoutineSize(routineSize int) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.RoutineSize = routineSize
+	}
+}
+
+// 编码解码
+
+func UseEncoder(encoder Encoder) IRpcOption {
+	return func(ch IRpc) {
+		ch.SetEncoder(encoder)
+	}
+}
+
+func UseDecoder(decoder Decoder) IRpcOption {
+	return func(ch IRpc) {
+		ch.SetDecoder(decoder)
 	}
 }
