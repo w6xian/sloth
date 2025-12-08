@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// 服务器端对客户端的连接通道
 // in fact, Channel it's a user Connect session
 type Channel struct {
 	Lock      sync.Mutex

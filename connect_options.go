@@ -36,7 +36,16 @@ func WithClientLogic(l *ClientRpc) ConnOption {
 		c.Decoder = l.Decoder
 	}
 }
-func WithServerLogic(l *ServerRpc) ConnOption {
+
+func Client(l *ClientRpc) ConnOption {
+	return func(c *Connect) {
+		c.client = l
+		c.Encoder = l.Encoder
+		c.Decoder = l.Decoder
+	}
+}
+
+func Server(l *ServerRpc) ConnOption {
 	return func(c *Connect) {
 		c.server = l
 		c.Encoder = l.Encoder

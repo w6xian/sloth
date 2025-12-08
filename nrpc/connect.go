@@ -22,5 +22,6 @@ type RpcCaller struct {
 
 type ICall interface {
 	Call(ctx context.Context, mtd string, args []byte) ([]byte, error)
+	// channel / client中实现
 	Push(ctx context.Context, msg *message.Msg) (err error)
 }

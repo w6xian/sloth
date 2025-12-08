@@ -8,14 +8,12 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
-	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 )
 
 func main() {
@@ -24,10 +22,10 @@ func main() {
 		panic(err)
 	}
 	r := mux.NewRouter()
-	client := sloth.NewClientRpc(
+	client := sloth.ConnectClientRpc(
 		sloth.UseEncoder(tlv.DefaultEncoder),
 		sloth.UseDecoder(tlv.DefaultDecoder))
-	newConnect := sloth.NewConnect(sloth.WithClientLogic(client))
+	newConnect := sloth.NewConnect(sloth.Client(client))
 	newConnect.RegisterRpc("v1", &HelloService{}, "")
 	newConnect.StartWebsocketServer(
 		wsocket.WithRouter(r),
@@ -70,24 +68,15 @@ func (h *Handler) OnOpen(ctx context.Context, s *wsocket.WsServer, ch group.ICha
 }
 
 func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
-	if msgType == websocket.TextMessage {
-		// fmt.Println("------------login------------")
-		if ch.UserId() == 0 {
-			userId := int64(2)
-			roomId := int64(1)
-			//1房1用户
-			b := s.Bucket(userId)
-			//insert into a bucket
-			err := b.Put(userId, roomId, ch)
-			return err
-		}
-	} else if decoder.IsHdCFrame(message) {
-		hdc, err := decoder.DecodeHdC(message)
-		if err != nil {
-			fmt.Println("DecodeHdC error:", err)
-			return err
-		}
-		fmt.Println("DecodeHdC success:", string(hdc.Data()))
+
+	if ch.UserId() == 0 {
+		userId := int64(2)
+		roomId := int64(1)
+		//1房1用户
+		b := s.Bucket(userId)
+		//insert into a bucket
+		err := b.Put(userId, roomId, ch)
+		return err
 	}
 	fmt.Println(string(message))
 	return nil
@@ -107,14 +96,14 @@ func (h *HelloService) Test(ctx context.Context, data []byte) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	fmt.Println("Test args:", string(data))
-	if h.Id%10 == 1 {
-		// return utils.Serialize([]string{"a", "b", "c"}), nil
-		mapData := map[string]string{
-			"t": time.Now().Format("2006-01-02 15:04:05"),
-			"b": "2",
-			"c": "中国",
-		}
-		return mapData, nil
+	if h.Id%5 == 1 {
+		return nil, fmt.Errorf("error %d", h.Id)
+		// mapData := map[string]string{
+		// 	"t": time.Now().Format("2006-01-02 15:04:05"),
+		// 	"b": "2",
+		// 	"c": "中国",
+		// }
+		// return mapData, nil
 	}
 	return map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}, nil
 }

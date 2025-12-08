@@ -10,8 +10,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/w6xian/sloth/decoder"
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/options"
@@ -47,8 +45,8 @@ func NewConnect(opts ...ConnOption) *Connect {
 	svr.sleepTimes = 15
 	svr.times = 8
 	svr.cpuNum = runtime.NumCPU()
-	svr.client = NewClientRpc()
-	svr.server = NewServerRpc()
+	svr.client = ConnectClientRpc()
+	svr.server = ConnectServerRpc()
 	svr.Option = options.NewOptions()
 	svr.Encoder = nrpc.DefaultEncoder
 	svr.Decoder = nrpc.DefaultDecoder
@@ -120,23 +118,6 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		return nil, err
 	}
 	return resp, nil
-}
-
-// Result
-func Json(rst any, err error) (decoder.HdCFrame, error) {
-	if err != nil {
-		return decoder.NewHdCReplyError([]byte(err.Error())), nil
-	}
-	return decoder.NewHdCReplySuccess(tlv.FrameFromJson(rst)), nil
-}
-
-// Result
-func Bin(rst tlv.Bin, err error) (decoder.HdCFrame, error) {
-	if err != nil {
-		return decoder.NewHdCReplyError([]byte(err.Error())), nil
-	}
-
-	return decoder.NewHdCReplySuccess(tlv.FrameFromBinary(rst)), nil
 }
 
 func suitableMethods(typ reflect.Type) map[string]reflect.Method {

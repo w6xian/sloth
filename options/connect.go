@@ -27,6 +27,8 @@ type Options struct {
 	RoutineAmount uint64
 	// RoutineSize is the size of the buffer used to store messages for each goroutine.
 	RoutineSize int
+	// SliceSize is the size of the slice used to store messages for each client.
+	SliceSize int64
 }
 
 func NewOptions() *Options {
@@ -44,5 +46,6 @@ func NewOptions() *Options {
 		RoomSize:      1024,
 		RoutineAmount: 32,
 		RoutineSize:   20,
+		SliceSize:     512,
 	}
 }

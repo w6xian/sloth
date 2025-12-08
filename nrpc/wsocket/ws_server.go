@@ -38,6 +38,7 @@ type WsServer struct {
 	ReadBufferSize  int
 	WriteBufferSize int
 	BroadcastSize   int
+	SliceSize       int64
 }
 
 func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
@@ -69,6 +70,7 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 		ReadBufferSize:  opt.ReadBufferSize,
 		WriteBufferSize: opt.WriteBufferSize,
 		BroadcastSize:   opt.BroadcastSize,
+		SliceSize:       opt.SliceSize,
 	}
 	for _, opt := range options {
 		opt(s)
@@ -175,10 +177,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if msg.Type == websocket.BinaryMessage {
-				slicesBinarySend(msg.Id, ch.Conn, msg.Data, 512)
-				continue
-			}
+
 			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
@@ -231,13 +230,13 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		}
 		//@call HandleCall 处理调用方法
 		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
-		if messageType == websocket.BinaryMessage {
-			if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
-				// 处理HdC消息
-				handler.OnData(ctx, s, ch, messageType, hdc)
-				continue
-			}
-		}
+		// if messageType == websocket.BinaryMessage {
+		// 	if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
+		// 		// 处理HdC消息
+		// 		handler.OnData(ctx, s, ch, messageType, hdc)
+		// 		continue
+		// 	}
+		// }
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
@@ -266,9 +265,9 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 				ch.rpcBacker <- backObj
 				continue
 			}
-			fmt.Println("ws_server readPump err action messageType:", connReq.Action)
+			// fmt.Println("ws_server readPump err action messageType:", connReq.Action)
 		} else {
-			fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg), err)
+			log.Println(err)
 		}
 
 		if handler != nil {

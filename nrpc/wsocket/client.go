@@ -13,13 +13,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// 客户端对服务器的连接通道
 // in fact, Client it's a user Connect session
 type WsClient struct {
 	send      chan *message.Msg
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
 
-	UserId  int64
+	// 客户端的用户ID
+	UserId int64
+	// 在服务器中哪个房间
 	RoomId  int64
 	conn    *websocket.Conn
 	connTcp *net.TCPConn
@@ -57,6 +60,7 @@ func (c *WsClient) Logout() (err error) {
 	return
 }
 
+// Push 客户端 发送消息到服务器
 func (c *WsClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	if c.conn == nil {
 		return

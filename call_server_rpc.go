@@ -30,7 +30,7 @@ func (c *ServerRpc) SetDecoder(decoder Decoder) {
 	c.Decoder = decoder
 }
 
-func NewServerRpc(opts ...IRpcOption) *ServerRpc {
+func ConnectServerRpc(opts ...IRpcOption) *ServerRpc {
 	svr_once.Do(func() {
 		ServerObjc = &ServerRpc{
 			Encoder: nrpc.DefaultEncoder,
@@ -75,7 +75,6 @@ func (c *ServerRpc) Send(ctx context.Context, data any) error {
 	if err != nil {
 		return err
 	}
-
 	msg := message.NewTextMessage(attr)
 	err = c.Listen.Push(ctx, msg)
 	if err != nil {

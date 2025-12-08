@@ -15,10 +15,10 @@ import (
 
 func main() {
 
-	server := sloth.NewServerRpc(
+	server := sloth.ConnectServerRpc(
 		sloth.UseEncoder(tlv.DefaultEncoder),
 		sloth.UseDecoder(tlv.DefaultDecoder))
-	newConnect := sloth.NewConnect(sloth.WithServerLogic(server))
+	newConnect := sloth.NewConnect(sloth.Server(server))
 	newConnect.RegisterRpc("shop", &HelloService{}, "")
 
 	go func() {
@@ -46,7 +46,7 @@ func main() {
 		}
 	}()
 	newConnect.StartWebsocketClient(
-		wsocket.WithClientHandle(&Handler{}),
+		wsocket.WithClientHandle(&Handler{server: server}),
 		wsocket.WithClientUriPath("/ws"),
 		wsocket.WithClientServerUri("localhost:8990"),
 	)
@@ -54,6 +54,7 @@ func main() {
 }
 
 type Handler struct {
+	server *sloth.ServerRpc
 }
 
 // OnClose implements wsocket.IClientHandleMessage.
@@ -67,7 +68,7 @@ func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}
-	fmt.Println(string(message))
+
 	return nil
 }
 
@@ -79,7 +80,10 @@ func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsock
 
 // onOpen implements wsocket.IClientHandleMessage.
 func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient) error {
-	fmt.Println("OnOpen:", ch.UserId)
+	fmt.Println("OnOpen:", ch.UserId, h.server)
+	ch.UserId = 2
+	ch.RoomId = 1
+	h.server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
 	return nil
 }
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
-	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/message"
@@ -33,6 +32,7 @@ type LocalClient struct {
 	ReadWait        time.Duration
 	PongWait        time.Duration
 	PingPeriod      time.Duration
+	SliceSize       int64
 	MaxMessageSize  int64
 	ReadBufferSize  int
 	WriteBufferSize int
@@ -56,6 +56,7 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	s.ReadBufferSize = opt.ReadBufferSize
 	s.WriteBufferSize = opt.WriteBufferSize
 	s.BroadcastSize = opt.BroadcastSize
+	s.SliceSize = opt.SliceSize
 
 	s.handler = nil
 	for _, opt := range options {
@@ -72,8 +73,8 @@ func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 			"app_id": []string{id.ShortStringID()},
 		})
 		if err != nil {
-			fmt.Println("websocket.DefaultDialer.Dial err = ", err.Error())
-			time.Sleep(5 * time.Second)
+			// 1-30 秒重试
+			time.Sleep(time.Duration(utils.RandInt64(1, 30)) * time.Second)
 			s.ListenAndServe(ctx)
 			return err
 		}
@@ -87,11 +88,11 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
-	wsConn := NewWsClient(2, 2)
+	wsConn := NewWsClient(0, 10)
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
-	wsConn.RoomId = 1
+	wsConn.RoomId = 0
 	//send data to websocket conn
 	go c.writePump(ctx, wsConn)
 	//get data from websocket conn
@@ -134,22 +135,17 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 		ch.conn.Close()
 		ch.conn = nil
 	}()
-
+	sliceSize := int(s.SliceSize) // 默认512
 	for {
 		select {
 		case msg, ok := <-ch.send:
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
-				fmt.Println("SetWriteDeadline not ok")
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			sl, err := getSlice(msg.Body)
-			if err != nil {
-				continue
-			}
-			if err := slicesTextSend(sl.N, ch.conn, msg.Body, 32); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
 				return
 			}
 		case msg, ok := <-ch.rpcCaller:
@@ -160,12 +156,8 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if msg.Type == websocket.BinaryMessage {
-				slicesBinarySend(msg.Id, ch.conn, msg.Data, 512)
-				continue
-			}
 
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
 				fmt.Println("slicesTextSend err = ", err.Error())
 				return
 			}
@@ -178,12 +170,8 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if msg.Type == websocket.BinaryMessage {
-				slicesBinarySend(msg.Id, ch.conn, msg.Data, 512)
-				continue
-			}
 
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), 512); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
 				return
 			}
 			// fmt.Println("rpcBacker message:", message)
@@ -232,41 +220,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			}
 		}
 		if msg == nil || messageType == -1 {
-			// handler.onClose(ctx, c, ch)
+			handler.OnClose(ctx, c, ch)
 			return
-		}
-		if messageType == websocket.BinaryMessage {
-			if frame, hdcErr := receiveHdCFrame(ch.conn, msg); hdcErr == nil {
-				hdc, err := decoder.DecodeHdC(frame)
-				if err != nil {
-					fmt.Println("DecodeHdC err = ", err.Error())
-					continue
-				}
-				// call
-				if hdc.FunctionCode() == 0xFF {
-					// c.HandleCall(ctx, ch, hdc)
-					continue
-				}
-				// fmt.Println("readPump messageType:", messageType, "message:", hdc.Id(), hdc.FunctionCode(), hdc.Data())
-				// reply error
-				if hdc.FunctionCode() == 0x00 {
-					// 处理服务器返回的错误
-					backObj := message.NewWsJsonBackError(hdc.Id(), []byte(hdc.Data()))
-					ch.rpcBacker <- backObj
-					continue
-				}
-				// reply success
-				if hdc.FunctionCode() == 0x01 {
-					backObj := message.NewWsJsonBackSuccess(hdc.Id(), []byte(hdc.Data()), messageType)
-					// fmt.Println("========================")
-					ch.rpcBacker <- backObj
-					// fmt.Println("========================!", cap(ch.rpcBacker), len(ch.rpcBacker))
-					continue
-				}
-				// 处理HdC消息
-				handler.OnData(ctx, c, ch, messageType, frame)
-				continue
-			}
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
