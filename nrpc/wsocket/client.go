@@ -128,7 +128,6 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args []byte) ([]byte, 
 				if back.Error != "" {
 					return []byte(""), errors.New(back.Error)
 				}
-
 				return back.Data, nil
 			}
 			return []byte{}, fmt.Errorf("unknown message type")

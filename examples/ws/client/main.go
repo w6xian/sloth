@@ -36,8 +36,8 @@ func main() {
 			// 	fmt.Println("Call success:", string(data))
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
-			args := "HelloService.Test 302 [34 97 98 99 34]"
-			data, err := server.Call(context.Background(), "v1.Test", args)
+			// args := "HelloService.Test 302 [34 97 98 99 34]"
+			data, err := server.Call(context.Background(), "v1.TestByte", byte(34))
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue

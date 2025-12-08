@@ -31,9 +31,11 @@ const (
 	TLV_TYPE_INT64   = 0x04
 	TLV_TYPE_UINT64  = 0x05
 	TLV_TYPE_FLOAT64 = 0x06
+	TLV_TYPE_BYTE    = 0x07
 )
 
-const TLVX_HEADDER_SIZE = 5
+const TLVX_HEADER_SIZE = 5
+const TLVX_HEADER_MIN_SIZE = 2
 
 type TlV struct {
 	T byte   // tag type

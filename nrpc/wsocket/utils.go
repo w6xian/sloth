@@ -64,7 +64,8 @@ func getSlice(message []byte) (DataSlice, error) {
 
 func getSliceArray(n string, message []byte, sliceSize int) ([]*DataSlice, error) {
 	// 这里可能有汉字
-	msg := []rune(string(message))
+	// msg := []rune(string(message))
+	msg := message
 	totalSize := len(msg)
 	totalSlice := totalSize / sliceSize
 	if totalSize%sliceSize != 0 {
@@ -83,7 +84,8 @@ func getSliceArray(n string, message []byte, sliceSize int) ([]*DataSlice, error
 			T: totalSlice,
 			I: i,
 			S: totalSize,
-			D: []byte(string(msg[start:end])),
+			// D: []byte(string(msg[start:end])),
+			D: msg[start:end],
 		})
 	}
 	return slices, nil
@@ -120,7 +122,7 @@ func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]by
 	// 接收完整数据
 	data := make([]byte, 0, dataSize)
 	data = append(data, sc.D...)
-	if dataSize == len(data) {
+	if dataSize <= len(data) {
 		return data, nil
 	}
 
@@ -144,7 +146,7 @@ func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]by
 		}
 		data = append(data, slices.D...)
 		realSize := utf8.RuneCountInString(string(data))
-		if realSize == slices.S {
+		if realSize <= slices.S {
 			return data, nil
 		}
 	}
