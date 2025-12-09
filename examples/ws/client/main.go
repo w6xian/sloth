@@ -37,7 +37,7 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
-			data, err := server.Call(context.Background(), "v1.TestByte", byte(34))
+			data, err := server.Call(context.Background(), "v1.TestByte")
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
@@ -90,6 +90,11 @@ func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 type HelloService struct {
 }
 
-func (h *HelloService) Test(ctx context.Context, data []byte) ([]byte, error) {
+func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
+	fmt.Println("Test args:", b)
 	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
+}
+
+type Hello struct {
+	Name string `json:"name"`
 }

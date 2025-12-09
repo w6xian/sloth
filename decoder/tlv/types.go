@@ -94,6 +94,15 @@ func FrameFromByte(v byte, opts ...FrameOption) TLVFrame {
 	return r
 }
 
+// Nil 从nil编码为tlv
+func FrameFromNil(opts ...FrameOption) TLVFrame {
+	r, err := tlv_encode(TLV_TYPE_NIL, []byte{}, opts...)
+	if err != nil {
+		return []byte{}
+	}
+	return r
+}
+
 // Uint64 从uint64编码为tlv
 func FrameFromUint64(v uint64, opts ...FrameOption) TLVFrame {
 	bytes := make([]byte, 8)
@@ -205,42 +214,57 @@ func Deserialize(v []byte) (*TlV, error) {
 	return tlv, nil
 }
 func Serialize(v any) []byte {
-	var key string
 	if v == nil {
-		return []byte(key)
+		return []byte{TLV_TYPE_NIL, 0}
 	}
 	switch ft := v.(type) {
 	case float64:
+		// fmt.Println("float64", ft)
 		return FrameFromFloat64(float64(ft))
 	case float32:
+		// fmt.Println("float32", ft)
 		return FrameFromFloat64(float64(ft))
 	case int:
+		// fmt.Println("int", ft)
 		return FrameFromInt64(int64(ft))
 	case uint:
+		// fmt.Println("uint", ft)
 		return FrameFromUint64(uint64(ft))
 	case int8:
+		// fmt.Println("int8", ft)
 		return FrameFromInt64(int64(ft))
 	case uint8:
+		// fmt.Println("uint8", ft)
 		return FrameFromByte(byte(ft))
 	case int16:
+		// fmt.Println("int16", ft)
 		return FrameFromInt64(int64(ft))
 	case uint16:
+		// fmt.Println("uint16", ft)
 		return FrameFromUint64(uint64(ft))
 	case int32:
+		// fmt.Println("int32", ft)
 		return FrameFromInt64(int64(ft))
 	case uint32:
+		// fmt.Println("uint32", ft)
 		return FrameFromUint64(uint64(ft))
 	case int64:
+		// fmt.Println("int64", ft)
 		return FrameFromInt64(ft)
 	case uint64:
+		// fmt.Println("uint64", ft)
 		return FrameFromUint64(ft)
 	case Bin:
+		// fmt.Println("Bin", ft)
 		return FrameFromBinary(ft)
 	case []byte:
+		// fmt.Println("[]byte", ft)
 		return FrameFromBinary(ft)
 	case string:
+		// fmt.Println("string", ft)
 		return FrameFromString(ft)
 	default:
+		// fmt.Println("default", ft)
 		return FrameFromJson(v)
 	}
 }

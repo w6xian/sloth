@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/message"
@@ -64,9 +65,13 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	}
 	return s
 }
+func (s *LocalClient) log(level logger.LogLevel, line string, args ...any) {
+	s.Connect.Log(level, line, args...)
+}
 
 func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 	addr := fmt.Sprintf("ws://%s%s", s.serverUri, s.uriPath)
+	s.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, http.Header{
@@ -74,7 +79,9 @@ func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 		})
 		if err != nil {
 			// 1-30 秒重试
-			time.Sleep(time.Duration(utils.RandInt64(1, 30)) * time.Second)
+			retry := utils.RandInt64(1, 30)
+			s.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
+			time.Sleep(time.Duration(retry) * time.Second)
 			s.ListenAndServe(ctx)
 			return err
 		}
@@ -105,7 +112,8 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 
 func (s *LocalClient) Call(ctx context.Context, mtd string, data []byte) ([]byte, error) {
 	if s.client == nil {
-		return nil, errors.New("server not found")
+		s.log(logger.Error, "client not found")
+		return nil, errors.New("client not found")
 	}
 
 	resp, err := s.client.Call(ctx, mtd, data)
@@ -117,6 +125,7 @@ func (s *LocalClient) Call(ctx context.Context, mtd string, data []byte) ([]byte
 
 func (s *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	if s.client == nil {
+		s.log(logger.Error, "server not found")
 		return errors.New("server not found")
 	}
 	return s.client.Push(ctx, msg)
@@ -125,7 +134,7 @@ func (s *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("writePump recover err :", err)
+			s.log(logger.Error, "writePump recover err : %v", err)
 		}
 	}()
 	//PingPeriod default eq 54s
@@ -158,7 +167,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 			}
 
 			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
-				fmt.Println("slicesTextSend err = ", err.Error())
+				s.log(logger.Error, "slicesTextSend err = %v", err.Error())
 				return
 			}
 			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
@@ -264,7 +273,8 @@ func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("HandleMessage recover err :", err)
+			fmt.Println("------------")
+			c.log(logger.Error, "HandleMessage recover err : %v", err)
 		}
 	}()
 	if msgReq.Action == actions.ACTION_CALL {

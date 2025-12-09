@@ -6,14 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 
+	"github.com/w6xian/sloth/internal/logger"
+	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/internal/utils/array"
+	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/options"
 )
+
+var instCount int64
 
 // Precompute the reflect type for context.
 var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
@@ -22,6 +30,7 @@ var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
 var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
 
 type Connect struct {
+	// id         int64
 	ServerId   string
 	client     *ClientRpc
 	server     *ServerRpc
@@ -33,6 +42,10 @@ type Connect struct {
 	Option     *options.Options
 	Encoder    func(any) ([]byte, error)
 	Decoder    func([]byte) ([]byte, error)
+	//log
+	logger   []logger.Logger
+	logLvl   logger.LogLevel
+	logGuard sync.RWMutex
 }
 
 func (c *Connect) Options() *options.Options {
@@ -41,6 +54,8 @@ func (c *Connect) Options() *options.Options {
 
 func NewConnect(opts ...ConnOption) *Connect {
 	svr := new(Connect)
+	// svr.id = atomic.AddInt64(&instCount, 1)
+	svr.ServerId = id.ShortID()
 	svr.serviceMap = make(map[string]*ServiceFuncs)
 	svr.sleepTimes = 15
 	svr.times = 8
@@ -50,6 +65,14 @@ func NewConnect(opts ...ConnOption) *Connect {
 	svr.Option = options.NewOptions()
 	svr.Encoder = nrpc.DefaultEncoder
 	svr.Decoder = nrpc.DefaultDecoder
+
+	svr.logger = make([]logger.Logger, int(logger.Max+1))
+	svr.logLvl = logger.Info
+	l := log.New(os.Stderr, "", log.Flags())
+	for index, _ := range svr.logger {
+		svr.logger[index] = l
+	}
+
 	for _, opt := range opts {
 		opt(svr)
 	}
@@ -79,32 +102,62 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	wsClient.ListenAndServe(context.Background())
 }
 
+var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+
 func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte, error) {
 	parts := strings.Split(msgReq.Method, ".")
 	if len(parts) != 2 {
+		c.Log(logger.Info, "(%s) method format error", c.ServerId)
 		return nil, errors.New("method format error")
 	}
 	serviceName := parts[0]
 	methodName := parts[1]
 	serviceFns, ok := c.serviceMap[serviceName]
 	if !ok {
+		c.Log(logger.Info, "(%s) service not found", c.ServerId)
 		return nil, errors.New("service not found")
 	}
 	mtd, ok := serviceFns.M[methodName]
 	if !ok {
+		c.Log(logger.Info, "(%s) method not found", c.ServerId)
 		return nil, errors.New("method not found")
 	}
+	// fmt.Println("---------")
 	// 编码
 	args, err := c.Decoder(msgReq.Data)
 	if err != nil {
 		return nil, err
 	}
-	ret := mtd.Func.Call([]reflect.Value{
+
+	funcArgs := []reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),
-		reflect.ValueOf(args),
-	})
+	}
+	if len(args) > 0 {
+		// Elem() 相当于 *T 取指针指向的类型
+		in2 := mtd.Type.In(2)
+		structType := in2.Elem()
+		nameStr := in2.String()
+		// fmt.Println("struct type:", structType)
+		// fmt.Println("param type:", nameStr)
+		if nameStr == "[]byte" || nameStr == "[]uint8" {
+			funcArgs = append(funcArgs, reflect.ValueOf(args))
+		} else if array.InArray(nameStr, commonTypes) {
+			// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
+			paramType := utils.GetType(nameStr, args)
+			funcArgs = append(funcArgs, paramType)
+		} else {
+			// 转换参数类型为reflect.Value
+			if instance, cErr := NewInstanceReflect(structType); cErr == nil {
+				utils.Deserialize(args, instance.Interface())
+				funcArgs = append(funcArgs, instance)
+			}
+		}
+	}
+
+	ret := mtd.Func.Call(funcArgs)
 	if len(ret) != 2 {
+		c.Log(logger.Info, "(%s) call func error", c.ServerId)
 		return nil, errors.New("call func error")
 	}
 	err, ok = ret[1].Interface().(error)
@@ -118,6 +171,72 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		return nil, err
 	}
 	return resp, nil
+}
+
+// 根据type生成新的实例
+func NewInstanceReflect(typ reflect.Type) (reflect.Value, error) {
+	if typ == nil {
+		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.String())
+	}
+	instance := reflect.New(typ)
+	return instance, nil
+}
+
+// SetLogger assigns the logger to use as well as a level
+//
+// The logger parameter is an interface that requires the following
+// method to be implemented (such as the the stdlib log.Logger):
+//
+//	Output(calldepth int, s string)
+func (w *Connect) SetLogger(l logger.Logger, lvl logger.LogLevel) {
+	w.logGuard.Lock()
+	defer w.logGuard.Unlock()
+
+	for level := range w.logger {
+		w.logger[level] = l
+	}
+	w.logLvl = lvl
+}
+
+// SetLoggerForLevel assigns the same logger for specified `level`.
+func (w *Connect) SetLoggerForLevel(l logger.Logger, lvl logger.LogLevel) {
+	w.logGuard.Lock()
+	defer w.logGuard.Unlock()
+
+	w.logger[lvl] = l
+}
+
+// SetLoggerLevel sets the package logging level.
+func (w *Connect) SetLoggerLevel(lvl logger.LogLevel) {
+	w.logGuard.Lock()
+	defer w.logGuard.Unlock()
+
+	w.logLvl = lvl
+}
+
+func (w *Connect) getLogger(lvl logger.LogLevel) (logger.Logger, logger.LogLevel) {
+	w.logGuard.RLock()
+	defer w.logGuard.RUnlock()
+
+	return w.logger[lvl], w.logLvl
+}
+
+func (w *Connect) getLogLevel() logger.LogLevel {
+	w.logGuard.RLock()
+	defer w.logGuard.RUnlock()
+
+	return w.logLvl
+}
+
+func (w *Connect) Log(lvl logger.LogLevel, line string, args ...any) {
+	logger, logLvl := w.getLogger(lvl)
+	if logger == nil {
+		return
+	}
+	if logLvl > lvl {
+		return
+	}
+	logger.Output(2, fmt.Sprintf("%-4s %s", lvl, fmt.Sprintf(line, args...)))
 }
 
 func suitableMethods(typ reflect.Type) map[string]reflect.Method {

@@ -32,6 +32,7 @@ const (
 	TLV_TYPE_UINT64  = 0x05
 	TLV_TYPE_FLOAT64 = 0x06
 	TLV_TYPE_BYTE    = 0x07
+	TLV_TYPE_NIL     = 0x08
 )
 
 const TLVX_HEADER_SIZE = 5
@@ -91,7 +92,7 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	opt := newOption(opts...)
 	l := len(data)
 	if l == 0x00 {
-		return []byte{0, 0}, nil
+		return []byte{tag, 0}, nil
 	}
 	if tag > 0x40 {
 		return nil, ErrInvalidStructType
@@ -144,9 +145,15 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 }
 
 func tlv_decode(b []byte) (byte, []byte, error) {
+	if len(b) < TLVX_HEADER_MIN_SIZE {
+		return 0, nil, ErrInvalidValueLength
+	}
 	tag := b[0]
 	// 64 32 24 16 | 8 4 2 1
 	lengthSize := byte(1)
+	if lengthSize <= 0 {
+		return tag, []byte{}, nil
+	}
 	checkCRC := false
 	if tag&0x80 > 0 {
 		lengthSize = 2

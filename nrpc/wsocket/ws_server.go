@@ -11,6 +11,7 @@ import (
 
 	"github.com/w6xian/sloth/actions"
 	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/tools"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/message"
@@ -39,6 +40,10 @@ type WsServer struct {
 	WriteBufferSize int
 	BroadcastSize   int
 	SliceSize       int64
+}
+
+func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
+	s.Connect.Log(level, line, args...)
 }
 
 func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
@@ -106,7 +111,7 @@ func (s *WsServer) Broadcast(ctx context.Context, msg *message.Msg) error {
 
 func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
-		log.Println("new client connect")
+		s.log(logger.Info, "new client connect")
 		s.serveWs(ctx, w, r)
 	})
 	return nil
@@ -137,7 +142,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("writePump recover err :", err)
+			s.log(logger.Error, "writePump recover err : %v", err)
 		}
 	}()
 	//PingPeriod default eq 54s
@@ -194,7 +199,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("readPump recover err :", err)
+			s.log(logger.Error, "readPump recover err : %v", err)
 		}
 	}()
 	defer func() {
@@ -229,14 +234,6 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 			return
 		}
 		//@call HandleCall 处理调用方法
-		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
-		// if messageType == websocket.BinaryMessage {
-		// 	if hdc, hdcErr := receiveHdCFrame(ch.Conn, msg); hdcErr == nil {
-		// 		// 处理HdC消息
-		// 		handler.OnData(ctx, s, ch, messageType, hdc)
-		// 		continue
-		// 	}
-		// }
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
@@ -286,6 +283,7 @@ func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.Rpc
 
 	defer func() {
 		if err := recover(); err != nil {
+			fmt.Println("-----------2-")
 			log.Println("HandleMessage recover err :", err)
 		}
 	}()

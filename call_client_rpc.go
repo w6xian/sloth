@@ -43,7 +43,7 @@ func (c *ClientRpc) SetDecoder(decoder Decoder) {
 }
 
 // @call client
-func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data any) ([]byte, error) {
+func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...any) ([]byte, error) {
 	if c.Serve == nil {
 		return nil, errors.New("server not found")
 	}
@@ -52,7 +52,10 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, data any
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-
+	data := any(nil)
+	if len(arg) > 0 {
+		data = arg[0]
+	}
 	// 编码
 	args, err := c.Encoder(data)
 	if err != nil {

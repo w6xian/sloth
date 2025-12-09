@@ -21,6 +21,10 @@ func ShortStringID() string {
 	return shortuuid.NewWithEncoder(enc)
 }
 
+func ShortID() string {
+	return ShortStringID()
+}
+
 func NextId(svr int64) int64 {
 	node, err := snowflake.NewNode(svr)
 	if err != nil {

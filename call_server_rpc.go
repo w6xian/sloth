@@ -3,6 +3,7 @@ package sloth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 
@@ -44,9 +45,16 @@ func ConnectServerRpc(opts ...IRpcOption) *ServerRpc {
 }
 
 // @call server
-func (c *ServerRpc) Call(ctx context.Context, mtd string, data any) ([]byte, error) {
+func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
+	}
+	data := any(nil)
+	if len(arg) > 0 {
+		data = arg[0]
+	}
+	if len(arg) > 1 {
+		fmt.Println("只会使用第一个参数")
 	}
 	// 编码
 	args, err := c.Encoder(data)
