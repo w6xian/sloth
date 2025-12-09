@@ -63,7 +63,7 @@ func (r *Room) Push(ctx context.Context, msg *message.Msg) {
 		if r.Drop {
 			break
 		}
-		fmt.Println("Push", ch.UserId())
+		// fmt.Println("Push", ch.UserId())
 		if firstUserId == ch.UserId() {
 			// 重复用户，不推送。防止出现重复推送
 			fmt.Println("重复用户，不推送。防止出现重复推送")

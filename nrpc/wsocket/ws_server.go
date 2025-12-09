@@ -283,7 +283,7 @@ func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.Rpc
 
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("-----------2-")
+			// fmt.Println("-----------2-")
 			log.Println("HandleMessage recover err :", err)
 		}
 	}()

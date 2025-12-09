@@ -52,16 +52,16 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-	data := any(nil)
-	if len(arg) > 0 {
-		data = arg[0]
+	args := [][]byte{}
+	for _, v := range arg {
+		b, err := c.Encoder(v)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, b)
 	}
-	// 编码
-	args, err := c.Encoder(data)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := ch.Call(ctx, mtd, args)
+
+	resp, err := ch.Call(ctx, mtd, args...)
 	if err != nil {
 		return nil, err
 	}

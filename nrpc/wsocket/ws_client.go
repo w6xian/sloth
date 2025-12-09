@@ -110,13 +110,13 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	c.ListenAndServe(ctx)
 }
 
-func (s *LocalClient) Call(ctx context.Context, mtd string, data []byte) ([]byte, error) {
+func (s *LocalClient) Call(ctx context.Context, mtd string, data ...[]byte) ([]byte, error) {
 	if s.client == nil {
 		s.log(logger.Error, "client not found")
 		return nil, errors.New("client not found")
 	}
-
-	resp, err := s.client.Call(ctx, mtd, data)
+	// fmt.Println("Call LocalClient-11-:", mtd, data)
+	resp, err := s.client.Call(ctx, mtd, data...)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
+			// fmt.Println("Call LocalClient-22-:", msg)
 			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
 				s.log(logger.Error, "slicesTextSend err = %v", err.Error())
 				return
@@ -239,9 +239,11 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			handler.OnError(ctx, c, ch, err)
 			continue
 		}
+		// fmt.Println("Call LocalClient-44-:", m)
 		var connReq *nrpc.RpcCaller
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			if connReq.Action == actions.ACTION_REPLY {
+				// fmt.Println("Call LocalClient-33-:", connReq)
 				// 处理服务器返回的结果
 				if connReq.Error != "" {
 					// 处理服务器返回的错误
@@ -273,7 +275,7 @@ func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("------------")
+			// fmt.Println("------------")
 			c.log(logger.Error, "HandleMessage recover err : %v", err)
 		}
 	}()
@@ -283,6 +285,7 @@ func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.
 			ch.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
+		// fmt.Println("HandleCall ws_client rst:", rst)
 		ch.ReplySuccess(msgReq.Id, rst)
 		return
 	}

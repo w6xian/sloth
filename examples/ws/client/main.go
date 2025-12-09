@@ -37,7 +37,7 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
-			data, err := server.Call(context.Background(), "v1.TestByte")
+			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"), int(utils.RandInt64(1, 0xFFFF)))
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue

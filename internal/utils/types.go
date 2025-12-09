@@ -8,6 +8,7 @@ import (
 
 func GetType(name string, data []byte) reflect.Value {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+
 	switch name {
 	case "int":
 		return reflect.ValueOf(BytesToInt(data))
@@ -37,11 +38,12 @@ func GetType(name string, data []byte) reflect.Value {
 }
 
 func BytesToInt(data []byte) int {
-	return int(binary.BigEndian.Uint32(data))
+	r := binary.BigEndian.Uint64(data)
+	return int(r)
 }
 
 func BytesToInt32(data []byte) int32 {
-	return int32(binary.BigEndian.Uint32(data))
+	return int32(binary.BigEndian.Uint64(data))
 }
 
 func BytesToInt64(data []byte) int64 {
@@ -52,7 +54,7 @@ func BytesToUint32(data []byte) uint32 {
 	return binary.BigEndian.Uint32(data)
 }
 func BytesToUint(data []byte) uint {
-	return uint(binary.BigEndian.Uint32(data))
+	return uint(binary.BigEndian.Uint64(data))
 }
 
 func BytesToUint64(data []byte) uint64 {

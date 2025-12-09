@@ -77,8 +77,8 @@ func (c *WsClient) ReplySuccess(id uint64, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msgType := TextMessage
-	msg := message.NewWsJsonBackSuccess(id, data, msgType)
+	// fmt.Println("ReplySuccess WsClient id:", id, data)
+	msg := message.NewWsJsonBackSuccess(id, data)
 	select {
 	case c.rpcBacker <- msg:
 	default:
@@ -89,6 +89,7 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
+	fmt.Println("ReplyError WsClient id:", id, err)
 	msg := message.NewWsJsonBackError(id, err)
 	select {
 	case c.rpcBacker <- msg:
@@ -98,13 +99,14 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 }
 
 // Call 客户端 调用远程方法
-func (ch *WsClient) Call(ctx context.Context, mtd string, args []byte) ([]byte, error) {
+func (ch *WsClient) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-	msg := message.NewWsJsonCallObject(mtd, args)
+	msg := message.NewWsJsonCallObject(mtd, args...)
 	// 发送调用请求
+	// fmt.Println("Call WsClient------:", msg)
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
@@ -125,6 +127,7 @@ func (ch *WsClient) Call(ctx context.Context, mtd string, args []byte) ([]byte, 
 		case back, ok := <-ch.rpcBacker:
 			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
 			if back.Id == msg.Id && ok {
+				// fmt.Println("client call back.Error:", back.Id, msg.Id, back.Error)
 				if back.Error != "" {
 					return []byte(""), errors.New(back.Error)
 				}

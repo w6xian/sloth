@@ -111,7 +111,7 @@ func (h *HelloService) Test(ctx context.Context) (any, error) {
 	}
 	return map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}, nil
 }
-func (h *HelloService) TestByte(ctx context.Context) (any, error) {
+func (h *HelloService) TestByte(ctx context.Context, b []byte, i int) (any, error) {
 	h.Id = h.Id + 1
 	// c, err := sloth.Decode64ToTlv(data)
 	// if err != nil {
@@ -121,6 +121,7 @@ func (h *HelloService) TestByte(ctx context.Context) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", b[0])
+	fmt.Println("Test args:", string(b), i)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)
 		// mapData := map[string]string{

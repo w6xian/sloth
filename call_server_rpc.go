@@ -3,7 +3,6 @@ package sloth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"sync"
 
@@ -49,20 +48,19 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
-	data := any(nil)
-	if len(arg) > 0 {
-		data = arg[0]
+	// fmt.Println("Call arg:", arg)
+	args := [][]byte{}
+	for _, v := range arg {
+		// fmt.Println(v)
+		b, err := c.Encoder(v)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, b)
 	}
-	if len(arg) > 1 {
-		fmt.Println("只会使用第一个参数")
-	}
-	// 编码
-	args, err := c.Encoder(data)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.Listen.Call(ctx, mtd, args)
+	// fmt.Println("Call args:", args)
+	resp, err := c.Listen.Call(ctx, mtd, args...)
+	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err
 	}

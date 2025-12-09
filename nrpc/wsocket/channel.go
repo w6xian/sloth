@@ -108,11 +108,8 @@ func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 		return fmt.Errorf("conn is nil")
 	}
 
-	// 判断data 是否是string类型
-	// 如果是string类型，就设置msgType为TextMessage
-	msgType := TextMessage
-
-	msg := message.NewWsJsonBackSuccess(id, data, msgType)
+	// fmt.Println("ReplySuccess id:", id, data)
+	msg := message.NewWsJsonBackSuccess(id, data)
 	select {
 	case c.rpcBacker <- msg:
 	default:
@@ -123,6 +120,7 @@ func (c *Channel) ReplyError(id uint64, err []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
+	// fmt.Println("ReplyError id:", id, err)
 	msg := message.NewWsJsonBackError(id, err)
 	select {
 	case c.rpcBacker <- msg:
@@ -132,14 +130,14 @@ func (c *Channel) ReplyError(id uint64, err []byte) error {
 }
 
 // 服务器调用客户端方法
-func (ch *Channel) Call(ctx context.Context, mtd string, args []byte) ([]byte, error) {
+func (ch *Channel) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-
-	msg := message.NewWsJsonCallObject(mtd, args)
-
+	// fmt.Println("Call args|||||||||:", args)
+	msg := message.NewWsJsonCallObject(mtd, args...)
+	// fmt.Println("Call msg------:", msg)
 	// 发送调用请求
 	select {
 	case <-ticker.C:

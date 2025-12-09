@@ -276,6 +276,13 @@ func DefaultEncoder(v any) ([]byte, error) {
 
 // DefaultDecoder is the default decoder.
 func DefaultDecoder(data []byte) ([]byte, error) {
+	// 空数据
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if len(data) < TLVX_HEADER_MIN_SIZE {
+		return nil, ErrInvalidValueLength
+	}
 	d, err := Deserialize(data)
 	if err != nil {
 		return nil, err
