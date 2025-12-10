@@ -89,7 +89,7 @@ func (c *WsClient) ReplyError(id uint64, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	fmt.Println("ReplyError WsClient id:", id, err)
+	// fmt.Println("ReplyError WsClient id:", id, err)
 	msg := message.NewWsJsonBackError(id, err)
 	select {
 	case c.rpcBacker <- msg:

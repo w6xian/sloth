@@ -135,10 +135,10 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 	if len(args) > 0 {
 		// Elem() 相当于 *T 取指针指向的类型
 		in2 := mtd.Type.In(2)
-		param, err := InstanceParams(in2, args)
+		param, iErr := instance_params(in2, args)
 		// fmt.Println("param:", param, err)
-		if err != nil {
-			return nil, err
+		if iErr != nil {
+			return nil, iErr
 		}
 		funcArgs = append(funcArgs, param)
 		// fmt.Println("funcArgs:", funcArgs)
@@ -151,14 +151,14 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 
 			// more args
 			for i := 3; i < moreIn; i++ {
-				data, err := c.Decoder(msgReq.Args[i-3])
-				if err != nil {
-					return nil, err
+				data, iErr := c.Decoder(msgReq.Args[i-3])
+				if iErr != nil {
+					return nil, iErr
 				}
 				inx := mtd.Type.In(i)
-				param, err := InstanceParams(inx, data)
-				if err != nil {
-					return nil, err
+				param, iErr := instance_params(inx, data)
+				if iErr != nil {
+					return nil, iErr
 				}
 				// fmt.Println("more args  344444:", param, err)
 				funcArgs = append(funcArgs, param)
@@ -171,32 +171,44 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		c.Log(logger.Info, "(%s) call func error", c.ServerId)
 		return nil, errors.New("call func error")
 	}
-	err, ok = ret[1].Interface().(error)
-	if ok && err != nil {
-		return nil, err
+	iErr, ok := ret[1].Interface().(error)
+	if ok && iErr != nil {
+		return nil, iErr
 	}
 	// 调用成功，返回结果
 	data := ret[0].Interface()
-	resp, err := c.Encoder(data)
-	if err != nil {
-		return nil, err
+	resp, iErr := c.Encoder(data)
+	if iErr != nil {
+		return nil, iErr
 	}
 	return resp, nil
 }
 
-func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
-	nameStr := params.String()
+func instance_params(params reflect.Type, data []byte) (reflect.Value, error) {
+	isPtr := params.Kind() == reflect.Pointer
+	structType := params
+	if isPtr {
+		structType = params.Elem()
+	}
+	nameStr := structType.String()
 	if nameStr == "[]byte" || nameStr == "[]uint8" {
+		if isPtr {
+			return reflect.ValueOf(&data), nil
+		}
 		return reflect.ValueOf(data), nil
 	} else if array.InArray(nameStr, commonTypes) {
 		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
 		// fmt.Println("nameStr:", nameStr)
-		return utils.GetType(nameStr, data), nil
+		r := utils.GetType(isPtr, nameStr, data)
+		return r, nil
 	} else {
-		structType := params.Elem()
 		// 转换参数类型为reflect.Value
-		if instance, cErr := NewInstanceReflect(structType); cErr == nil {
+		if instance, cErr := new_instance_reflect(structType); cErr == nil {
 			utils.Deserialize(data, instance.Interface())
+			// 根据需要返回对应的类型
+			if !isPtr {
+				return instance.Elem(), nil
+			}
 			return instance, nil
 		}
 	}
@@ -204,7 +216,7 @@ func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
 }
 
 // 根据type生成新的实例
-func NewInstanceReflect(typ reflect.Type) (reflect.Value, error) {
+func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
 	if typ == nil {
 		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.String())
 	}

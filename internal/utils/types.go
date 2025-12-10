@@ -6,32 +6,76 @@ import (
 	"reflect"
 )
 
-func GetType(name string, data []byte) reflect.Value {
+func GetType(needPtr bool, name string, data []byte) reflect.Value {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 
 	switch name {
 	case "int":
-		return reflect.ValueOf(BytesToInt(data))
+		by := BytesToInt(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "int32":
-		return reflect.ValueOf(BytesToInt32(data))
+		by := BytesToInt32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "int64":
-		return reflect.ValueOf(BytesToInt64(data))
+		by := BytesToInt64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "uint":
-		return reflect.ValueOf(BytesToUint(data))
+		by := BytesToUint(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "uint32":
-		return reflect.ValueOf(BytesToUint32(data))
+		by := BytesToUint32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "uint64":
-		return reflect.ValueOf(BytesToUint64(data))
+		by := BytesToUint64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "float32":
-		return reflect.ValueOf(BytesToFloat32(data))
+		by := BytesToFloat32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "float64":
-		return reflect.ValueOf(BytesToFloat64(data))
+		by := BytesToFloat64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "string":
-		return reflect.ValueOf(string(data))
+		str := string(data)
+		if needPtr {
+			return reflect.ValueOf(&str)
+		}
+		return reflect.ValueOf(str)
 	case "uint8":
-		return reflect.ValueOf(data[0])
+		by := data[0]
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	case "bool":
-		return reflect.ValueOf(BytesToBool(data))
+		by := BytesToBool(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
 	default:
 		return reflect.ValueOf(data)
 	}

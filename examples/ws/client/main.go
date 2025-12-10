@@ -37,7 +37,14 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
-			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"), int(utils.RandInt64(1, 0xFFFF)))
+			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"),
+				int(utils.RandInt64(1, 0xFFFF)),
+				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
+				"w6xian_str",
+				&[]byte{0x01, 0x02, 0x03, 0x04},
+				[]string{"a", "b", "c"},
+				&[]string{"a", "b", "c"},
+			)
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue
@@ -51,6 +58,10 @@ func main() {
 		wsocket.WithClientServerUri("localhost:8990"),
 	)
 
+}
+
+type HelloReq struct {
+	Name string `json:"name"`
 }
 
 type Handler struct {
