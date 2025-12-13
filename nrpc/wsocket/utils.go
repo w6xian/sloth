@@ -38,6 +38,8 @@ type DataSlice struct {
 	S int `json:"s"`
 	// Data 分片数据
 	D []byte `json:"d"`
+	// Protocol 协议类型  1: 文本消息 2: 二进制消息
+	P int `json:"p"`
 }
 
 var ids int32 = 0
@@ -84,8 +86,8 @@ func getSliceArray(n string, message []byte, sliceSize int) ([]*DataSlice, error
 			T: totalSlice,
 			I: i,
 			S: totalSize,
-			// D: []byte(string(msg[start:end])),
 			D: msg[start:end],
+			P: BinaryMessage,
 		})
 	}
 	return slices, nil

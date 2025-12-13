@@ -5,8 +5,10 @@
 </head>
 
 <body>
-    <h1>WS Client</h1>
-    <script src="./sock_rpc.js"></script>
+    <h1>WS Client1</h1>
+    <script src="./sock_rpc.js?1"></script>
+    <script src="./tlv.js?1"></script>
+    <script src="./tlv_types.js?1"></script>
     <script>
 
       
@@ -32,10 +34,11 @@
                 action: 0xFE,
                 type: "h5",
             }
+            console.log('authMsg', authMsg)
             rpc.Send(authMsg)
             setInterval(() => {
 
-                rpc.Call("v1.Test", frameFromJson({
+                rpc.Call("v1.Test", FrameFromJson({
                     a: 1,
                     b: 2,
                 }), data => {
@@ -45,7 +48,7 @@
         })
         rpc.Bind('shop', {
             Test: (evt) => {
-                console.log('server say hello', evt)
+                console.log('server say hello', arguments)
                 return 'helo' + (new Date().getTime())
             }
         })
