@@ -6,7 +6,7 @@
 
 <body>
     <h1>WS Client</h1>
-    <script src="./sock_rpc.js"></script>
+    <script src="./sock_rpc.js?112"></script>
     <script>
 
       
@@ -27,25 +27,27 @@
             const authMsg = {
                 auth_token: `auth:${auth}`,
                 room_id: 1,
-                user_id: 1,
+                user_id: 2,
                 server_id: 'local',
                 action: 0xFE,
                 type: "h5",
             }
             rpc.Send(authMsg)
             setInterval(() => {
-
-                rpc.Call("v1.Test", frameFromJson({
+                const timestamp = Date.now()
+                rpc.Call("v1.Test", {
                     a: 1,
                     b: 2,
-                }), data => {
+                }, data => {
                     console.log('call success', Base64.decode(data))
+                }, err => {
+                    console.log('call error', err)
                 })
             }, 2000)
         })
         rpc.Bind('shop', {
             Test: (evt) => {
-                console.log('server say hello', evt)
+                console.log('server say hello', Base64.decode(evt))
                 return 'helo' + (new Date().getTime())
             }
         })

@@ -1,13 +1,15 @@
 package message
 
 import (
+	"fmt"
+
 	"github.com/w6xian/sloth/actions"
 	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/internal/utils"
 )
 
 type JsonCallObject struct {
-	Id     uint64   `json:"id"`              // user id
+	Id     string   `json:"id"`              // user id
 	Action int      `json:"action"`          // operation for request
 	Type   int      `json:"type"`            // message type 1 textMessage or 2 binaryMessage1
 	Method string   `json:"method"`          // service method name
@@ -29,7 +31,7 @@ func NewWsJsonCallObject(method string, data ...[]byte) *JsonCallObject {
 	}
 	// fmt.Println("NewWsJsonCallObject args:", arg, args)
 	return &JsonCallObject{
-		Id:     decoder.NextId(),
+		Id:     fmt.Sprintf("%d", decoder.NextId()),
 		Action: actions.ACTION_CALL,
 		Type:   msgTypeVal,
 		Method: method,
@@ -50,16 +52,16 @@ func (j *JsonCallObject) ToBytes() []byte {
 	return utils.Serialize(j)
 }
 
-type IJsonCallObject interface {
-	Id() uint64
-	Action() int
-	Method() string
-	Data() []byte
-	Error() string
-}
+// type IJsonCallObject interface {
+// 	Id() uint64
+// 	Action() int
+// 	Method() string
+// 	Data() []byte
+// 	Error() string
+// }
 
 type JsonBackObject struct {
-	Id   uint64 `json:"id"` // user id
+	Id   string `json:"id"` // user id
 	Type int    `json:"-"`  // message type 1 textMessage or 2 binaryMessage1
 	// action
 	Action int64 `json:"action"`
@@ -82,7 +84,7 @@ func (j *JsonBackObject) ToBytes() []byte {
 	return utils.Serialize(j)
 }
 
-func NewWsJsonBackSuccess(id uint64, data []byte) *JsonBackObject {
+func NewWsJsonBackSuccess(id string, data []byte) *JsonBackObject {
 	//判断 msgType 是不是二进制
 	msgTypeVal := TextMessage
 
@@ -97,7 +99,7 @@ func NewWsJsonBackSuccess(id uint64, data []byte) *JsonBackObject {
 	}
 	return rst
 }
-func NewWsJsonBackError(id uint64, err []byte) *JsonBackObject {
+func NewWsJsonBackError(id string, err []byte) *JsonBackObject {
 	rst := &JsonBackObject{
 		Id:     id,
 		Action: actions.ACTION_REPLY,

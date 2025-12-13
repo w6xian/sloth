@@ -237,34 +237,54 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
-		m, err := receiveMessage(ch.Conn, messageType, msg)
+		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
+		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(m), err)
 		if err != nil {
 			handler.OnError(ctx, s, ch, err)
 			continue
 		}
-		// fmt.Printf("readPump msgType:%d message:%s\n", messageType, string(m))
-		var connReq *nrpc.RpcCaller
+		// var connReq *nrpc.RpcCaller
+		var connReq utils.JsonValue
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
-			// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg), connReq)
-			// fmt.Println("----------", connReq.Action)
-			if connReq.Action == actions.ACTION_CALL {
+			// fmt.Println("----------", connReq.Int64("action"))
+			action := int(connReq.Int64("action"))
+			protocol := int(connReq.Int64("protocol"))
+			idstr := connReq.String("id")
+			// fmt.Println("ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
+			if action == actions.ACTION_CALL {
 				// 调用方法
-				s.HandleCall(ctx, ch, connReq)
+				args := &nrpc.RpcCaller{
+					Id:       idstr,
+					Protocol: protocol,
+					Action:   action,
+					Method:   connReq.String("method"),
+					Args:     connReq.BytesArray("args"),
+				}
+				b := connReq.Bytes("data")
+				if protocol == 1 {
+					args.Data = []byte(connReq.String("data"))
+				}
+				args.Data = b
+				s.HandleCall(ctx, ch, args)
 				continue
-			} else if connReq.Action == actions.ACTION_REPLY {
-				if connReq.Error != "" {
+			} else if action == actions.ACTION_REPLY {
+				if connReq.String("error") != "" {
 					// 处理服务器返回的错误
-					backObj := message.NewWsJsonBackError(connReq.Id, []byte(connReq.Error))
+					backObj := message.NewWsJsonBackError(connReq.String("id"), []byte(connReq.String("error")))
 					ch.rpcBacker <- backObj
 					continue
 				}
-				backObj := message.NewWsJsonBackSuccess(connReq.Id, []byte(connReq.Data))
+				b := connReq.Bytes("data")
+				if protocol == 1 {
+					b = []byte(connReq.String("data"))
+				}
+				backObj := message.NewWsJsonBackSuccess(connReq.String("id"), b)
 				ch.rpcBacker <- backObj
 				continue
 			}
 			// fmt.Println("ws_server readPump err action messageType:", connReq.Action)
 		} else {
-			log.Println(err)
+			log.Println(reqErr)
 		}
 
 		if handler != nil {

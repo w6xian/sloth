@@ -15,7 +15,8 @@ function rpc_call_struct(method, data) {
         callData = data;
     }
     const callObj = {
-        id: Date.now(),
+        id: getMsgId(4),
+        protocol: 1,
         action: -0xFF, // -0xFE 调用服务
         method: method,
         data: callData,
@@ -137,14 +138,16 @@ class SockRpc {
     }
      *
      */
-    Call(method, data, callback, args) {
+    Call(method, data, callback, error, args) {
         const callObj = rpc_call_struct(method, data);
         // 注册调用ID，等待返回结果
         this.callIds = this.callIds || {};
         this.callIds[callObj.id] = {
             id: callObj.id,
+            protocol: 1,
             method: callback,
             params: args || {},
+            error: error,
         };
         try {
             if (this.sock == null) {
@@ -189,8 +192,10 @@ class SockRpc {
                                 if (isFunction(rpcMethod)) {
                                     const rpc = rpcMethod.call(null, msgObj.data);
                                     if (rpc) {
+                                        // console.log('rpc', rpc, serialize(rpc))
                                         this.Send({
                                             id: msgObj.id,
+                                            protocol: 1,
                                             action: -0xFE,
                                             data: rpc,
                                         });
@@ -203,6 +208,13 @@ class SockRpc {
                             const callId = callIds[msgObj.id];
                             if (callId && msgObj.action == -0xFE) {
                                 delete this.callIds[msgObj.id];
+                                if (isUndefined(msgObj.data)) {
+                                    if (isFunction(callId.error)) {
+                                        callId.error.call(null, msgObj.error, callId.params, msg);
+                                        return;
+                                    }
+                                    return
+                                }
                                 if (isFunction(callId.method)) {
                                     callId.method.call(null, msgObj.data, callId.params, msg);
                                     return;
@@ -263,7 +275,9 @@ function send_message(wsock, data) {
         const sliceData = sliceMessage(wsock, getMsgId(2), data, 512)
         for (const item of sliceData) {
             const itemStr = JSON.stringify(item)
+            // console.log('send_message', itemStr)
             const d = isNeedArrayBuffer(wsock) ? new TextEncoder().encode(itemStr) : itemStr
+            // console.log('send_message', d)
             wsock.send(d);
 
         }
@@ -278,7 +292,6 @@ function receive_message(wsock, data, callback) {
         // const dd = [];
         const f = JSON.parse(data)
         rst.push(isNeedArrayBuffer(wsock) ? f.d : Base64.decode(f.d))
-        // dd.push(f.d)
         if (f.s == rst.join('').length) {
             if (isFunction(callback)) {
                 callback(rst.join(''))
@@ -372,6 +385,11 @@ function sliceMessage(wsock, name, data, len) {
 function isFunction(param) {
     return Object.prototype.toString.call(param) === '[object Function]';
 }
+
+function isUndefined(param) {
+    return Object.prototype.toString.call(param) === '[object Undefined]'
+}
+
 /**
  * 是否为JS对象
  * @param param
@@ -618,15 +636,15 @@ function frameFromString(v) {
 
 // 错误定义
 const TLVErrors = {
-  ErrInvalidValueLength: new Error('Invalid value length'),
-  ErrInvalidFloat64: new Error('Invalid Float64 TLV frame'),
-  ErrInvalidFloat64Type: new Error('Invalid Float64 type'),
-  ErrInvalidInt64: new Error('Invalid Int64 TLV frame'),
-  ErrInvalidInt64Type: new Error('Invalid Int64 type'),
-  ErrInvalidUint64: new Error('Invalid Uint64 TLV frame'),
-  ErrInvalidUint64Type: new Error('Invalid Uint64 type'),
-  ErrInvalidStructType: new Error('Invalid Struct type'),
-  ErrInvalidBinType: new Error('Invalid Binary type')
+    ErrInvalidValueLength: new Error('Invalid value length'),
+    ErrInvalidFloat64: new Error('Invalid Float64 TLV frame'),
+    ErrInvalidFloat64Type: new Error('Invalid Float64 type'),
+    ErrInvalidInt64: new Error('Invalid Int64 TLV frame'),
+    ErrInvalidInt64Type: new Error('Invalid Int64 type'),
+    ErrInvalidUint64: new Error('Invalid Uint64 TLV frame'),
+    ErrInvalidUint64Type: new Error('Invalid Uint64 type'),
+    ErrInvalidStructType: new Error('Invalid Struct type'),
+    ErrInvalidBinType: new Error('Invalid Binary type')
 };
 
 /**
@@ -635,13 +653,13 @@ const TLVErrors = {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromString(v) {
-  try {
-    const data = new TextEncoder().encode(v);
-    const frame = tlv_encode(TLV_TYPE_STRING, data);
-    return frame;
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        const data = new TextEncoder().encode(v);
+        const frame = tlv_encode(TLV_TYPE_STRING, data);
+        return frame;
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -650,13 +668,13 @@ function frameFromString(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromJson(v) {
-  try {
-    const jsonData = new TextEncoder().encode(JSON.stringify(v));
-    const frame = tlv_encode(TLV_TYPE_JSON, jsonData);
-    return frame;
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        const jsonData = new TextEncoder().encode(JSON.stringify(v));
+        const frame = tlv_encode(TLV_TYPE_JSON, jsonData);
+        return frame;
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -665,11 +683,11 @@ function frameFromJson(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromBinary(v) {
-  try {
-    return tlv_encode(TLV_TYPE_BINARY, v);
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        return tlv_encode(TLV_TYPE_BINARY, v);
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -678,15 +696,15 @@ function frameFromBinary(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromFloat64(v) {
-  try {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setFloat64(0, v, false); // 大端序
-    const bytes = new Uint8Array(buffer);
-    return tlv_encode(TLV_TYPE_FLOAT64, bytes);
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        const buffer = new ArrayBuffer(8);
+        const view = new DataView(buffer);
+        view.setFloat64(0, v, false); // 大端序
+        const bytes = new Uint8Array(buffer);
+        return tlv_encode(TLV_TYPE_FLOAT64, bytes);
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -695,15 +713,15 @@ function frameFromFloat64(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromInt64(v) {
-  try {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setBigInt64(0, BigInt(v), false); // 大端序
-    const bytes = new Uint8Array(buffer);
-    return tlv_encode(TLV_TYPE_INT64, bytes);
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        const buffer = new ArrayBuffer(8);
+        const view = new DataView(buffer);
+        view.setBigInt64(0, BigInt(v), false); // 大端序
+        const bytes = new Uint8Array(buffer);
+        return tlv_encode(TLV_TYPE_INT64, bytes);
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -712,15 +730,15 @@ function frameFromInt64(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function frameFromUint64(v) {
-  try {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setBigUint64(0, BigInt(v), false); // 大端序
-    const bytes = new Uint8Array(buffer);
-    return tlv_encode(TLV_TYPE_UINT64, bytes);
-  } catch (err) {
-    return new Uint8Array();
-  }
+    try {
+        const buffer = new ArrayBuffer(8);
+        const view = new DataView(buffer);
+        view.setBigUint64(0, BigInt(v), false); // 大端序
+        const bytes = new Uint8Array(buffer);
+        return tlv_encode(TLV_TYPE_UINT64, bytes);
+    } catch (err) {
+        return new Uint8Array();
+    }
 }
 
 /**
@@ -729,8 +747,8 @@ function frameFromUint64(v) {
  * @returns {number} 浮点数
  */
 function bytes2Float64(v) {
-  const view = new DataView(v.buffer);
-  return view.getFloat64(0, false); // 大端序
+    const view = new DataView(v.buffer);
+    return view.getFloat64(0, false); // 大端序
 }
 
 /**
@@ -740,9 +758,9 @@ function bytes2Float64(v) {
  * @throws {Error} 转换错误
  */
 function frameToFloat64(v) {
-  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidFloat64;
-  if (v[0] !== TLV_TYPE_FLOAT64) throw TLVErrors.ErrInvalidFloat64Type;
-  return bytes2Float64(v.subarray(TLVX_HEADDER_SIZE));
+    if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidFloat64;
+    if (v[0] !== TLV_TYPE_FLOAT64) throw TLVErrors.ErrInvalidFloat64Type;
+    return bytes2Float64(v.subarray(TLVX_HEADDER_SIZE));
 }
 
 /**
@@ -751,8 +769,8 @@ function frameToFloat64(v) {
  * @returns {bigint} 整数
  */
 function bytes2Int64(v) {
-  const view = new DataView(v.buffer);
-  return view.getBigInt64(0, false); // 大端序
+    const view = new DataView(v.buffer);
+    return view.getBigInt64(0, false); // 大端序
 }
 
 /**
@@ -762,9 +780,9 @@ function bytes2Int64(v) {
  * @throws {Error} 转换错误
  */
 function frameToInt64(v) {
-  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidInt64;
-  if (v[0] !== TLV_TYPE_INT64) throw TLVErrors.ErrInvalidInt64Type;
-  return bytes2Int64(v.subarray(TLVX_HEADDER_SIZE));
+    if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidInt64;
+    if (v[0] !== TLV_TYPE_INT64) throw TLVErrors.ErrInvalidInt64Type;
+    return bytes2Int64(v.subarray(TLVX_HEADDER_SIZE));
 }
 
 /**
@@ -773,8 +791,8 @@ function frameToInt64(v) {
  * @returns {bigint} 无符号整数
  */
 function bytes2Uint64(v) {
-  const view = new DataView(v.buffer);
-  return view.getBigUint64(0, false); // 大端序
+    const view = new DataView(v.buffer);
+    return view.getBigUint64(0, false); // 大端序
 }
 
 /**
@@ -784,9 +802,9 @@ function bytes2Uint64(v) {
  * @throws {Error} 转换错误
  */
 function frameToUint64(v) {
-  if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidUint64;
-  if (v[0] !== TLV_TYPE_UINT64) throw TLVErrors.ErrInvalidUint64Type;
-  return bytes2Uint64(v.subarray(TLVX_HEADDER_SIZE));
+    if (v.length !== 8 + TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidUint64;
+    if (v[0] !== TLV_TYPE_UINT64) throw TLVErrors.ErrInvalidUint64Type;
+    return bytes2Uint64(v.subarray(TLVX_HEADDER_SIZE));
 }
 
 /**
@@ -797,10 +815,10 @@ function frameToUint64(v) {
  * @throws {Error} 转换错误
  */
 function frameToStruct(v, t) {
-  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
-  if (v[0] !== TLV_TYPE_JSON) throw TLVErrors.ErrInvalidStructType;
-  const [, data] = tlv_decode(v);
-  return JSON.parse(new TextDecoder().decode(data));
+    if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+    if (v[0] !== TLV_TYPE_JSON) throw TLVErrors.ErrInvalidStructType;
+    const [, data] = tlv_decode(v);
+    return JSON.parse(new TextDecoder().decode(data));
 }
 
 /**
@@ -810,10 +828,10 @@ function frameToStruct(v, t) {
  * @throws {Error} 转换错误
  */
 function frameToBin(v) {
-  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
-  if (v[0] !== TLV_TYPE_BINARY) throw TLVErrors.ErrInvalidBinType;
-  const [, data] = tlv_decode(v);
-  return data;
+    if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+    if (v[0] !== TLV_TYPE_BINARY) throw TLVErrors.ErrInvalidBinType;
+    const [, data] = tlv_decode(v);
+    return data;
 }
 
 /**
@@ -823,8 +841,8 @@ function frameToBin(v) {
  * @throws {Error} 转换错误
  */
 function deserialize(v) {
-  if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
-  return newTLVFromFrame(v);
+    if (!v || v.length < TLVX_HEADDER_SIZE) throw TLVErrors.ErrInvalidValueLength;
+    return newTLVFromFrame(v);
 }
 
 /**
@@ -833,24 +851,24 @@ function deserialize(v) {
  * @returns {Uint8Array} TLV 帧
  */
 function serialize(v) {
-  if (v === null || v === undefined) return new Uint8Array();
+    if (v === null || v === undefined) return new Uint8Array();
 
-  switch (typeof v) {
-    case 'string':
-      return frameFromString(v);
-    case 'number':
-      if (Number.isInteger(v)) {
-        if (v >= 0) return frameFromUint64(BigInt(v));
-        return frameFromInt64(BigInt(v));
-      }
-      return frameFromFloat64(v);
-    case 'boolean':
-      return frameFromInt64(BigInt(v ? 1 : 0));
-    case 'object':
-      if (v instanceof Uint8Array) return frameFromBinary(v);
-      if (Array.isArray(v)) return frameFromJson(v);
-      return frameFromJson(v);
-    default:
-      return frameFromJson(v);
-  }
+    switch (typeof v) {
+        case 'string':
+            return frameFromString(v);
+        case 'number':
+            if (Number.isInteger(v)) {
+                if (v >= 0) return frameFromUint64(BigInt(v));
+                return frameFromInt64(BigInt(v));
+            }
+            return frameFromFloat64(v);
+        case 'boolean':
+            return frameFromInt64(BigInt(v ? 1 : 0));
+        case 'object':
+            if (v instanceof Uint8Array) return frameFromBinary(v);
+            if (Array.isArray(v)) return frameFromJson(v);
+            return frameFromJson(v);
+        default:
+            return frameFromJson(v);
+    }
 }

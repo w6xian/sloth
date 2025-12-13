@@ -14,13 +14,18 @@ type ICallRpc interface {
 	Options() *options.Options
 }
 
+type RpcAction struct {
+	Action int `json:"action"`
+}
+
 type RpcCaller struct {
-	Id     uint64   `json:"id"`
-	Action int      `json:"action"`
-	Method string   `json:"method"`
-	Data   []byte   `json:"data"`
-	Args   [][]byte `json:"args,omitempty"`  // args
-	Error  string   `json:"error,omitempty"` // error message
+	Id       string   `json:"id"`
+	Protocol int      `json:"protocol"` // 1 string 0 tlv
+	Action   int      `json:"action"`
+	Method   string   `json:"method"`
+	Data     []byte   `json:"data"`
+	Args     [][]byte `json:"args,omitempty"`  // args
+	Error    string   `json:"error,omitempty"` // error message
 }
 
 type ICall interface {

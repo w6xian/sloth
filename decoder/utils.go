@@ -5,6 +5,7 @@ import (
 )
 
 func NextId(n ...int64) uint64 {
+
 	if len(n) == 0 {
 		n = append(n, 1)
 	}

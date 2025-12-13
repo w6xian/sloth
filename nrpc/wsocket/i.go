@@ -7,8 +7,8 @@ import (
 )
 
 type IWsReply interface {
-	ReplySuccess(id uint64, data []byte) error
-	ReplyError(id uint64, err []byte) error
+	ReplySuccess(id string, data []byte) error
+	ReplyError(id string, err []byte) error
 }
 
 type IServerHandleMessage interface {

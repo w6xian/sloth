@@ -73,7 +73,7 @@ func (c *WsClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
-func (c *WsClient) ReplySuccess(id uint64, data []byte) error {
+func (c *WsClient) ReplySuccess(id string, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -85,7 +85,7 @@ func (c *WsClient) ReplySuccess(id uint64, data []byte) error {
 	}
 	return nil
 }
-func (c *WsClient) ReplyError(id uint64, err []byte) error {
+func (c *WsClient) ReplyError(id string, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}

@@ -132,7 +132,7 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		serviceFns.V,
 		reflect.ValueOf(ctx),
 	}
-	if len(args) > 0 {
+	if len(args) > 0 && mtd.Type.NumIn() > 2 {
 		// Elem() 相当于 *T 取指针指向的类型
 		in2 := mtd.Type.In(2)
 		param, iErr := instance_params(in2, args)
@@ -177,9 +177,19 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 	}
 	// 调用成功，返回结果
 	data := ret[0].Interface()
-	resp, iErr := c.Encoder(data)
-	if iErr != nil {
-		return nil, iErr
+	// textmessage 协议，1 no tlv
+	if msgReq.Protocol == wsocket.TextMessage {
+		// 调用成功，返回结果
+		resp, err := utils.AnyToStr(data)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(resp), nil
+	}
+	// 调用成功，返回结果
+	resp, err := c.Encoder(data)
+	if err != nil {
+		return nil, err
 	}
 	return resp, nil
 }

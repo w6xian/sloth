@@ -62,9 +62,11 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	}
 
 	resp, err := ch.Call(ctx, mtd, args...)
+	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err
 	}
+	// fmt.Println("Call resp:", resp)
 	// 解码
 	resp, err = c.Decoder(resp)
 	if err != nil {

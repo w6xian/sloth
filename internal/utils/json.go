@@ -16,6 +16,20 @@ func (j JsonValue) String(col string) string {
 	}
 	return str
 }
+func (j JsonValue) Bytes(col string) []byte {
+	var b []byte
+	if j[col] != nil {
+		json.Unmarshal(*j[col], &b)
+	}
+	return b
+}
+func (j JsonValue) BytesArray(col string) [][]byte {
+	var b [][]byte
+	if j[col] != nil {
+		json.Unmarshal(*j[col], &b)
+	}
+	return b
+}
 
 func (j JsonValue) Int64(col string) int64 {
 	var i int64

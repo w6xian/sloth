@@ -281,11 +281,11 @@ func DefaultDecoder(data []byte) ([]byte, error) {
 		return nil, nil
 	}
 	if len(data) < TLVX_HEADER_MIN_SIZE {
-		return nil, ErrInvalidValueLength
+		return data, nil
 	}
 	d, err := Deserialize(data)
 	if err != nil {
-		return nil, err
+		return data, nil
 	}
 	return d.Value(), nil
 }

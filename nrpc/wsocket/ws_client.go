@@ -228,13 +228,15 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 				return
 			}
 		}
+		// fmt.Println("Call LocalClient-44-:", messageType, msg)
 		if msg == nil || messageType == -1 {
 			handler.OnClose(ctx, c, ch)
 			return
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		m, err := receiveMessage(ch.conn, messageType, msg)
+		m, err := receiveMessage(ch.conn, byte(messageType), msg)
+		// fmt.Println("Call LocalClient-44-:", messageType, msg)
 		if err != nil {
 			handler.OnError(ctx, c, ch, err)
 			continue
@@ -258,6 +260,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 				c.HandleCall(ctx, ch, connReq)
 				continue
 			}
+		} else {
+			// 处理其他消息类型
+			fmt.Println("Call LocalClient-44-:", err)
 		}
 
 		if handler != nil {

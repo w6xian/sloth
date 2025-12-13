@@ -103,7 +103,7 @@ func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 }
 
 // @call ReplySuccess 回复调用成功
-func (c *Channel) ReplySuccess(id uint64, data []byte) error {
+func (c *Channel) ReplySuccess(id string, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -116,7 +116,7 @@ func (c *Channel) ReplySuccess(id uint64, data []byte) error {
 	}
 	return nil
 }
-func (c *Channel) ReplyError(id uint64, err []byte) error {
+func (c *Channel) ReplyError(id string, err []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -156,6 +156,7 @@ func (ch *Channel) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
+			// fmt.Println("Call back------:", back, ok, back.Id, msg.Id)
 			if back.Id == msg.Id && ok {
 				if back.Error != "" {
 					return []byte{}, errors.New(back.Error)

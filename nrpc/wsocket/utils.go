@@ -2,11 +2,10 @@ package wsocket
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync/atomic"
-	"unicode/utf8"
 
+	"github.com/w6xian/sloth/decoder/frame"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/tools"
 
@@ -27,19 +26,6 @@ func GetBucket(ctx context.Context, buckets []*group.Bucket, id int64) *group.Bu
 	return buckets[int64(idx)]
 }
 
-type DataSlice struct {
-	// Name 分片名称（用于标识是哪个信息）
-	N string `json:"n"`
-	// Total 分片总数
-	T int `json:"t"`
-	// Index 当前分片索引
-	I int `json:"i"`
-	// Size 消息体总大小
-	S int `json:"s"`
-	// Data 分片数据
-	D []byte `json:"d"`
-}
-
 var ids int32 = 0
 
 func getSliceName() string {
@@ -50,51 +36,10 @@ func getSliceName() string {
 	return fmt.Sprintf("%d", ids)
 }
 
-func (s *DataSlice) Bytes() []byte {
-	return serialize(s)
-}
-
-func getSlice(message []byte) (DataSlice, error) {
-	var slices DataSlice
-	if err := json.Unmarshal(message, &slices); err != nil {
-		return slices, err
-	}
-	return slices, nil
-}
-
-func getSliceArray(n string, message []byte, sliceSize int) ([]*DataSlice, error) {
-	// 这里可能有汉字
-	// msg := []rune(string(message))
-	msg := message
-	totalSize := len(msg)
-	totalSlice := totalSize / sliceSize
-	if totalSize%sliceSize != 0 {
-		totalSlice++
-	}
-	// 转换为字符串，判断真实长度
-
-	slices := make([]*DataSlice, 0, totalSlice)
-	for i := 0; i < totalSlice; i++ {
-		start := i * sliceSize
-		end := start + sliceSize
-		end = min(end, totalSize)
-
-		slices = append(slices, &DataSlice{
-			N: n,
-			T: totalSlice,
-			I: i,
-			S: totalSize,
-			// D: []byte(string(msg[start:end])),
-			D: msg[start:end],
-		})
-	}
-	return slices, nil
-}
-
 // 分块发送数据
 func slicesTextSend(n string, conn *websocket.Conn, data []byte, sliceSize int) error {
 	// data 按大小分成多个块发送
-	slices, err := getSliceArray(n, data, sliceSize)
+	slices, err := frame.Split(n, data, sliceSize, frame.TextMessage)
 	if err != nil {
 		return err
 	}
@@ -112,19 +57,42 @@ func slicesTextSend(n string, conn *websocket.Conn, data []byte, sliceSize int) 
 	return nil
 }
 
-func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]byte, error) {
-	sc, err := getSlice(message)
+// 分块发送数据
+func slicesBinarySend(n string, conn *websocket.Conn, data []byte, sliceSize int) error {
+	// data 按大小分成多个块发送
+	slices, err := frame.Split(n, data, sliceSize, frame.BinaryMessage)
+	if err != nil {
+		return err
+	}
+	// fmt.Println("slicesSend:", string(data))
+	for _, slice := range slices {
+		w, err := conn.NextWriter(websocket.BinaryMessage)
+		if err != nil {
+			return err
+		}
+		w.Write(slice.Encode())
+		if err := w.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]byte, error) {
+	sc, err := frame.FromType(message, messageType)
 	if err != nil {
 		return nil, err
 	}
+	// fmt.Println("receiveMessage:", sc.N, sc.S, sc.I, sc.T, string(sc.D))
 	id := sc.N
 	dataSize := sc.S
 	// 接收完整数据
 	data := make([]byte, 0, dataSize)
 	data = append(data, sc.D...)
-	if dataSize <= len(data) {
+	if int(dataSize) <= len(data) && sc.I == sc.T-1 {
 		return data, nil
 	}
+	// fmt.Println("-----------")
 
 	for {
 		msgType, message, err := conn.ReadMessage()
@@ -136,7 +104,7 @@ func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]by
 		if message == nil || msgType == -1 {
 			return nil, fmt.Errorf("message is nil or msgType is -1")
 		}
-		slices, err := getSlice(message)
+		slices, err := frame.FromType(message, byte(msgType))
 		if err != nil {
 			return nil, err
 		}
@@ -145,17 +113,9 @@ func receiveMessage(conn *websocket.Conn, messageType int, message []byte) ([]by
 			return nil, fmt.Errorf("id not match")
 		}
 		data = append(data, slices.D...)
-		realSize := utf8.RuneCountInString(string(data))
-		if realSize <= slices.S {
+		// realSize := utf8.RuneCountInString(string(data))
+		if int(dataSize) <= len(data) && slices.I == slices.T-1 {
 			return data, nil
 		}
 	}
-}
-
-func serialize(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return []byte{}
-	}
-	return b
 }
