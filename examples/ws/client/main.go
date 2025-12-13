@@ -32,7 +32,7 @@ func main() {
 			// 	}
 			// 	server.UserId = 2
 			// 	server.RoomId = 1
-			// 	server.Send(context.Background(), utils.Serialize(map[string]string{"user_id": "2", "room_id": "1"}))
+			server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
 			// 	fmt.Println("Call success:", string(data))
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
