@@ -93,7 +93,12 @@ type HelloService struct {
 	Id int64 `json:"id"`
 }
 
-func (h *HelloService) Test(ctx context.Context) (any, error) {
+type AB struct {
+	A int64 `json:"a"`
+	B int64 `json:"b"`
+}
+
+func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	h.Id = h.Id + 1
 	// c, err := sloth.Decode64ToTlv(data)
 	// if err != nil {
@@ -103,6 +108,7 @@ func (h *HelloService) Test(ctx context.Context) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", string(data))
+	fmt.Println("Test args:", ab)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)
 		// mapData := map[string]string{

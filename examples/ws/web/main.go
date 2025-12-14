@@ -22,13 +22,9 @@ func main() {
 		// 直接输入index.html，返回index.html
 		http.ServeFile(w, r, "./sock_rpc.js")
 	})
-	http.HandleFunc("/tlv.js", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/slice.js", func(w http.ResponseWriter, r *http.Request) {
 		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./tlv.js")
-	})
-	http.HandleFunc("/tlv_types.js", func(w http.ResponseWriter, r *http.Request) {
-		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./tlv_types.js")
+		http.ServeFile(w, r, "./slice.js")
 	})
 
 	fmt.Println("Server is running on http://localhost:8081")

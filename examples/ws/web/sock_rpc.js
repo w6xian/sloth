@@ -351,7 +351,7 @@ function sliceMessage(wsock, name, data, len) {
         data = JSON.stringify(data)
     }
     // "arraybuffer" || "blob"
-    if (isNeedArrayBuffer(wsock)) data = new TextEncoder().encode(data)
+    data = new TextEncoder().encode(data)
 
     const totalSize = data.length
     let totalSlice = parseInt(totalSize / len)
