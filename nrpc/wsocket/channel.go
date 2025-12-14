@@ -10,6 +10,7 @@ import (
 
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -64,6 +65,19 @@ func (ch *Channel) UserId(u ...int64) int64 {
 		ch._userId = u[0]
 	}
 	return ch._userId
+}
+
+// login 登录
+func (ch *Channel) AuthInfo() *nrpc.AuthInfo {
+	return &nrpc.AuthInfo{
+		UserId: ch._userId,
+		RoomId: ch._room.Id,
+	}
+}
+
+// logout 登出
+func (ch *Channel) Logout() {
+	ch._userId = 0
 }
 
 func NewChannel(size int, opts ...ChannelOption) (c *Channel) {

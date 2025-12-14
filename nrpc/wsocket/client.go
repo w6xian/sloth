@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/nrpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -96,6 +97,12 @@ func (c *WsClient) ReplyError(id string, err []byte) error {
 	default:
 	}
 	return nil
+}
+func (c *WsClient) AuthInfo() *nrpc.AuthInfo {
+	return &nrpc.AuthInfo{
+		UserId: c.UserId,
+		RoomId: c.RoomId,
+	}
 }
 
 // Call 客户端 调用远程方法

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/tools"
@@ -236,12 +237,17 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 		//@call HandleCall 处理调用方法
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(msg))
+		// fmt.Println("1ws_server readPump messageType:", messageType, "msg:", string(msg))
 		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
-		// fmt.Println("ws_server readPump messageType:", messageType, "msg:", string(m), err)
+		// fmt.Println("2ws_server readPump messageType:", messageType, "msg:", string(m), err)
 		if err != nil {
 			handler.OnError(ctx, s, ch, err)
 			continue
+		}
+		// fmt.Println("4ws_server readPump messageType:", messageType, "msg:", m)
+		tlvFrame, err := tlv.Deserialize(m)
+		if err == nil {
+			m = tlvFrame.Value()
 		}
 		// var connReq *nrpc.RpcCaller
 		var connReq utils.JsonValue
@@ -250,7 +256,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 			action := int(connReq.Int64("action"))
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
-			// fmt.Println("ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
+			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
 				// 调用方法
 				args := &nrpc.RpcCaller{
@@ -265,7 +271,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 					args.Data = []byte(connReq.String("data"))
 				}
 				args.Data = b
-				s.HandleCall(ctx, ch, args)
+				args.Channel = ch
+				s.HandleCall(ctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
 				if connReq.String("error") != "" {
@@ -278,13 +285,14 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 				if protocol == 1 {
 					b = []byte(connReq.String("data"))
 				}
+				// fmt.Println("5ws_server readPump messageType:", messageType, "msg:", string(b))
 				backObj := message.NewWsJsonBackSuccess(connReq.String("id"), b)
 				ch.rpcBacker <- backObj
 				continue
 			}
 			// fmt.Println("ws_server readPump err action messageType:", connReq.Action)
 		} else {
-			log.Println(reqErr)
+			log.Println("ws_server readPump err action messageType:", messageType, "msg:", string(m), reqErr)
 		}
 
 		if handler != nil {
@@ -297,7 +305,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 // 有两种情况：
 // 1. 服务器主动推送消息，需要调用本地方法处理
 // 2. 服务器调用本地方法，需要返回结果
-func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.RpcCaller) {
+func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	s.serviceMapMu.RLock()
 	defer s.serviceMapMu.RUnlock()
 
@@ -313,11 +321,11 @@ func (s *WsServer) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.Rpc
 		rst, err := s.Connect.CallFunc(ctx, msgReq)
 		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data), "rst:", string(rst), "err:", err)
 		if err != nil {
-			ch.ReplyError(msgReq.Id, []byte(err.Error()))
+			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
 		// fmt.Println("ws_server HandleCall ReplySuccess")
-		ch.ReplySuccess(msgReq.Id, rst)
+		msgReq.Channel.ReplySuccess(msgReq.Id, rst)
 		return
 	}
 }

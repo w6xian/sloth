@@ -26,10 +26,22 @@ type RpcCaller struct {
 	Data     []byte   `json:"data"`
 	Args     [][]byte `json:"args,omitempty"`  // args
 	Error    string   `json:"error,omitempty"` // error message
+	Channel  IWsReply `json:"-"`
 }
 
 type ICall interface {
 	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
 	// channel / client中实现
 	Push(ctx context.Context, msg *message.Msg) (err error)
+}
+
+type AuthInfo struct {
+	UserId int64
+	RoomId int64
+}
+
+type IWsReply interface {
+	ReplySuccess(id string, data []byte) error
+	ReplyError(id string, err []byte) error
+	AuthInfo() *AuthInfo
 }

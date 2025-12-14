@@ -79,11 +79,12 @@ func slicesBinarySend(n string, conn *websocket.Conn, data []byte, sliceSize int
 }
 
 func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]byte, error) {
+	// fmt.Println("1receiveMessage:", messageType, string(message))
 	sc, err := frame.FromType(message, messageType)
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("receiveMessage:", sc.N, sc.S, sc.I, sc.T, string(sc.D))
+	// fmt.Println("2receiveMessage:", sc.N, sc.S, sc.I, sc.T, string(sc.D))
 	id := sc.N
 	dataSize := sc.S
 	// 接收完整数据
@@ -104,6 +105,7 @@ func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]b
 		if message == nil || msgType == -1 {
 			return nil, fmt.Errorf("message is nil or msgType is -1")
 		}
+
 		slices, err := frame.FromType(message, byte(msgType))
 		if err != nil {
 			return nil, err

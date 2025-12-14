@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/id"
@@ -241,23 +242,46 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 			handler.OnError(ctx, c, ch, err)
 			continue
 		}
+		tlvFrame, err := tlv.Deserialize(m)
+		if err == nil {
+			m = tlvFrame.Value()
+		}
 		// fmt.Println("Call LocalClient-44-:", m)
-		var connReq *nrpc.RpcCaller
+		// var connReq *nrpc.RpcCaller
+		var connReq utils.JsonValue
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
-			if connReq.Action == actions.ACTION_REPLY {
-				// fmt.Println("Call LocalClient-33-:", connReq)
-				// 处理服务器返回的结果
-				if connReq.Error != "" {
+			action := int(connReq.Int64("action"))
+			protocol := int(connReq.Int64("protocol"))
+			idstr := connReq.String("id")
+			if action == actions.ACTION_CALL {
+				args := &nrpc.RpcCaller{
+					Id:       idstr,
+					Protocol: protocol,
+					Action:   action,
+					Method:   connReq.String("method"),
+					Args:     connReq.BytesArray("args"),
+				}
+				b := connReq.Bytes("data")
+				if protocol == 1 {
+					args.Data = []byte(connReq.String("data"))
+				}
+				args.Data = b
+				args.Channel = ch
+				c.HandleCall(ctx, args)
+				continue
+			} else if action == actions.ACTION_REPLY {
+				if connReq.String("error") != "" {
 					// 处理服务器返回的错误
-					backObj := message.NewWsJsonBackError(connReq.Id, []byte(connReq.Error))
+					backObj := message.NewWsJsonBackError(idstr, []byte(connReq.String("error")))
 					ch.rpcBacker <- backObj
 					continue
 				}
-				backObj := message.NewWsJsonBackSuccess(connReq.Id, connReq.Data)
+				b := connReq.Bytes("data")
+				if protocol == 1 {
+					b = []byte(connReq.String("data"))
+				}
+				backObj := message.NewWsJsonBackSuccess(idstr, b)
 				ch.rpcBacker <- backObj
-				continue
-			} else if connReq.Action == actions.ACTION_CALL {
-				c.HandleCall(ctx, ch, connReq)
 				continue
 			}
 		} else {
@@ -275,7 +299,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan
 // 有两种情况：
 // 1. 服务器主动推送消息，需要调用本地方法处理
 // 2. 服务器调用本地方法，需要返回结果
-func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.RpcCaller) {
+func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	c.serviceMapMu.RLock()
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
@@ -287,11 +311,11 @@ func (c *LocalClient) HandleCall(ctx context.Context, ch IWsReply, msgReq *nrpc.
 	if msgReq.Action == actions.ACTION_CALL {
 		rst, err := c.Connect.CallFunc(ctx, msgReq)
 		if err != nil {
-			ch.ReplyError(msgReq.Id, []byte(err.Error()))
+			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
 		// fmt.Println("HandleCall ws_client rst:", rst)
-		ch.ReplySuccess(msgReq.Id, rst)
+		msgReq.Channel.ReplySuccess(msgReq.Id, rst)
 		return
 	}
 }

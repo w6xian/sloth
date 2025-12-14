@@ -11,6 +11,7 @@ import (
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/mux"
@@ -108,6 +109,7 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", string(data))
+	fmt.Println("Test args:", ctx.Value(sloth.AuthKey).(*nrpc.AuthInfo))
 	fmt.Println("Test args:", ab)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)
@@ -130,6 +132,8 @@ func (h *HelloService) TestByte(ctx context.Context, b []byte, i int, req HelloR
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", b[0])
+	fmt.Println("Test args:", ctx.Value(sloth.AuthKey).(*nrpc.AuthInfo))
+	fmt.Println("Test args:", b)
 	fmt.Println("Test args:", string(b), i, req, resp, *str, *bytes, strs, *strsptr)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)

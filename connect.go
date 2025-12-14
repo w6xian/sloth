@@ -23,6 +23,12 @@ import (
 
 var instCount int64
 
+type ContextType string
+
+const (
+	AuthKey = ContextType("nrpc_auth_info")
+)
+
 // Precompute the reflect type for context.
 var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
 
@@ -122,12 +128,13 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		c.Log(logger.Info, "(%s) method not found", c.ServerId)
 		return nil, errors.New("method not found")
 	}
+	fmt.Println("CallFunc:", msgReq.Data)
 	// 编码
 	args, err := c.Decoder(msgReq.Data)
 	if err != nil {
 		return nil, err
 	}
-
+	ctx = context.WithValue(ctx, AuthKey, msgReq.Channel.AuthInfo())
 	funcArgs := []reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),
