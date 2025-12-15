@@ -272,7 +272,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
 			if action == actions.ACTION_CALL {
-				ch.rpc_io++
+				if ch.rpc_io < 0 {
+					ch.rpc_io = 0
+				}
 				args := &nrpc.RpcCaller{
 					Id:       idstr,
 					Protocol: protocol,
@@ -290,7 +292,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				continue
 			} else if action == actions.ACTION_REPLY {
 				ch.rpc_io--
-				if ch.rpc_io < -10 {
+				if ch.rpc_io < -50 {
 					ch.rpc_io = 0
 					continue
 				}

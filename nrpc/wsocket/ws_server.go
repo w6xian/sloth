@@ -260,7 +260,9 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 			idstr := connReq.String("id")
 			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
-				ch.rpc_io++
+				if ch.rpc_io < 0 {
+					ch.rpc_io = 0
+				}
 				// 调用方法
 				args := &nrpc.RpcCaller{
 					Id:       idstr,
