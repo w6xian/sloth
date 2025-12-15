@@ -213,6 +213,25 @@ func Deserialize(v []byte) (*TlV, error) {
 	}
 	return tlv, nil
 }
+
+// Unmarshal 从tlv解码为结构体
+func Json2Struct(v []byte, t any) error {
+	tlv, err := Deserialize(v)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(tlv.Value(), t)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Marshal 从结构体编码为tlv
+func Marshal(v any, opts ...FrameOption) []byte {
+	return FrameFromJson(v, opts...)
+}
+
 func Serialize(v any) []byte {
 	if v == nil {
 		return []byte{TLV_TYPE_NIL, 0}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/array"
@@ -26,7 +27,8 @@ var instCount int64
 type ContextType string
 
 const (
-	AuthKey = ContextType("nrpc_auth_info")
+	ChannelKey = ContextType("nrpc_channel")
+	BucketKey  = ContextType("nrpc_bucket")
 )
 
 // Precompute the reflect type for context.
@@ -66,8 +68,8 @@ func NewConnect(opts ...ConnOption) *Connect {
 	svr.sleepTimes = 15
 	svr.times = 8
 	svr.cpuNum = runtime.NumCPU()
-	svr.client = ConnectClientRpc()
-	svr.server = ConnectServerRpc()
+	svr.client = LinkClientFunc()
+	svr.server = LinkServerFunc()
 	svr.Option = options.NewOptions()
 	svr.Encoder = nrpc.DefaultEncoder
 	svr.Decoder = nrpc.DefaultDecoder
@@ -108,9 +110,13 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	wsClient.ListenAndServe(context.Background())
 }
 
+func (c *Connect) SetAuthInfo(auth *nrpc.AuthInfo) error {
+	return c.server.Listen.SetAuthInfo(auth)
+}
+
 var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 
-func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte, error) {
+func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.RpcCaller) ([]byte, error) {
 	parts := strings.Split(msgReq.Method, ".")
 	if len(parts) != 2 {
 		c.Log(logger.Info, "(%s) method format error", c.ServerId)
@@ -128,13 +134,22 @@ func (c *Connect) CallFunc(ctx context.Context, msgReq *nrpc.RpcCaller) ([]byte,
 		c.Log(logger.Info, "(%s) method not found", c.ServerId)
 		return nil, errors.New("method not found")
 	}
-	fmt.Println("CallFunc:", msgReq.Data)
+
 	// 编码
 	args, err := c.Decoder(msgReq.Data)
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, AuthKey, msgReq.Channel.AuthInfo())
+	if svr != nil {
+		ctx = context.WithValue(ctx, BucketKey, svr)
+		if ch, cok := msgReq.Channel.(bucket.IChannel); cok {
+			ctx = context.WithValue(ctx, ChannelKey, ch)
+		}
+	} else {
+		if ch, cok := msgReq.Channel.(nrpc.IChannel); cok {
+			ctx = context.WithValue(ctx, ChannelKey, ch)
+		}
+	}
 	funcArgs := []reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),

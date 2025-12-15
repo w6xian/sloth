@@ -3,6 +3,7 @@ package nrpc
 import (
 	"context"
 
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/options"
@@ -10,8 +11,15 @@ import (
 
 type ICallRpc interface {
 	Log(level logger.LogLevel, line string, args ...any)
-	CallFunc(ctx context.Context, msgReq *RpcCaller) ([]byte, error)
+	CallFunc(ctx context.Context, s IBucket, msgReq *RpcCaller) ([]byte, error)
 	Options() *options.Options
+}
+
+type IBucket interface {
+	Bucket(userId int64) *bucket.Bucket
+	Channel(userId int64) bucket.IChannel
+	Room(roomId int64) *bucket.Room
+	Broadcast(ctx context.Context, msg *message.Msg) error
 }
 
 type RpcAction struct {
@@ -31,17 +39,25 @@ type RpcCaller struct {
 
 type ICall interface {
 	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
-	// channel / client中实现
-	Push(ctx context.Context, msg *message.Msg) (err error)
-}
-
-type AuthInfo struct {
-	UserId int64
-	RoomId int64
+	Push(ctx context.Context, msg *message.Msg) error
+	GetAuthInfo() *AuthInfo
+	SetAuthInfo(auth *AuthInfo) error
 }
 
 type IWsReply interface {
 	ReplySuccess(id string, data []byte) error
 	ReplyError(id string, err []byte) error
-	AuthInfo() *AuthInfo
+}
+
+type IChannel interface {
+	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
+	Push(ctx context.Context, msg *message.Msg) error
+	GetAuthInfo() *AuthInfo
+	SetAuthInfo(auth *AuthInfo) error
+}
+
+type AuthInfo struct {
+	UserId int64  `json:"user_id"`
+	RoomId int64  `json:"room_id"`
+	Token  string `json:"token"`
 }

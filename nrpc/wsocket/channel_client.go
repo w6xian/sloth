@@ -16,7 +16,7 @@ import (
 
 // 客户端对服务器的连接通道
 // in fact, Client it's a user Connect session
-type WsClient struct {
+type WsChannelClient struct {
 	send      chan *message.Msg
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
@@ -24,7 +24,9 @@ type WsClient struct {
 	// 客户端的用户ID
 	UserId int64
 	// 在服务器中哪个房间
-	RoomId  int64
+	RoomId int64
+	//Sign 登录签名
+	Sign    string
 	conn    *websocket.Conn
 	connTcp *net.TCPConn
 	Lock    sync.Mutex
@@ -35,34 +37,33 @@ type WsClient struct {
 	readWait time.Duration
 }
 
-func NewWsClient(userId int64, size int) (c *WsClient) {
-	c = new(WsClient)
+func NewWsChannelClient(opts ...ChannelClientOption) (c *WsChannelClient) {
+	c = new(WsChannelClient)
 	c.Lock = sync.Mutex{}
-	c.send = make(chan *message.Msg, size)
-	c.rpcCaller = make(chan *message.JsonCallObject, size)
-	c.rpcBacker = make(chan *message.JsonBackObject, size)
-	c.UserId = userId
+	c.send = make(chan *message.Msg, 5)
+	c.rpcCaller = make(chan *message.JsonCallObject, 10)
+	c.rpcBacker = make(chan *message.JsonBackObject, 10)
+	c.UserId = 0
 	c.conn = nil
 	c.connTcp = nil
 	c.writeWait = 10 * time.Second
 	c.readWait = 10 * time.Second
-	return
-}
-func (c *WsClient) Login(roomId int64, userId int64) (err error) {
-	c.Lock.Lock()
-	defer c.Lock.Unlock()
-	c.RoomId = roomId
-	c.UserId = userId
+	c.Sign = ""
+	for _, opt := range opts {
+		opt(c)
+	}
 	return
 }
 
-func (c *WsClient) Logout() (err error) {
+func (c *WsChannelClient) Logout() (err error) {
 	c.RoomId = 0
+	c.UserId = 0
+	c.Sign = ""
 	return
 }
 
 // Push 客户端 发送消息到服务器
-func (c *WsClient) Push(ctx context.Context, msg *message.Msg) (err error) {
+func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	if c.conn == nil {
 		return
 	}
@@ -74,7 +75,7 @@ func (c *WsClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return
 }
 
-func (c *WsClient) ReplySuccess(id string, data []byte) error {
+func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -86,11 +87,11 @@ func (c *WsClient) ReplySuccess(id string, data []byte) error {
 	}
 	return nil
 }
-func (c *WsClient) ReplyError(id string, err []byte) error {
+func (c *WsChannelClient) ReplyError(id string, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	// fmt.Println("ReplyError WsClient id:", id, err)
+	// fmt.Println("ReplyError WsChannelClient id:", id, err)
 	msg := message.NewWsJsonBackError(id, err)
 	select {
 	case c.rpcBacker <- msg:
@@ -98,15 +99,28 @@ func (c *WsClient) ReplyError(id string, err []byte) error {
 	}
 	return nil
 }
-func (c *WsClient) AuthInfo() *nrpc.AuthInfo {
+
+// login 登录
+func (ch *WsChannelClient) GetAuthInfo() *nrpc.AuthInfo {
 	return &nrpc.AuthInfo{
-		UserId: c.UserId,
-		RoomId: c.RoomId,
+		UserId: ch.UserId,
+		RoomId: ch.RoomId,
+		Token:  ch.Sign,
 	}
 }
 
+func (ch *WsChannelClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
+	if auth == nil {
+		return errors.New("auth is nil")
+	}
+	ch.UserId = auth.UserId
+	ch.RoomId = auth.RoomId
+	ch.Sign = auth.Token
+	return nil
+}
+
 // Call 客户端 调用远程方法
-func (ch *WsClient) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
+func (ch *WsChannelClient) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)

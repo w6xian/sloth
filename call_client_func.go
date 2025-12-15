@@ -21,7 +21,7 @@ type ClientRpc struct {
 	Decoder func([]byte) ([]byte, error)
 }
 
-func ConnectClientRpc(opts ...IRpcOption) *ClientRpc {
+func LinkClientFunc(opts ...IRpcOption) *ClientRpc {
 	once.Do(func() {
 		ClientObjc = &ClientRpc{
 			Encoder: nrpc.DefaultEncoder,

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder/tlv"
-	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/tools"
 	"github.com/w6xian/sloth/internal/utils"
@@ -25,7 +25,7 @@ import (
 )
 
 type WsServer struct {
-	Buckets         []*group.Bucket
+	Buckets         []*bucket.Bucket
 	bucketIdx       uint32
 	serviceMapMu    sync.RWMutex
 	Connect         nrpc.ICallRpc
@@ -51,14 +51,14 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	bsNum := 1
 	bsNum = max(bsNum, runtime.NumCPU())
 	//init Connect layer rpc server, logic client will call this
-	bs := make([]*group.Bucket, bsNum)
+	bs := make([]*bucket.Bucket, bsNum)
 	opt := server.Options()
 	for i := 0; i < bsNum; i++ {
-		bs[i] = group.NewBucket(
-			group.WithChannelSize(opt.ChannelSize),
-			group.WithRoomSize(opt.RoomSize),
-			group.WithRoutineAmount(opt.RoutineAmount),
-			group.WithRoutineSize(opt.RoutineSize),
+		bs[i] = bucket.NewBucket(
+			bucket.WithChannelSize(opt.ChannelSize),
+			bucket.WithRoomSize(opt.RoomSize),
+			bucket.WithRoutineAmount(opt.RoutineAmount),
+			bucket.WithRoutineSize(opt.RoutineSize),
 		)
 	}
 	s := &WsServer{
@@ -83,17 +83,17 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	}
 	return s
 }
-func (s *WsServer) Bucket(userId int64) *group.Bucket {
+func (s *WsServer) Bucket(userId int64) *bucket.Bucket {
 	userIdStr := fmt.Sprintf("%d", userId)
 	idx := tools.CityHash32([]byte(userIdStr), uint32(len(userIdStr))) % s.bucketIdx
 	return s.Buckets[idx]
 }
 
-func (s *WsServer) Channel(userId int64) group.IChannel {
+func (s *WsServer) Channel(userId int64) bucket.IChannel {
 	return s.Bucket(userId).Channel(userId)
 }
 
-func (s *WsServer) Room(roomId int64) *group.Room {
+func (s *WsServer) Room(roomId int64) *bucket.Room {
 	for _, b := range s.Buckets {
 		if room := b.Room(roomId); room != nil {
 			return room
@@ -130,7 +130,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		return
 	}
 	// 一个连接一个channel
-	ch := NewChannel(512)
+	ch := NewWsChannelServer(512)
 	//default broadcast size eq 512
 	ch.Conn = conn
 	//send data to websocket conn
@@ -140,7 +140,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	go s.readPump(ctx, ch, s.handler)
 }
 
-func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
+func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "writePump recover err : %v", err)
@@ -197,7 +197,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *Channel) {
 	}
 }
 
-func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHandleMessage) {
+func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "readPump recover err : %v", err)
@@ -271,6 +271,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 					args.Data = []byte(connReq.String("data"))
 				}
 				args.Data = b
+				// 链接通道
 				args.Channel = ch
 				s.HandleCall(ctx, args)
 				continue
@@ -283,6 +284,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *Channel, handler IServerHan
 				}
 				b := connReq.Bytes("data")
 				if protocol == 1 {
+					// 没有用协议，直接返回字符串
 					b = []byte(connReq.String("data"))
 				}
 				// fmt.Println("5ws_server readPump messageType:", messageType, "msg:", string(b))
@@ -318,7 +320,7 @@ func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	// @call HandleCall 处理调用方法
 	if msgReq.Action == actions.ACTION_CALL {
 		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data))
-		rst, err := s.Connect.CallFunc(ctx, msgReq)
+		rst, err := s.Connect.CallFunc(ctx, s, msgReq)
 		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data), "rst:", string(rst), "err:", err)
 		if err != nil {
 			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))

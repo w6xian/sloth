@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/w6xian/sloth"
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
 	"github.com/gorilla/websocket"
@@ -15,7 +17,7 @@ import (
 
 func main() {
 
-	server := sloth.ConnectServerRpc(
+	server := sloth.LinkServerFunc(
 		sloth.UseEncoder(tlv.DefaultEncoder),
 		sloth.UseDecoder(tlv.DefaultDecoder))
 	newConnect := sloth.NewConnect(sloth.Server(server))
@@ -32,11 +34,27 @@ func main() {
 			// 	}
 			// 	server.UserId = 2
 			// 	server.RoomId = 1
-			server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
+			//server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
 			// 	fmt.Println("Call success:", string(data))
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
+			if server.UserId == 0 {
+				data, err := server.Call(context.Background(), "v1.Sign", []byte("sign"))
+				if err != nil {
+					fmt.Println("Call error:", err)
+					continue
+				}
+				auth := &nrpc.AuthInfo{}
+				err = tlv.Json2Struct(data, auth)
+				if err != nil {
+					fmt.Println("Deserialize error:", err)
+					continue
+				}
+				fmt.Println("Sign success:", auth)
+				server.SetAuthInfo(auth)
+			}
+
 			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"),
 				int(utils.RandInt64(1, 0xFFFF)),
 				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
@@ -69,13 +87,13 @@ type Handler struct {
 }
 
 // OnClose implements wsocket.IClientHandleMessage.
-func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient) error {
+func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
 	fmt.Println("OnClose:", ch.UserId)
 	return nil
 }
 
 // OnData implements wsocket.IClientHandleMessage.
-func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}
@@ -84,13 +102,13 @@ func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 }
 
 // OnError implements wsocket.IClientHandleMessage.
-func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient, err error) error {
+func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, err error) error {
 	fmt.Println("OnError:", err.Error())
 	return nil
 }
 
 // onOpen implements wsocket.IClientHandleMessage.
-func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsClient) error {
+func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
 	fmt.Println("OnOpen:", ch.UserId, h.server)
 	ch.UserId = 2
 	ch.RoomId = 1
@@ -103,6 +121,12 @@ type HelloService struct {
 
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
+	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
+	if ch == nil {
+		return nil, errors.New("channel not found")
+	}
+	fmt.Println("Test args:", ch.GetAuthInfo())
+
 	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 

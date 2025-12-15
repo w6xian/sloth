@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder/tlv"
-	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
@@ -23,7 +23,7 @@ func main() {
 		panic(err)
 	}
 	r := mux.NewRouter()
-	client := sloth.ConnectClientRpc(
+	client := sloth.LinkClientFunc(
 		sloth.UseEncoder(tlv.DefaultEncoder),
 		sloth.UseDecoder(tlv.DefaultDecoder))
 	newConnect := sloth.NewConnect(sloth.Client(client))
@@ -55,24 +55,24 @@ type Handler struct {
 }
 
 // OnClose implements wsocket.IServerHandleMessage.
-func (h *Handler) OnClose(ctx context.Context, s *wsocket.WsServer, ch group.IChannel) error {
+func (h *Handler) OnClose(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel) error {
 	fmt.Println("OnClose")
 	return nil
 }
 
 // OnError implements wsocket.IServerHandleMessage.
-func (h *Handler) OnError(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, err error) error {
+func (h *Handler) OnError(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel, err error) error {
 	fmt.Println("OnError:", err)
 	return nil
 }
 
 // OnOpen implements wsocket.IServerHandleMessage.
-func (h *Handler) OnOpen(ctx context.Context, s *wsocket.WsServer, ch group.IChannel) error {
+func (h *Handler) OnOpen(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel) error {
 	fmt.Println("OnOpen")
 	return nil
 }
 
-func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch group.IChannel, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel, msgType int, message []byte) error {
 
 	if ch.UserId() == 0 {
 		userId := int64(2)
@@ -109,7 +109,7 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", string(data))
-	fmt.Println("Test args:", ctx.Value(sloth.AuthKey).(*nrpc.AuthInfo))
+	fmt.Println("Test args:", ctx.Value(sloth.ChannelKey).(bucket.IChannel))
 	fmt.Println("Test args:", ab)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)
@@ -122,6 +122,27 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	}
 	return map[string]string{"req": "server 1", "time": time.Now().Format("2006-01-02 15:04:05")}, nil
 }
+
+func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
+	h.Id = h.Id + 1
+	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
+	if !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+	svr, ok := ctx.Value(sloth.BucketKey).(nrpc.IBucket)
+	if !ok {
+		return nil, fmt.Errorf("bucket not found")
+	}
+	//根据data登录 解析出userId,roomId,token
+	auth := nrpc.AuthInfo{
+		UserId: 2,
+		RoomId: 1,
+	}
+	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, ch)
+	fmt.Println("Sign args:", string(data))
+	return tlv.Marshal(auth), nil
+}
+
 func (h *HelloService) TestByte(ctx context.Context, b []byte, i int, req HelloReq, resp *Hello, str *string, bytes *[]byte, strs []string, strsptr *[]string) (any, error) {
 	h.Id = h.Id + 1
 	// c, err := sloth.Decode64ToTlv(data)
@@ -132,7 +153,7 @@ func (h *HelloService) TestByte(ctx context.Context, b []byte, i int, req HelloR
 	// fmt.Println("Decode64ToTlv success:", c)
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", b[0])
-	fmt.Println("Test args:", ctx.Value(sloth.AuthKey).(*nrpc.AuthInfo))
+	fmt.Println("Test args:", ctx.Value(sloth.ChannelKey).(bucket.IChannel))
 	fmt.Println("Test args:", b)
 	fmt.Println("Test args:", string(b), i, req, resp, *str, *bytes, strs, *strsptr)
 	if h.Id%5 == 1 {

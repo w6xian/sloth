@@ -34,7 +34,7 @@ func main() {
 type Handler struct {
 }
 
-func (h *Handler) HandleMessage(s *wsocket.LocalClient, ch *wsocket.WsClient, msgType int, message []byte) error {
+func (h *Handler) HandleMessage(s *wsocket.LocalClient, ch *wsocket.WsChannelClient, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}

@@ -1,4 +1,4 @@
-package group
+package bucket
 
 type BucketOption func(ch *Bucket)
 

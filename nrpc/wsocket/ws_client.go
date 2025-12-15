@@ -91,12 +91,30 @@ func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 	return nil
 }
 
+func (c *LocalClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
+	if auth == nil {
+		return errors.New("auth is nil")
+	}
+	if c.client == nil {
+		return errors.New("client not found")
+	}
+	return c.client.SetAuthInfo(auth)
+}
+
+// GetAuthInfo 获取认证信息
+func (c *LocalClient) GetAuthInfo() *nrpc.AuthInfo {
+	if c.client == nil {
+		return nil
+	}
+	return c.client.GetAuthInfo()
+}
+
 // ClientWs 客户端连接
 func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
-	wsConn := NewWsClient(0, 10)
+	wsConn := NewWsChannelClient()
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
@@ -132,7 +150,7 @@ func (s *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return s.client.Push(ctx, msg)
 }
 
-func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
+func (s *LocalClient) writePump(ctx context.Context, ch *WsChannelClient) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "writePump recover err : %v", err)
@@ -199,7 +217,7 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsClient) {
 	}
 }
 
-func (c *LocalClient) readPump(ctx context.Context, ch *WsClient, closeChan chan bool, handler IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan bool, handler IClientHandleMessage) {
 	defer func() {
 		if ch.UserId == 0 {
 			ch.conn.Close()
@@ -309,7 +327,7 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 		}
 	}()
 	if msgReq.Action == actions.ACTION_CALL {
-		rst, err := c.Connect.CallFunc(ctx, msgReq)
+		rst, err := c.Connect.CallFunc(ctx, nil, msgReq)
 		if err != nil {
 			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
@@ -319,3 +337,20 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 		return
 	}
 }
+
+// // 实现IBucket接口 (为了统一，无其他)
+// func (s *LocalClient) Bucket(userId int64) *group.Bucket {
+// 	return nil
+// }
+
+// func (s *LocalClient) Channel(userId int64) group.IChannel {
+// 	return nil
+// }
+
+// func (s *LocalClient) Room(roomId int64) *group.Room {
+// 	return nil
+// }
+
+// func (s *LocalClient) Broadcast(ctx context.Context, msg *message.Msg) (err error) {
+// 	return nil
+// }

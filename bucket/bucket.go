@@ -1,7 +1,7 @@
 /*
  * 用于存放用户连接的桶，每个桶有多个房间，每个房间有多个连接，每个连接有一个用户
  */
-package group
+package bucket
 
 import (
 	"context"

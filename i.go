@@ -3,7 +3,7 @@ package sloth
 import (
 	"context"
 
-	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/message"
 )
 
@@ -17,8 +17,8 @@ type IRpc interface {
 }
 
 type IServer interface {
-	Bucket(userId int64) *group.Bucket
-	Room(roomId int64) *group.Room
-	Channel(userId int64) group.IChannel
+	Bucket(userId int64) *bucket.Bucket
+	Room(roomId int64) *bucket.Room
+	Channel(userId int64) bucket.IChannel
 	Broadcast(ctx context.Context, msg *message.Msg) error
 }

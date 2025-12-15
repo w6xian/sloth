@@ -1,3 +1,4 @@
 package wsocket
 
-type ChannelOption func(ch *Channel)
+type ChannelServerOption func(ch *WsChannelServer)
+type ChannelClientOption func(s *WsChannelClient)

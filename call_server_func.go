@@ -29,8 +29,27 @@ func (c *ServerRpc) SetEncoder(encoder Encoder) {
 func (c *ServerRpc) SetDecoder(decoder Decoder) {
 	c.Decoder = decoder
 }
+func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
+	if auth == nil {
+		return errors.New("auth is nil")
+	}
+	if c.Listen == nil {
+		return errors.New("server not found")
+	}
+	c.RoomId = auth.RoomId
+	c.UserId = auth.UserId
+	return c.Listen.SetAuthInfo(auth)
+}
 
-func ConnectServerRpc(opts ...IRpcOption) *ServerRpc {
+// GetAuthInfo 获取认证信息
+func (c *ServerRpc) GetAuthInfo() *nrpc.AuthInfo {
+	if c.Listen == nil {
+		return nil
+	}
+	return c.Listen.GetAuthInfo()
+}
+
+func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
 	svr_once.Do(func() {
 		ServerObjc = &ServerRpc{
 			Encoder: nrpc.DefaultEncoder,

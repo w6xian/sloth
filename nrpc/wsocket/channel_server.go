@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/w6xian/sloth/group"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 
@@ -17,13 +17,14 @@ import (
 
 // 服务器端对客户端的连接通道
 // in fact, Channel it's a user Connect session
-type Channel struct {
+type WsChannelServer struct {
 	Lock      sync.Mutex
-	_room     *group.Room
-	_next     group.IChannel
-	_prev     group.IChannel
+	_room     *bucket.Room
+	_next     bucket.IChannel
+	_prev     bucket.IChannel
 	broadcast chan *message.Msg
 	_userId   int64
+	_sign     string
 	Conn      *websocket.Conn
 	connTcp   *net.TCPConn
 
@@ -40,27 +41,27 @@ type Channel struct {
 	errHandler func(err error)
 }
 
-func (ch *Channel) Next(n ...group.IChannel) group.IChannel {
+func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
 	if len(n) > 0 {
 		ch._next = n[0]
 	}
 	return ch._next
 }
 
-func (ch *Channel) Prev(p ...group.IChannel) group.IChannel {
+func (ch *WsChannelServer) Prev(p ...bucket.IChannel) bucket.IChannel {
 	if len(p) > 0 {
 		ch._prev = p[0]
 	}
 	return ch._prev
 }
-func (ch *Channel) Room(r ...*group.Room) *group.Room {
+func (ch *WsChannelServer) Room(r ...*bucket.Room) *bucket.Room {
 	if len(r) > 0 {
 		ch._room = r[0]
 	}
 	return ch._room
 }
 
-func (ch *Channel) UserId(u ...int64) int64 {
+func (ch *WsChannelServer) UserId(u ...int64) int64 {
 	if len(u) > 0 {
 		ch._userId = u[0]
 	}
@@ -68,20 +69,25 @@ func (ch *Channel) UserId(u ...int64) int64 {
 }
 
 // login 登录
-func (ch *Channel) AuthInfo() *nrpc.AuthInfo {
+func (ch *WsChannelServer) GetAuthInfo() *nrpc.AuthInfo {
 	return &nrpc.AuthInfo{
 		UserId: ch._userId,
 		RoomId: ch._room.Id,
+		Token:  ch._sign,
 	}
 }
 
+func (ch *WsChannelServer) SetAuthInfo(auth *nrpc.AuthInfo) error {
+	return errors.New("server not support set auth info")
+}
+
 // logout 登出
-func (ch *Channel) Logout() {
+func (ch *WsChannelServer) Logout() {
 	ch._userId = 0
 }
 
-func NewChannel(size int, opts ...ChannelOption) (c *Channel) {
-	c = new(Channel)
+func NewWsChannelServer(size int, opts ...ChannelServerOption) (c *WsChannelServer) {
+	c = new(WsChannelServer)
 	c.Lock = sync.Mutex{}
 	c.broadcast = make(chan *message.Msg, size)
 	c.rpcCaller = make(chan *message.JsonCallObject, 10)
@@ -93,6 +99,7 @@ func NewChannel(size int, opts ...ChannelOption) (c *Channel) {
 	c.readWait = 10 * time.Second
 	c.maxMessageSize = 1024 * 1024
 	c.pingPeriod = 54 * time.Second
+	c._sign = ""
 	c.errHandler = func(err error) {
 		fmt.Println("Channel errHandler:", err.Error())
 	}
@@ -102,11 +109,11 @@ func NewChannel(size int, opts ...ChannelOption) (c *Channel) {
 	return
 }
 
-func (ch *Channel) OnError(f func(err error)) {
+func (ch *WsChannelServer) OnError(f func(err error)) {
 	ch.errHandler = f
 }
 
-func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
+func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err error) {
 	select {
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
@@ -117,7 +124,7 @@ func (ch *Channel) Push(ctx context.Context, msg *message.Msg) (err error) {
 }
 
 // @call ReplySuccess 回复调用成功
-func (c *Channel) ReplySuccess(id string, data []byte) error {
+func (c *WsChannelServer) ReplySuccess(id string, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -130,7 +137,7 @@ func (c *Channel) ReplySuccess(id string, data []byte) error {
 	}
 	return nil
 }
-func (c *Channel) ReplyError(id string, err []byte) error {
+func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -144,7 +151,7 @@ func (c *Channel) ReplyError(id string, err []byte) error {
 }
 
 // 服务器调用客户端方法
-func (ch *Channel) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
+func (ch *WsChannelServer) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)

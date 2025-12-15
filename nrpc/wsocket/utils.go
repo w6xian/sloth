@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder/frame"
-	"github.com/w6xian/sloth/group"
 	"github.com/w6xian/sloth/internal/tools"
 
 	"github.com/gorilla/websocket"
@@ -20,7 +20,7 @@ const (
 	PongMessage   = 0xA // pong控制消息
 )
 
-func GetBucket(ctx context.Context, buckets []*group.Bucket, id int64) *group.Bucket {
+func GetBucket(ctx context.Context, buckets []*bucket.Bucket, id int64) *bucket.Bucket {
 	userIdStr := fmt.Sprintf("%d", id)
 	idx := tools.CityHash32([]byte(userIdStr), uint32(len(userIdStr))) % uint32(len(buckets))
 	return buckets[int64(idx)]
