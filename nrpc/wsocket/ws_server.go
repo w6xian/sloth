@@ -153,10 +153,10 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 		ticker.Stop()
 		ch.Conn.Close()
 	}()
-	go func() {
-		msg := message.NewMessage(websocket.TextMessage, []byte("hello"))
-		ch.broadcast <- msg
-	}()
+	// go func() {
+	// 	msg := message.NewMessage(websocket.TextMessage, []byte("hello"))
+	// 	ch.broadcast <- msg
+	// }()
 	for {
 		select {
 		case msg, ok := <-ch.broadcast:
