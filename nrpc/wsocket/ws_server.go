@@ -44,7 +44,7 @@ type WsServer struct {
 }
 
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
-	s.Connect.Log(level, line, args...)
+	s.Connect.Log(level, "[WsServer]"+line, args...)
 }
 
 func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
@@ -130,7 +130,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		return
 	}
 	// 一个连接一个channel
-	ch := NewWsChannelServer(512)
+	ch := NewWsChannelServer(s.Connect)
 	//default broadcast size eq 512
 	ch.Conn = conn
 	// 需要确认客户端是否合法，一个是JWT,一个是ClientID

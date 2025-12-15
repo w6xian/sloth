@@ -9,7 +9,6 @@ import (
 	"github.com/w6xian/sloth"
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/utils"
-	"github.com/w6xian/sloth/internal/utils/id"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 
@@ -56,13 +55,7 @@ func main() {
 			// 	server.SetAuthInfo(auth)
 			// }
 
-			req := &IotSignReq{
-				Code:  "Ezc4HhZWHemCJC3ALH1y1K",
-				Token: id.ShortID(),
-			}
-			fmt.Println(req)
-
-			data, err := server.Call(context.Background(), "v1.IoTSign", req, []byte("abc"),
+			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"),
 				int(utils.RandInt64(1, 0xFFFF)),
 				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
 				"w6xian_str",
@@ -82,7 +75,7 @@ func main() {
 		wsocket.WithClientUriPath("/ws"),
 		// wsocket.WithClientServerUri("localhost:8990"),
 		// ws addr: 0.0.0.0:8966
-		wsocket.WithClientServerUri("localhost:8966"),
+		wsocket.WithClientServerUri("localhost:8990"),
 	)
 
 }

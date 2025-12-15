@@ -84,10 +84,21 @@ func NewConnect(opts ...ConnOption) *Connect {
 	for _, opt := range opts {
 		opt(svr)
 	}
+	svr.regist_pprof()
 	return svr
 }
 
+func (c *Connect) regist_pprof() error {
+	prof := NewPProfInfo()
+	funcs := register(prof)
+	c.serviceMap["pprof"] = funcs
+	return nil
+}
+
 func (c *Connect) RegisterRpc(name string, rcvr any, metadata string) error {
+	if _, ok := c.serviceMap[name]; ok {
+		return fmt.Errorf("service %s already registered", name)
+	}
 	funcs := register(rcvr)
 	c.serviceMap[name] = funcs
 	return nil
@@ -166,11 +177,6 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 		// fmt.Println("funcArgs:", funcArgs)
 		if len(msgReq.Args) > 0 {
 			moreIn := mtd.Type.NumIn()
-			// fmt.Println("moreIn:", moreIn, "len(msgReq.Args):", len(msgReq.Args))
-			if len(msgReq.Args) != moreIn-3 {
-				return nil, errors.New("args error")
-			}
-
 			// more args
 			for i := 3; i < moreIn; i++ {
 				data, iErr := c.Decoder(msgReq.Args[i-3])

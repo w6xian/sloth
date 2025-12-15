@@ -67,7 +67,7 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	return s
 }
 func (s *LocalClient) log(level logger.LogLevel, line string, args ...any) {
-	s.Connect.Log(level, line, args...)
+	s.Connect.Log(level, "[LocalClient]"+line, args...)
 }
 
 func (s *LocalClient) ListenAndServe(ctx context.Context) error {
@@ -114,7 +114,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
-	wsConn := NewWsChannelClient()
+	wsConn := NewWsChannelClient(c.Connect)
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn

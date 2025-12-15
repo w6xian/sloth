@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/bucket"
+	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 
@@ -27,6 +28,7 @@ type WsChannelServer struct {
 	_sign     string
 	Conn      *websocket.Conn
 	connTcp   *net.TCPConn
+	Connect   nrpc.ICallRpc
 
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
@@ -88,10 +90,14 @@ func (ch *WsChannelServer) Logout() {
 	ch._userId = 0
 }
 
-func NewWsChannelServer(size int, opts ...ChannelServerOption) (c *WsChannelServer) {
+func (s *WsChannelServer) log(level logger.LogLevel, line string, args ...any) {
+	s.Connect.Log(level, "[WsChannelServer]"+line, args...)
+}
+
+func NewWsChannelServer(connect nrpc.ICallRpc, opts ...ChannelServerOption) (c *WsChannelServer) {
 	c = new(WsChannelServer)
 	c.Lock = sync.Mutex{}
-	c.broadcast = make(chan *message.Msg, size)
+	c.broadcast = make(chan *message.Msg, 10)
 	c.rpcCaller = make(chan *message.JsonCallObject, 10)
 	c.rpcBacker = make(chan *message.JsonBackObject, 10)
 	c.Next(nil)
@@ -102,6 +108,7 @@ func NewWsChannelServer(size int, opts ...ChannelServerOption) (c *WsChannelServ
 	c.maxMessageSize = 1024 * 1024
 	c.pingPeriod = 54 * time.Second
 	c._sign = ""
+	c.Connect = connect
 	c.errHandler = func(err error) {
 		fmt.Println("Channel errHandler:", err.Error())
 	}
@@ -157,11 +164,11 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 func (ch *WsChannelServer) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
+	ch.log(logger.Debug, "Call mtd:%s, args:%v", mtd, args)
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-	// fmt.Println("Call args|||||||||:", args)
 	msg := message.NewWsJsonCallObject(mtd, args...)
-	// fmt.Println("Call msg------:", msg)
+
 	// 发送调用请求
 	select {
 	case <-ticker.C:

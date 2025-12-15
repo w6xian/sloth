@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 
@@ -20,6 +21,7 @@ type WsChannelClient struct {
 	send      chan *message.Msg
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
+	Connect   nrpc.ICallRpc
 
 	// 客户端的用户ID
 	UserId int64
@@ -39,7 +41,7 @@ type WsChannelClient struct {
 	rpc_io int
 }
 
-func NewWsChannelClient(opts ...ChannelClientOption) (c *WsChannelClient) {
+func NewWsChannelClient(connect nrpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
 	c = new(WsChannelClient)
 	c.Lock = sync.Mutex{}
 	c.send = make(chan *message.Msg, 5)
@@ -56,6 +58,9 @@ func NewWsChannelClient(opts ...ChannelClientOption) (c *WsChannelClient) {
 	}
 	c.rpc_io = 0
 	return
+}
+func (s *WsChannelClient) log(level logger.LogLevel, line string, args ...any) {
+	s.Connect.Log(level, "[WsChannelClient]"+line, args...)
 }
 
 func (c *WsChannelClient) Logout() (err error) {
