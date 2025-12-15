@@ -119,10 +119,10 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	//default broadcast size eq 512
 	wsConn.conn = conn
 	wsConn.RoomId = 0
-	//send data to websocket conn
-	go c.writePump(ctx, wsConn)
 	//get data from websocket conn
 	go c.readPump(ctx, wsConn, closeChan, c.handler)
+	//send data to websocket conn
+	go c.writePump(ctx, wsConn)
 	// 等待关闭信号
 	<-closeChan
 	// 重连
@@ -236,8 +236,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 		return nil
 	})
-	// onOpen
-	handler.OnOpen(ctx, c, ch)
+	// 要防止OnOpen阻塞，导致readPump阻塞
+	go handler.OnOpen(ctx, c, ch)
 	for {
 		// 来自服务器的消息
 		messageType, msg, err := ch.conn.ReadMessage()
@@ -272,6 +272,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
 			if action == actions.ACTION_CALL {
+				ch.rpc_io++
 				args := &nrpc.RpcCaller{
 					Id:       idstr,
 					Protocol: protocol,
@@ -288,6 +289,11 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				c.HandleCall(ctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
+				ch.rpc_io--
+				if ch.rpc_io < -10 {
+					ch.rpc_io = 0
+					continue
+				}
 				if connReq.String("error") != "" {
 					// 处理服务器返回的错误
 					backObj := message.NewWsJsonBackError(idstr, []byte(connReq.String("error")))

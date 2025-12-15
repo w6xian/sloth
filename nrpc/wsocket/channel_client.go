@@ -35,6 +35,8 @@ type WsChannelClient struct {
 	writeWait time.Duration
 	// readWait default eq 10s
 	readWait time.Duration
+	// func
+	rpc_io int
 }
 
 func NewWsChannelClient(opts ...ChannelClientOption) (c *WsChannelClient) {
@@ -52,6 +54,7 @@ func NewWsChannelClient(opts ...ChannelClientOption) (c *WsChannelClient) {
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.rpc_io = 0
 	return
 }
 

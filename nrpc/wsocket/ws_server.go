@@ -133,11 +133,12 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	ch := NewWsChannelServer(512)
 	//default broadcast size eq 512
 	ch.Conn = conn
+	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
+	go s.readPump(ctx, ch, s.handler)
 	//send data to websocket conn
 	go s.writePump(ctx, ch)
 	//get data from websocket conn
-	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
-	go s.readPump(ctx, ch, s.handler)
+
 }
 
 func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
@@ -152,7 +153,10 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 		ticker.Stop()
 		ch.Conn.Close()
 	}()
-
+	go func() {
+		msg := message.NewMessage(websocket.TextMessage, []byte("hello"))
+		ch.broadcast <- msg
+	}()
 	for {
 		select {
 		case msg, ok := <-ch.broadcast:
@@ -163,7 +167,6 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				return
 			}
 			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
-
 				return
 			}
 		case msg, ok := <-ch.rpcCaller:
@@ -219,9 +222,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 		return nil
 	})
 	// OnOpen
-	if err := handler.OnOpen(ctx, s, ch); err != nil {
-		return
-	}
+	go handler.OnOpen(ctx, s, ch)
+
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
@@ -258,6 +260,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 			idstr := connReq.String("id")
 			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
+				ch.rpc_io++
 				// 调用方法
 				args := &nrpc.RpcCaller{
 					Id:       idstr,
@@ -276,6 +279,12 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 				s.HandleCall(ctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
+				ch.rpc_io--
+				// 防止被恶意阻塞，这里也有个问题，同一个方法，不能一直返回
+				if ch.rpc_io < -100 {
+					ch.rpc_io = 0
+					continue
+				}
 				if connReq.String("error") != "" {
 					// 处理服务器返回的错误
 					backObj := message.NewWsJsonBackError(connReq.String("id"), []byte(connReq.String("error")))

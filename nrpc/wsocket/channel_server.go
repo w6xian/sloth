@@ -39,6 +39,8 @@ type WsChannelServer struct {
 	pingPeriod time.Duration
 	// error handler
 	errHandler func(err error)
+	// rpc_io 记录当前连接的rpc调用次数
+	rpc_io int
 }
 
 func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
@@ -106,6 +108,7 @@ func NewWsChannelServer(size int, opts ...ChannelServerOption) (c *WsChannelServ
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.rpc_io = 0
 	return
 }
 
