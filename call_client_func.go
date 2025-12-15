@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
@@ -40,6 +41,21 @@ func (c *ClientRpc) SetEncoder(encoder Encoder) {
 
 func (c *ClientRpc) SetDecoder(decoder Decoder) {
 	c.Decoder = decoder
+}
+
+func GetChannel(ctx context.Context) (bucket.IChannel, error) {
+	ch, ok := ctx.Value(ChannelKey).(bucket.IChannel)
+	if !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+	return ch, nil
+}
+func GetBucket(ctx context.Context) (nrpc.IBucket, error) {
+	bucket, ok := ctx.Value(BucketKey).(nrpc.IBucket)
+	if !ok {
+		return nil, fmt.Errorf("bucket not found")
+	}
+	return bucket, nil
 }
 
 // @call client
