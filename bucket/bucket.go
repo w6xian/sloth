@@ -71,7 +71,7 @@ func (b *Bucket) Room(rid int64) (room *Room) {
 	return
 }
 
-func (b *Bucket) Put(userId int64, roomId int64, ch IChannel) (err error) {
+func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err error) {
 	var (
 		room *Room
 		ok   bool
@@ -98,6 +98,7 @@ func (b *Bucket) Put(userId int64, roomId int64, ch IChannel) (err error) {
 		ch.Room(room)
 	}
 	ch.UserId(userId)
+	ch.Token(token)
 	b.chs[userId] = ch
 	// fmt.Println("Put room:", room)
 	if room != nil {

@@ -80,7 +80,7 @@ func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch bucket.ICh
 		//1房1用户
 		b := s.Bucket(userId)
 		//insert into a bucket
-		err := b.Put(userId, roomId, ch)
+		err := b.Put(userId, roomId, "token", ch)
 		return err
 	}
 	return nil
@@ -138,7 +138,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 		UserId: 2,
 		RoomId: 1,
 	}
-	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, ch)
+	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
 	fmt.Println("Sign args:", string(data))
 	return tlv.Marshal(auth), nil
 }
