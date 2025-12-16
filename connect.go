@@ -20,6 +20,7 @@ import (
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/options"
+	"github.com/w6xian/sloth/pprof"
 )
 
 var instCount int64
@@ -89,7 +90,7 @@ func NewConnect(opts ...ConnOption) *Connect {
 }
 
 func (c *Connect) regist_pprof() error {
-	prof := NewPProfInfo()
+	prof := pprof.New()
 	funcs := register(prof)
 	c.serviceMap["pprof"] = funcs
 	return nil
@@ -110,6 +111,7 @@ func (c *Connect) StartWebsocketServer(options ...wsocket.ServerOption) {
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsServer := wsocket.NewWsServer(c, options...)
 	c.client.Serve = wsServer
+	pprof.New().UsePProf(wsServer)
 	wsServer.ListenAndServe(context.Background())
 }
 

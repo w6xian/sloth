@@ -11,6 +11,7 @@ import (
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
+	"github.com/w6xian/sloth/pprof"
 
 	"github.com/gorilla/websocket"
 )
@@ -39,23 +40,23 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
-			// if server.UserId == 0 {
-			// 	data, err := server.Call(context.Background(), "v1.Sign", []byte("sign"))
-			// 	if err != nil {
-			// 		fmt.Println("Call error:", err)
-			// 		continue
-			// 	}
-			// 	auth := &nrpc.AuthInfo{}
-			// 	err = tlv.Json2Struct(data, auth)
-			// 	if err != nil {
-			// 		fmt.Println("Deserialize error:", err)
-			// 		continue
-			// 	}
-			// 	fmt.Println("Sign success:", auth)
-			// 	server.SetAuthInfo(auth)
-			// }
+			if server.UserId == 0 {
+				data, err := server.Call(context.Background(), "v1.Sign", []byte("sign"))
+				if err != nil {
+					fmt.Println("Call error:", err)
+					continue
+				}
+				auth := &nrpc.AuthInfo{}
+				err = tlv.Json2Struct(data, auth)
+				if err != nil {
+					fmt.Println("Deserialize error:", err)
+					continue
+				}
+				fmt.Println("Sign success:", auth)
+				server.SetAuthInfo(auth)
+			}
 
-			data, err := server.Call(context.Background(), "v1.TestByte", []byte("abc"),
+			data, err := server.Call(context.Background(), "pprof.Info", []byte("abc"),
 				int(utils.RandInt64(1, 0xFFFF)),
 				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
 				"w6xian_str",
@@ -67,7 +68,13 @@ func main() {
 				fmt.Println("Call error:", err)
 				continue
 			}
-			fmt.Println("Call success:", string(data))
+			info := &pprof.PProfInfo{}
+			err = utils.Deserialize(data, info)
+			if err != nil {
+				fmt.Println("Deserialize error:", err)
+				continue
+			}
+			fmt.Println("Call success:", info)
 		}
 	}()
 	newConnect.StartWebsocketClient(

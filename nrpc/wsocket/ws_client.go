@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/actions"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
@@ -66,13 +67,13 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	}
 	return s
 }
-func (s *LocalClient) log(level logger.LogLevel, line string, args ...any) {
-	s.Connect.Log(level, "[LocalClient]"+line, args...)
+func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
+	c.Connect.Log(level, "[LocalClient]"+line, args...)
 }
 
-func (s *LocalClient) ListenAndServe(ctx context.Context) error {
-	addr := fmt.Sprintf("ws://%s%s", s.serverUri, s.uriPath)
-	s.log(logger.Info, "new client connect %s", addr)
+func (c *LocalClient) ListenAndServe(ctx context.Context) error {
+	addr := fmt.Sprintf("ws://%s%s", c.serverUri, c.uriPath)
+	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, http.Header{
@@ -81,12 +82,12 @@ func (s *LocalClient) ListenAndServe(ctx context.Context) error {
 		if err != nil {
 			// 1-30 秒重试
 			retry := utils.RandInt64(1, 30)
-			s.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
+			c.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
 			time.Sleep(time.Duration(retry) * time.Second)
-			s.ListenAndServe(ctx)
+			c.ListenAndServe(ctx)
 			return err
 		}
-		s.ClientWs(ctx, conn)
+		c.ClientWs(ctx, conn)
 	}
 	return nil
 }
@@ -122,53 +123,58 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	//get data from websocket conn
 	go c.readPump(ctx, wsConn, closeChan, c.handler)
 	//send data to websocket conn
-	go c.writePump(ctx, wsConn)
+	go c.writePump(ctx, wsConn, closeChan)
 	// 等待关闭信号
 	<-closeChan
+	close(closeChan)
 	// 重连
 	c.ListenAndServe(ctx)
 }
 
-func (s *LocalClient) Call(ctx context.Context, mtd string, data ...[]byte) ([]byte, error) {
-	if s.client == nil {
-		s.log(logger.Error, "client not found")
+func (c *LocalClient) Call(ctx context.Context, mtd string, data ...[]byte) ([]byte, error) {
+	if c.client == nil {
+		c.log(logger.Error, "client not found")
 		return nil, errors.New("client not found")
 	}
 	// fmt.Println("Call LocalClient-11-:", mtd, data)
-	resp, err := s.client.Call(ctx, mtd, data...)
+	resp, err := c.client.Call(ctx, mtd, data...)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-func (s *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
-	if s.client == nil {
-		s.log(logger.Error, "server not found")
+func (c *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
+	if c.client == nil {
+		c.log(logger.Error, "server not found")
 		return errors.New("server not found")
 	}
-	return s.client.Push(ctx, msg)
+	return c.client.Push(ctx, msg)
 }
 
-func (s *LocalClient) writePump(ctx context.Context, ch *WsChannelClient) {
+func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeChan chan bool) {
 	defer func() {
 		if err := recover(); err != nil {
-			s.log(logger.Error, "writePump recover err : %v", err)
+			c.log(logger.Error, "writePump recover err : %v", err)
 		}
 	}()
 	//PingPeriod default eq 54s
-	ticker := time.NewTicker(s.PingPeriod)
+	ticker := time.NewTicker(c.PingPeriod)
 	defer func() {
+		if closeChan != nil {
+			closeChan <- true
+		}
 		ticker.Stop()
 		ch.conn.Close()
 		ch.conn = nil
+
 	}()
-	sliceSize := int(s.SliceSize) // 默认512
+	sliceSize := int(c.SliceSize) // 默认512
 	for {
 		select {
 		case msg, ok := <-ch.send:
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -179,21 +185,21 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsChannelClient) {
 		case msg, ok := <-ch.rpcCaller:
 			// @call  调用服务器方法
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			// fmt.Println("Call LocalClient-22-:", msg)
 			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
-				s.log(logger.Error, "slicesTextSend err = %v", err.Error())
+				c.log(logger.Error, "slicesTextSend err = %v", err.Error())
 				return
 			}
 			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
 		case msg, ok := <-ch.rpcBacker:
 			// @reply  服务器返回调用结果
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -209,10 +215,13 @@ func (s *LocalClient) writePump(ctx context.Context, ch *WsChannelClient) {
 				return
 			}
 			//heartbeat，if ping error will exit and close current websocket conn
-			ch.conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if err := ch.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+		case <-ctx.Done():
+			c.log(logger.Error, "[ws_client]writePump ctx.Done()")
+			return
 		}
 	}
 }
@@ -226,7 +235,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		}
 		ch.conn.Close()
 		ch.conn = nil
-		closeChan <- true
+		if closeChan != nil {
+			closeChan <- true
+		}
 	}()
 
 	ch.conn.SetReadLimit(c.MaxMessageSize)
@@ -239,6 +250,13 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 	// 要防止OnOpen阻塞，导致readPump阻塞
 	go handler.OnOpen(ctx, c, ch)
 	for {
+		// 主动关闭
+		select {
+		case <-ctx.Done():
+			c.log(logger.Error, "[ws_client]readPump ctx.Done()")
+			return
+		default:
+		}
 		// 来自服务器的消息
 		messageType, msg, err := ch.conn.ReadMessage()
 		if err != nil {
@@ -346,19 +364,19 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	}
 }
 
-// // 实现IBucket接口 (为了统一，无其他)
-// func (s *LocalClient) Bucket(userId int64) *group.Bucket {
-// 	return nil
-// }
+// 实现IBucket接口 (为了统一，无其他)
+func (c *LocalClient) Bucket(userId int64) *bucket.Bucket {
+	return nil
+}
 
-// func (s *LocalClient) Channel(userId int64) group.IChannel {
-// 	return nil
-// }
+func (c *LocalClient) Channel(userId int64) bucket.IChannel {
+	return nil
+}
 
-// func (s *LocalClient) Room(roomId int64) *group.Room {
-// 	return nil
-// }
+func (c *LocalClient) Room(roomId int64) *bucket.Room {
+	return nil
+}
 
-// func (s *LocalClient) Broadcast(ctx context.Context, msg *message.Msg) (err error) {
-// 	return nil
-// }
+func (c *LocalClient) Broadcast(ctx context.Context, msg *message.Msg) (err error) {
+	return nil
+}

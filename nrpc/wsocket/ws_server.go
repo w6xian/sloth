@@ -17,6 +17,7 @@ import (
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/sloth/pprof"
 
 	"log"
 
@@ -81,6 +82,7 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	for _, opt := range options {
 		opt(s)
 	}
+	pprof.New().Buckets = int64(len(bs))
 	return s
 }
 func (s *WsServer) Bucket(userId int64) *bucket.Bucket {
@@ -108,6 +110,25 @@ func (s *WsServer) Broadcast(ctx context.Context, msg *message.Msg) error {
 		}
 	}
 	return nil
+}
+
+// 资源信息
+func (s *WsServer) PProf(ctx context.Context) (*pprof.BucketInfo, error) {
+	info := &pprof.BucketInfo{
+		Buckets: int64(len(s.Buckets)),
+		Rooms:   map[int64]pprof.Room{},
+	}
+	for _, b := range s.Buckets {
+		info.Buckets++
+		for _, room := range b.GetRooms() {
+			info.Rooms[room.Id] = pprof.Room{
+				Id:       room.Id,
+				Connects: int64(room.OnlineCount),
+			}
+			info.Connects += int64(room.OnlineCount)
+		}
+	}
+	return info, nil
 }
 
 func (s *WsServer) ListenAndServe(ctx context.Context) error {
@@ -147,6 +168,9 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 			s.log(logger.Error, "writePump recover err : %v", err)
 		}
 	}()
+	// 记录连接数
+	pprof.New().NewConeect()
+	defer pprof.New().CloseConeect()
 	//PingPeriod default eq 54s
 	ticker := time.NewTicker(9 * time.Second)
 	defer func() {
@@ -196,6 +220,8 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
