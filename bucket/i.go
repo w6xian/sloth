@@ -15,4 +15,5 @@ type IChannel interface {
 	Next(n ...IChannel) IChannel
 	Room(r ...*Room) *Room
 	UserId(u ...int64) int64
+	Token(t ...string) string
 }

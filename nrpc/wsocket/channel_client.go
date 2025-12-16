@@ -135,7 +135,7 @@ func (ch *WsChannelClient) Call(ctx context.Context, mtd string, args ...[]byte)
 	defer ticker.Stop()
 	msg := message.NewWsJsonCallObject(mtd, args...)
 	// 发送调用请求
-	// fmt.Println("Call WsClient------:", msg)
+	ch.log(logger.Debug, "Call WsClient------: %s", msg)
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")

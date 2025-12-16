@@ -71,6 +71,12 @@ func (ch *WsChannelServer) UserId(u ...int64) int64 {
 	}
 	return ch._userId
 }
+func (ch *WsChannelServer) Token(t ...string) string {
+	if len(t) > 0 {
+		ch._sign = t[0]
+	}
+	return ch._sign
+}
 
 // login 登录
 func (ch *WsChannelServer) GetAuthInfo() *nrpc.AuthInfo {
