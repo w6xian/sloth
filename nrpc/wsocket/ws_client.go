@@ -68,6 +68,10 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	return s
 }
 func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
+	if c.Connect == nil {
+		fmt.Println("LocalClient Connect is nil")
+		return
+	}
 	c.Connect.Log(level, "[LocalClient]"+line, args...)
 }
 

@@ -45,6 +45,10 @@ type WsServer struct {
 }
 
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
+	if s.Connect == nil {
+		fmt.Println("WsServer Connect is nil")
+		return
+	}
 	s.Connect.Log(level, "[WsServer]"+line, args...)
 }
 

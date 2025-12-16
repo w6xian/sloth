@@ -97,6 +97,10 @@ func (ch *WsChannelServer) Logout() {
 }
 
 func (s *WsChannelServer) log(level logger.LogLevel, line string, args ...any) {
+	if s.Connect == nil {
+		fmt.Println("WsServer Connect is nil")
+		return
+	}
 	s.Connect.Log(level, "[WsChannelServer]"+line, args...)
 }
 

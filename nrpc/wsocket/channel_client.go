@@ -60,6 +60,10 @@ func NewWsChannelClient(connect nrpc.ICallRpc, opts ...ChannelClientOption) (c *
 	return
 }
 func (s *WsChannelClient) log(level logger.LogLevel, line string, args ...any) {
+	if s.Connect == nil {
+		fmt.Println("WsServer Connect is nil")
+		return
+	}
 	s.Connect.Log(level, "[WsChannelClient]"+line, args...)
 }
 
