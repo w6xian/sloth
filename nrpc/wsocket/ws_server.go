@@ -136,6 +136,11 @@ func (s *WsServer) PProf(ctx context.Context) (*pprof.BucketInfo, error) {
 }
 
 func (s *WsServer) ListenAndServe(ctx context.Context) error {
+	defer func() {
+		if err := recover(); err != nil {
+			s.log(logger.Error, "ListenAndServe recover err : %v", err)
+		}
+	}()
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
 		s.log(logger.Info, "new client connect")
 		s.serveWs(ctx, w, r)
@@ -179,12 +184,12 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	ticker := time.NewTicker(9 * time.Second)
 	defer func() {
 		ticker.Stop()
-		ch.Conn.Close()
+		if ch.Conn != nil {
+			ch.Conn.Close()
+			ch.Conn = nil
+		}
 	}()
-	// go func() {
-	// 	msg := message.NewMessage(websocket.TextMessage, []byte("hello"))
-	// 	ch.broadcast <- msg
-	// }()
+
 	for {
 		select {
 		case msg, ok := <-ch.broadcast:
@@ -238,11 +243,12 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 	}()
 	defer func() {
 		if ch.Room() == nil || ch.UserId() == 0 {
-			ch.Conn.Close()
-			return
+			GetBucket(context.Background(), s.Buckets, ch.UserId()).DeleteChannel(ch)
 		}
-		GetBucket(context.Background(), s.Buckets, ch.UserId()).DeleteChannel(ch)
-		ch.Conn.Close()
+		if ch.Conn != nil {
+			ch.Conn.Close()
+			ch.Conn = nil
+		}
 	}()
 
 	ch.Conn.SetReadLimit(s.MaxMessageSize)

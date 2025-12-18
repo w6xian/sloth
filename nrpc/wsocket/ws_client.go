@@ -76,6 +76,11 @@ func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
 }
 
 func (c *LocalClient) ListenAndServe(ctx context.Context) error {
+	defer func() {
+		if err := recover(); err != nil {
+			c.log(logger.Error, "ListenAndServe recover err : %v", err)
+		}
+	}()
 	addr := fmt.Sprintf("ws://%s%s", c.serverUri, c.uriPath)
 	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
@@ -232,13 +237,10 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 
 func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan bool, handler IClientHandleMessage) {
 	defer func() {
-		if ch.UserId == 0 {
+		if ch.conn != nil {
 			ch.conn.Close()
 			ch.conn = nil
-			return
 		}
-		ch.conn.Close()
-		ch.conn = nil
 		if closeChan != nil {
 			closeChan <- true
 		}
