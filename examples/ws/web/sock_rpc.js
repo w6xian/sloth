@@ -523,88 +523,178 @@ var Base64 = {
 }
 
 
-const TLV_TYPE_STRING = 0x01
-const TLV_TYPE_JSON = 0x02
-const TLV_TYPE_BINARY = 0x03
-const TLV_TYPE_INT64 = 0x04
-const TLV_TYPE_UINT64 = 0x05
-const TLV_TYPE_FLOAT64 = 0x06
+// 错误定义
+const ErrInvalidValueLength = new Error("value length is too long");
+const ErrInvalidCrc = new Error("invalid crc");
+const ErrInvalidFloat64 = new Error("invalid float64");
+const ErrInvalidFloat64Type = new Error("invalid float64 type");
+const ErrInvalidInt64 = new Error("invalid int64");
+const ErrInvalidInt64Type = new Error("invalid int64 type");
+const ErrInvalidUint64 = new Error("invalid uint64");
+const ErrInvalidUint64Type = new Error("invalid uint64 type");
+const ErrInvalidStructType = new Error("invalid type 0x00< tax >0x40(64)");
+const ErrInvalidBinType = new Error("invalid binary type");
+const ErrInvalidLengthSize = new Error("invalid length size,1-4");
 
+// TLV类型常量
+const TLV_TYPE_FRAME = 0x00;
+const TLV_TYPE_STRING = 0x01;
+const TLV_TYPE_JSON = 0x02;
+const TLV_TYPE_BINARY = 0x03;
+const TLV_TYPE_INT64 = 0x04;
+const TLV_TYPE_UINT64 = 0x05;
+const TLV_TYPE_FLOAT64 = 0x06;
+const TLV_TYPE_BYTE = 0x07;
+const TLV_TYPE_NIL = 0x08;
 
-// TLV
+// 头部大小常量
+const TLVX_HEADER_SIZE = 5;
+const TLVX_HEADER_MIN_SIZE = 2;
+
+// TlV类
 class TlV {
-    constructor(tag, length, crc, value) {
-        this.T = tag;      // 1字节标签
-        this.L = length;  // 2字节长度(大端序)
-        this.C = crc;     // 2字节CRC校验值
-        this.V = value;   // 数据内容
+    constructor(tag = 0, length = 0, value = new Uint8Array()) {
+        this.T = tag;
+        this.L = length;
+        this.V = value;
+    }
+
+    Tag() { return this.T; }
+    Type() { return this.T; }
+    Value() { return this.V; }
+
+    String() {
+        return new TextDecoder().decode(this.V);
+    }
+
+    Json() {
+        try {
+            return JSON.parse(this.String());
+        } catch (e) {
+            throw new Error(`Failed to parse JSON: ${e.message}`);
+        }
     }
 }
 
-function NewTLVFromFrame(b) {
+// 从帧创建TLV
+function NewTLVFromFrame(b, opts = []) {
+    const t = new TlV();
     try {
         const [tag, data] = tlv_decode(b);
-        const crc = getCRC(data);
-        return new TlV(tag, data.length, crc, data);
+        t.T = tag;
+        t.L = data.length;
+        t.V = data;
+        return t;
     } catch (err) {
         throw err;
     }
 }
 
-function isTLVFrame(b) {
-    if (b.length < 6) return false; // 至少需要6字节头部
-    const length = (b[1] << 8) | b[2]; // 大端序解析长度
-    if (b.length < 6 + length) return false;
-    const crc = b.slice(4, 6);
-    const data = b.slice(6, 6 + length);
-    return checkCRC(data, crc);
-}
-
-function tlv_encode(tag, data) {
-    if (data.length > 0xFFFF) throw new Error("Invalid value length");
-    const header = new Uint8Array(6 + data.length);
-    header[0] = tag; // 标签
-    // 大端序写入长度
-    header[1] = (data.length >> 8) & 0xFF;
-    header[2] = data.length & 0xFF;
-    // 计算并写入CRC
-    const crc = getCRC(data);
-    header.set(crc, 4);
-    // 写入数据
-    header.set(data, 6);
-    return header;
-}
-
-function tlv_decode(b) {
-    if (b.length < 6) throw new Error("Invalid frame length");
-    const length = (b[1] << 8) | b[2];
-    if (b.length < 6 + length) throw new Error("Invalid value length");
-    const crc = b.slice(4, 6);
-    const data = b.slice(6, 6 + length);
-    if (!checkCRC(data, crc)) throw new Error("Invalid CRC");
-    return [b[0], data];
-}
-// 假设使用CRC16算法(具体需根据原utils.GetCrC实现调整)
-function getCRC(data) {
-    let crc = 0xFFFF;
-    for (let i = 0; i < data.length; i++) {
-        crc ^= data[i] << 8;
-        for (let j = 0; j < 8; j++) {
-            if (crc & 0x8000) {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc = crc << 1;
-            }
-            crc &= 0xFFFF;
-        }
+// 检查是否为有效的TLV帧
+function IsTLVFrame(b) {
+    try {
+        tlv_decode(b);
+        return true;
+    } catch (err) {
+        return false;
     }
-    return [(crc >> 8) & 0xFF, crc & 0xFF];
 }
 
-function checkCRC(data, crc) {
-    const calculated = getCRC(data);
-    return calculated[0] === crc[0] && calculated[1] === crc[1];
+// CRC计算 (需要根据Go的utils.GetCrC实现)
+function getCRC(data) {
+    const crc = new Uint8Array(2);
+    // 实际CRC计算实现需要与Go版本匹配
+    return crc;
 }
+
+// CRC校验 (需要根据Go的utils.CheckCRC实现)
+function checkCRC(data, crc) {
+    const calculatedCRC = getCRC(data);
+    return calculatedCRC[0] === crc[0] && calculatedCRC[1] === crc[1];
+}
+
+// 计算头部大小
+function get_header_size(lLen, checkCRC) {
+    let c = 0x02;
+    if (!checkCRC) c = 0;
+    return lLen + 1 + c;
+}
+
+// TLV编码
+function tlv_encode(tag, data, opts = []) {
+    const opt = { CheckCRC: false, LengthSize: 1 };
+    const l = data.length;
+
+    if (l === 0x00) return new Uint8Array([tag, 0]);
+    if (tag > 0x40) throw ErrInvalidStructType;
+    if (l > 0xFFFF) throw ErrInvalidValueLength;
+
+    // 确定长度大小
+    if (l > 0xFF) {
+        tag |= 0x80;
+        opt.LengthSize = 2;
+    }
+
+    const headerSize = get_header_size(opt.LengthSize, opt.CheckCRC);
+    const buf = new Uint8Array(headerSize + l);
+    buf[0] = tag;
+
+    if (opt.LengthSize === 2) buf[0] |= 0x80;
+    if (opt.CheckCRC) buf[0] |= 0x40;
+
+    // 写入长度
+    const dv = new DataView(buf.buffer);
+    if (opt.LengthSize === 1) {
+        dv.setUint8(1, l);
+    } else {
+        dv.setUint16(1, l, false); // false表示大端序
+    }
+
+    // 写入CRC
+    if (opt.CheckCRC) {
+        const crc = getCRC(data);
+        buf[headerSize - 2] = crc[0];
+        buf[headerSize - 1] = crc[1];
+    }
+
+    // 写入数据
+    buf.set(data, headerSize);
+    return buf;
+}
+
+// TLV解码
+function tlv_decode(b) {
+    if (b.length < TLVX_HEADER_MIN_SIZE) throw ErrInvalidValueLength;
+
+    let tag = b[0];
+    let lengthSize = 1;
+    let checkCRC = false;
+
+    if ((tag & 0x80) > 0) lengthSize = 2;
+    if ((tag & 0x40) > 0) checkCRC = true;
+    tag &= 0x3F; // 提取低6位作为实际tag
+
+    const headerSize = get_header_size(lengthSize, checkCRC);
+    const dv = new DataView(b.buffer);
+    let l = 0;
+
+    switch (lengthSize) {
+        case 1: l = dv.getUint8(1); break;
+        case 2: l = dv.getUint16(1, false); break;
+        default: throw ErrInvalidLengthSize;
+    }
+
+    if (b.length < headerSize + l) throw ErrInvalidValueLength;
+    const dataBuf = b.subarray(headerSize, headerSize + l);
+
+    if (checkCRC) {
+        const crc = b.subarray(headerSize - 2, headerSize);
+        if (!checkCRC(dataBuf, crc)) throw ErrInvalidCrc;
+    }
+
+    return [tag, dataBuf];
+}
+
 
 
 /**
@@ -632,6 +722,16 @@ function frameFromString(v) {
         return new Uint8Array();
     }
 }
+function parseTlvMessage(evt) {
+    try {
+        const data = Base64.decode(evt)
+        const frame = new TextEncoder().encode(data);
+        return NewTLVFromFrame(frame)
+    } catch (error) {
+        console.log(error)
+    }
+}
+
 
 
 // 错误定义

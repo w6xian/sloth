@@ -48,7 +48,8 @@
         })
         rpc.Bind('shop', {
             Test: (evt) => {
-                console.log('server say hello', Base64.decode(evt))
+                const tlv = parseTlvMessage(evt)
+                console.log('server say hello', tlv.String())
                 return 'helo' + (new Date().getTime())
             }
         })
