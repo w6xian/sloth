@@ -127,10 +127,12 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "ClientWs recover err : %v", err)
 		}
+
 	}()
 
 	// 链接session
-	closeChan := make(chan bool, 1)
+	closeChan := make(chan struct{}, 2)
+	defer close(closeChan)
 	// 全局client websocket连接
 	wsConn := NewWsChannelClient(c.Connect)
 	c.client = wsConn
@@ -144,7 +146,6 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	go c.writePump(ctx, wsConn, closeChan)
 	// 等待关闭信号
 	<-closeChan
-	close(closeChan)
 	cancel()
 	// 重连
 	if c.KeepAlive {
@@ -173,10 +174,10 @@ func (c *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
 	return c.client.Push(ctx, msg)
 }
 
-func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeChan chan bool) {
+func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}) {
 	defer func() {
 		if err := recover(); err != nil {
-			c.log(logger.Error, "writePump recover err : %v", err)
+			c.log(logger.Error, "writePump recover 11 err : %v", err)
 		}
 	}()
 	ctx, cancel := context.WithCancel(ctx)
@@ -184,12 +185,17 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	//PingPeriod default eq 54s
 	ticker := time.NewTicker(c.PingPeriod)
 	defer func() {
+		// 检测是否有效或已关闭
 		if closeChan != nil {
-			closeChan <- true
+			closeChan <- struct{}{}
 		}
+	}()
+	defer func() {
 		ticker.Stop()
-		ch.conn.Close()
-		ch.conn = nil
+		if ch.conn != nil {
+			ch.conn.Close()
+			ch.conn = nil
+		}
 
 	}()
 	sliceSize := int(c.SliceSize) // 默认512
@@ -249,7 +255,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}
 }
 
-func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan bool, handler IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler IClientHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "readPump recover err : %v", err)
@@ -258,13 +264,17 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
+		if closeChan != nil {
+			closeChan <- struct{}{}
+		}
+	}()
+	defer func() {
+
 		if ch.conn != nil {
 			ch.conn.Close()
 			ch.conn = nil
 		}
-		if closeChan != nil {
-			closeChan <- true
-		}
+
 	}()
 
 	ch.conn.SetReadLimit(c.MaxMessageSize)

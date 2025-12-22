@@ -2,3 +2,4 @@
 *.exe
 examples/ws/web/web
 examples/ws/client/client
+examples/.DS_Store
