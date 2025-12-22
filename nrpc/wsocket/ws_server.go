@@ -258,18 +258,24 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 		return nil
 	})
 	// OnOpen
-	go handler.OnOpen(ctx, s, ch)
+	if handler != nil {
+		go handler.OnOpen(ctx, s, ch)
+	}
 
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				handler.OnError(ctx, s, ch, err)
+				if handler != nil {
+					handler.OnError(ctx, s, ch, err)
+				}
 				return
 			}
 		}
 		if msg == nil || messageType == -1 {
-			handler.OnClose(ctx, s, ch)
+			if handler != nil {
+				handler.OnClose(ctx, s, ch)
+			}
 			return
 		}
 		//@call HandleCall 处理调用方法
@@ -279,7 +285,9 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
 		// fmt.Println("2ws_server readPump messageType:", messageType, "msg:", string(m), err)
 		if err != nil {
-			handler.OnError(ctx, s, ch, err)
+			if handler != nil {
+				handler.OnError(ctx, s, ch, err)
+			}
 			continue
 		}
 		// fmt.Println("4ws_server readPump messageType:", messageType, "msg:", m)

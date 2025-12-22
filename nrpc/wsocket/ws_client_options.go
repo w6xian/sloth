@@ -38,3 +38,10 @@ func WithClientServerUri(serverUri string) ClientOption {
 		s.serverUri = serverUri
 	}
 }
+
+// KeepAlive default eq false
+func KeepAlive(keepAlive bool) ClientOption {
+	return func(s *LocalClient) {
+		s.KeepAlive = keepAlive
+	}
+}

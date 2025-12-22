@@ -9,6 +9,7 @@ import (
 
 	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 )
@@ -22,16 +23,22 @@ type ClientRpc struct {
 	Decoder func([]byte) ([]byte, error)
 }
 
+// LinkClientFunc 链接客户端  请用：DefaultServer 代替
+// deprecated: use DefaultServer instead
 func LinkClientFunc(opts ...IRpcOption) *ClientRpc {
+	return DefaultServer(opts...)
+}
+
+func DefaultServer(opts ...IRpcOption) *ClientRpc {
 	once.Do(func() {
 		ClientObjc = &ClientRpc{
-			Encoder: nrpc.DefaultEncoder,
-			Decoder: nrpc.DefaultDecoder,
+			Encoder: tlv.DefaultEncoder,
+			Decoder: tlv.DefaultDecoder,
+		}
+		for _, opt := range opts {
+			opt(ClientObjc)
 		}
 	})
-	for _, opt := range opts {
-		opt(ClientObjc)
-	}
 	return ClientObjc
 }
 

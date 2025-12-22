@@ -6,6 +6,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 )
@@ -49,17 +50,21 @@ func (c *ServerRpc) GetAuthInfo() *nrpc.AuthInfo {
 	return c.Listen.GetAuthInfo()
 }
 
-func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
+func DefaultCleint(opts ...IRpcOption) *ServerRpc {
 	svr_once.Do(func() {
 		ServerObjc = &ServerRpc{
-			Encoder: nrpc.DefaultEncoder,
-			Decoder: nrpc.DefaultDecoder,
+			Encoder: tlv.DefaultEncoder,
+			Decoder: tlv.DefaultDecoder,
+		}
+		for _, opt := range opts {
+			opt(ServerObjc)
 		}
 	})
-	for _, opt := range opts {
-		opt(ServerObjc)
-	}
 	return ServerObjc
+}
+
+func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
+	return DefaultCleint(opts...)
 }
 
 // @call server

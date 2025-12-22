@@ -18,13 +18,11 @@ import (
 
 func main() {
 
-	server := sloth.LinkServerFunc(
-		sloth.UseEncoder(tlv.DefaultEncoder),
-		sloth.UseDecoder(tlv.DefaultDecoder))
-	newConnect := sloth.NewConnect(sloth.Server(server))
-	newConnect.RegisterRpc("shop", &HelloService{}, "")
-
-	go func() {
+	client := sloth.DefaultCleint()
+	newConnect := sloth.ClientConn(client)
+	newConnect.Register("shop", &HelloService{}, "")
+	go newConnect.Dial("tcp", "localhost:8990")
+	func() {
 		for {
 			time.Sleep(time.Second)
 			// if server.UserId == 0 {
@@ -40,8 +38,8 @@ func main() {
 			// }
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
-			if server.UserId == 0 {
-				data, err := server.Call(context.Background(), "v1.Sign", []byte("sign"))
+			if client.UserId == 0 {
+				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
 				if err != nil {
 					fmt.Println("Call error:", err)
 					continue
@@ -53,10 +51,10 @@ func main() {
 					continue
 				}
 				fmt.Println("Sign success:", auth)
-				server.SetAuthInfo(auth)
+				client.SetAuthInfo(auth)
 			}
 
-			data, err := server.Call(context.Background(), "pprof.Info", []byte("abc"),
+			data, err := client.Call(context.Background(), "pprof.Info", []byte("abc"),
 				int(utils.RandInt64(1, 0xFFFF)),
 				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
 				"w6xian_str",
@@ -77,13 +75,13 @@ func main() {
 			fmt.Println("Call success:", info)
 		}
 	}()
-	newConnect.StartWebsocketClient(
-		wsocket.WithClientHandle(&Handler{server: server}),
-		wsocket.WithClientUriPath("/ws"),
-		// wsocket.WithClientServerUri("localhost:8990"),
-		// ws addr: 0.0.0.0:8966
-		wsocket.WithClientServerUri("localhost:8990"),
-	)
+	// newConnect.StartWebsocketClient(
+	// 	wsocket.WithClientHandle(&Handler{server: client}),
+	// 	wsocket.WithClientUriPath("/ws"),
+	// 	// wsocket.WithClientServerUri("localhost:8990"),
+	// 	// ws addr: 0.0.0.0:8966
+	// 	wsocket.WithClientServerUri("localhost:8990"),
+	// )
 
 }
 

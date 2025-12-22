@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 
+	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
@@ -61,7 +64,19 @@ func (c *Connect) Options() *options.Options {
 	return c.Option
 }
 
-func NewConnect(opts ...ConnOption) *Connect {
+func ServerConn(client *ClientRpc, opts ...ConnOption) *Connect {
+	opts = append(opts, Client(client))
+	return newConnect(opts...)
+}
+
+func ClientConn(client *ServerRpc, opts ...ConnOption) *Connect {
+	opts = append(opts, Server(client))
+	return newConnect(opts...)
+}
+
+// newConnect 创建一个连接
+// 请用 ServerConn 或 ClientConn 创建连接
+func newConnect(opts ...ConnOption) *Connect {
 	svr := new(Connect)
 	// svr.id = atomic.AddInt64(&instCount, 1)
 	svr.ServerId = id.ShortID()
@@ -96,7 +111,14 @@ func (c *Connect) regist_pprof() error {
 	return nil
 }
 
+// RegisterRpc 推荐使用Register方法注册rpc服务
+// deprecated: RegisterRpc is deprecated, use Register instead
 func (c *Connect) RegisterRpc(name string, rcvr any, metadata string) error {
+	return c.Register(name, rcvr, metadata)
+}
+
+// Register 注册一个服务，name是服务名，rcvr是服务实现，metadata是服务描述
+func (c *Connect) Register(name string, rcvr any, metadata string) error {
 	if _, ok := c.serviceMap[name]; ok {
 		return fmt.Errorf("service %s already registered", name)
 	}
@@ -105,14 +127,32 @@ func (c *Connect) RegisterRpc(name string, rcvr any, metadata string) error {
 	return nil
 }
 
+func (c *Connect) Listen(network, address string, options ...wsocket.ServerOption) {
+	ln, err := net.Listen(network, address)
+	if err != nil {
+		panic(err)
+	}
+	r := mux.NewRouter()
+	options = append(options, wsocket.WithRouter(r))
+	c.ListenOption(options...)
+	http.Handle("/", r)
+	http.Serve(ln, nil)
+}
+
 // path是uri中的路径，默认是"/ws"
-func (c *Connect) StartWebsocketServer(options ...wsocket.ServerOption) {
+func (c *Connect) ListenOption(options ...wsocket.ServerOption) error {
 	//set the maximum number of CPUs that can be executing
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsServer := wsocket.NewWsServer(c, options...)
 	c.client.Serve = wsServer
 	pprof.New().UsePProf(wsServer)
 	wsServer.ListenAndServe(context.Background())
+	return nil
+}
+
+// path是uri中的路径，默认是"/ws"
+func (c *Connect) StartWebsocketServer(options ...wsocket.ServerOption) error {
+	return c.ListenOption(options...)
 }
 
 func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
@@ -121,6 +161,19 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	wsClient := wsocket.NewLocalClient(c, options...)
 	c.server.Listen = wsClient
 	wsClient.ListenAndServe(context.Background())
+}
+
+func (c *Connect) Dial(network, address string, options ...wsocket.ClientOption) {
+	opts := []wsocket.ClientOption{
+		wsocket.WithClientUriPath("/ws"),
+		wsocket.WithClientServerUri(address),
+	}
+	opts = append(opts, options...)
+	runtime.GOMAXPROCS(c.cpuNum)
+	wsClient := wsocket.NewLocalClient(c, opts...)
+	c.server.Listen = wsClient
+	wsClient.ListenAndServe(context.Background())
+
 }
 
 func (c *Connect) SetAuthInfo(auth *nrpc.AuthInfo) error {

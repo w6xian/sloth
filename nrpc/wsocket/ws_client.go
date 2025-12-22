@@ -40,6 +40,7 @@ type LocalClient struct {
 	ReadBufferSize  int
 	WriteBufferSize int
 	BroadcastSize   int
+	KeepAlive       bool
 }
 
 func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient {
@@ -60,6 +61,7 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	s.WriteBufferSize = opt.WriteBufferSize
 	s.BroadcastSize = opt.BroadcastSize
 	s.SliceSize = opt.SliceSize
+	s.KeepAlive = opt.KeepAlive
 
 	s.handler = nil
 	for _, opt := range options {
@@ -88,7 +90,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, http.Header{
 			"app_id": []string{id.ShortStringID()},
 		})
-		if err != nil {
+		if err != nil && c.KeepAlive {
 			// 1-30 秒重试
 			retry := utils.RandInt64(1, 30)
 			c.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
@@ -121,6 +123,11 @@ func (c *LocalClient) GetAuthInfo() *nrpc.AuthInfo {
 
 // ClientWs 客户端连接
 func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
+	defer func() {
+		if err := recover(); err != nil {
+			c.log(logger.Error, "ClientWs recover err : %v", err)
+		}
+	}()
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
@@ -137,7 +144,9 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	<-closeChan
 	close(closeChan)
 	// 重连
-	c.ListenAndServe(ctx)
+	if c.KeepAlive {
+		c.ListenAndServe(ctx)
+	}
 }
 
 func (c *LocalClient) Call(ctx context.Context, mtd string, data ...[]byte) ([]byte, error) {
@@ -237,6 +246,11 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 
 func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan bool, handler IClientHandleMessage) {
 	defer func() {
+		if err := recover(); err != nil {
+			c.log(logger.Error, "readPump recover err : %v", err)
+		}
+	}()
+	defer func() {
 		if ch.conn != nil {
 			ch.conn.Close()
 			ch.conn = nil
@@ -254,7 +268,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		return nil
 	})
 	// 要防止OnOpen阻塞，导致readPump阻塞
-	go handler.OnOpen(ctx, c, ch)
+	if handler != nil {
+		go handler.OnOpen(ctx, c, ch)
+	}
 	for {
 		// 主动关闭
 		select {
@@ -267,13 +283,17 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		messageType, msg, err := ch.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				handler.OnError(ctx, c, ch, err)
+				if handler != nil {
+					handler.OnError(ctx, c, ch, err)
+				}
 				return
 			}
 		}
 		// fmt.Println("Call LocalClient-44-:", messageType, msg)
 		if msg == nil || messageType == -1 {
-			handler.OnClose(ctx, c, ch)
+			if handler != nil {
+				handler.OnClose(ctx, c, ch)
+			}
 			return
 		}
 		// 消息体可能太大，需要分片接收后再解析
@@ -281,7 +301,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		m, err := receiveMessage(ch.conn, byte(messageType), msg)
 		// fmt.Println("Call LocalClient-44-:", messageType, msg)
 		if err != nil {
-			handler.OnError(ctx, c, ch, err)
+			if handler != nil {
+				handler.OnError(ctx, c, ch, err)
+			}
 			continue
 		}
 		tlvFrame, err := tlv.Deserialize(m)

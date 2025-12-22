@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"time"
 
 	"github.com/w6xian/sloth"
@@ -13,38 +11,39 @@ import (
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
-
-	"github.com/gorilla/mux"
 )
 
 func main() {
-	ln, err := net.Listen("tcp", "localhost:8990")
-	if err != nil {
-		panic(err)
-	}
-	r := mux.NewRouter()
-	client := sloth.LinkClientFunc(
-		sloth.UseEncoder(tlv.DefaultEncoder),
-		sloth.UseDecoder(tlv.DefaultDecoder))
-	newConnect := sloth.NewConnect(sloth.Client(client))
-	newConnect.RegisterRpc("v1", &HelloService{}, "")
-	newConnect.StartWebsocketServer(
-		wsocket.WithRouter(r),
-		wsocket.WithServerHandle(&Handler{}),
-	)
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-			data, err := client.Call(context.Background(), 2, "shop.Test", []byte("hello"))
-			if err != nil {
-				fmt.Println("Call error:", err)
-				continue
-			}
-			fmt.Println("Call success:", string(data))
-		}
-	}()
-	http.Handle("/", r)
-	http.Serve(ln, nil)
+	// ln, err := net.Listen("tcp", "localhost:8990")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// r := mux.NewRouter()
+	// client := sloth.DefaultServer()
+	// newConnect := sloth.ServerConn(client)
+	// newConnect.Register("v1", &HelloService{}, "")
+	// newConnect.ListenOption(
+	// 	wsocket.WithRouter(r),
+	// 	wsocket.WithServerHandle(&Handler{}),
+	// )
+	// go func() {
+	// 	for {
+	// 		time.Sleep(5 * time.Second)
+	// 		data, err := client.Call(context.Background(), 2, "shop.Test", []byte("hello"))
+	// 		if err != nil {
+	// 			fmt.Println("Call error:", err)
+	// 			continue
+	// 		}
+	// 		fmt.Println("Call success:", string(data))
+	// 	}
+	// }()
+	// http.Handle("/", r)
+	// http.Serve(ln, nil)
+	server := sloth.DefaultServer()
+	s := sloth.ServerConn(server)
+	s.Register("v1", &HelloService{}, "")
+	s.Listen("tcp", "localhost:8990")
+
 }
 
 type Hello struct {

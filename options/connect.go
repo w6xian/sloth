@@ -29,6 +29,8 @@ type Options struct {
 	RoutineSize int
 	// SliceSize is the size of the slice used to store messages for each client.
 	SliceSize int64
+	// KeepAlive is the duration for which the server allows a client to keep the connection alive.
+	KeepAlive bool
 }
 
 func NewOptions() *Options {
@@ -47,5 +49,6 @@ func NewOptions() *Options {
 		RoutineAmount: 32,
 		RoutineSize:   20,
 		SliceSize:     512,
+		KeepAlive:     true,
 	}
 }
