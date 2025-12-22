@@ -42,7 +42,17 @@ func main() {
 	server := sloth.DefaultServer()
 	s := sloth.ServerConn(server)
 	s.Register("v1", &HelloService{}, "")
-	s.Listen("tcp", "localhost:8990")
+	go s.Listen("tcp", "localhost:8990")
+
+	for {
+		time.Sleep(5 * time.Second)
+		data, err := server.Call(context.Background(), 2, "shop.Test", []byte("hello"))
+		if err != nil {
+			fmt.Println("Call error:", err)
+			continue
+		}
+		fmt.Println("Call success:", string(data))
+	}
 
 }
 

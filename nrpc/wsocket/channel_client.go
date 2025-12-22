@@ -53,6 +53,7 @@ func NewWsChannelClient(connect nrpc.ICallRpc, opts ...ChannelClientOption) (c *
 	c.writeWait = 10 * time.Second
 	c.readWait = 10 * time.Second
 	c.Sign = ""
+	c.Connect = connect
 	for _, opt := range opts {
 		opt(c)
 	}
