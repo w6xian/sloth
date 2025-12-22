@@ -95,7 +95,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			retry := utils.RandInt64(1, 30)
 			c.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
 			time.Sleep(time.Duration(retry) * time.Second)
-			c.ListenAndServe(ctx)
+			c.ListenAndServe(context.Background())
 			return err
 		}
 		c.ClientWs(ctx, conn)
@@ -128,6 +128,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 			c.log(logger.Error, "ClientWs recover err : %v", err)
 		}
 	}()
+
 	// 链接session
 	closeChan := make(chan bool, 1)
 	// 全局client websocket连接
@@ -136,6 +137,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	//default broadcast size eq 512
 	wsConn.conn = conn
 	wsConn.RoomId = 0
+	ctx, cancel := context.WithCancel(ctx)
 	//get data from websocket conn
 	go c.readPump(ctx, wsConn, closeChan, c.handler)
 	//send data to websocket conn
@@ -143,9 +145,10 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 等待关闭信号
 	<-closeChan
 	close(closeChan)
+	cancel()
 	// 重连
 	if c.KeepAlive {
-		c.ListenAndServe(ctx)
+		c.ListenAndServe(context.Background())
 	}
 }
 
@@ -176,6 +179,8 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 			c.log(logger.Error, "writePump recover err : %v", err)
 		}
 	}()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	//PingPeriod default eq 54s
 	ticker := time.NewTicker(c.PingPeriod)
 	defer func() {
@@ -250,6 +255,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			c.log(logger.Error, "readPump recover err : %v", err)
 		}
 	}()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	defer func() {
 		if ch.conn != nil {
 			ch.conn.Close()
