@@ -166,6 +166,9 @@ class SockRpc {
         }
     }
     Connect(option) {
+        if (this.sock != null) {
+            return;
+        }
         const options = option || {};
         const tmp = options.binaryType;
         if (tmp !== "arraybuffer" && tmp !== "blob") {
