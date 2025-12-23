@@ -1,6 +1,7 @@
 package message
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/w6xian/sloth/actions"
@@ -61,8 +62,9 @@ func (j *JsonCallObject) ToBytes() []byte {
 // }
 
 type JsonBackObject struct {
-	Id   string `json:"id"` // user id
-	Type int    `json:"-"`  // message type 1 textMessage or 2 binaryMessage1
+	Context context.Context
+	Id      string `json:"id"` // user id
+	Type    int    `json:"-"`  // message type 1 textMessage or 2 binaryMessage1
 	// action
 	Action int64 `json:"action"`
 	//data binary body bytes

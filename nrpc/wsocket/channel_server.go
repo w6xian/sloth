@@ -95,6 +95,18 @@ func (ch *WsChannelServer) SetAuthInfo(auth *nrpc.AuthInfo) error {
 func (ch *WsChannelServer) Logout() {
 	ch._userId = 0
 }
+func (ch *WsChannelServer) Close() error {
+	ch.Lock.Lock()
+	defer ch.Lock.Unlock()
+	if ch.Conn != nil {
+		ch.Conn.Close()
+	}
+	if ch.connTcp != nil {
+		ch.connTcp.Close()
+	}
+	ch._userId = 0
+	return nil
+}
 
 func (s *WsChannelServer) log(level logger.LogLevel, line string, args ...any) {
 	if s.Connect == nil {

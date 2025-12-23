@@ -174,7 +174,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
-			s.log(logger.Error, "writePump recover err : %v", err)
+			s.log(logger.Error, "writePump 111 recover err : %v", err)
 		}
 	}()
 	// 记录连接数
@@ -322,7 +322,9 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 				args.Data = b
 				// 链接通道
 				args.Channel = ch
-				s.HandleCall(ctx, args)
+				// 调用 connect.CallFunc 方法
+				hctx := context.Background()
+				s.HandleCall(hctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
 				ch.rpc_io--
@@ -375,6 +377,8 @@ func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	// @call HandleCall 处理调用方法
 	if msgReq.Action == actions.ACTION_CALL {
 		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data))
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 		rst, err := s.Connect.CallFunc(ctx, s, msgReq)
 		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data), "rst:", string(rst), "err:", err)
 		if err != nil {

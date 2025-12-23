@@ -182,6 +182,7 @@ func (c *Connect) SetAuthInfo(auth *nrpc.AuthInfo) error {
 
 var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 
+// CallFunc 执行指定的方法，构造对应的参数，调用服务方法
 func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.RpcCaller) ([]byte, error) {
 	parts := strings.Split(msgReq.Method, ".")
 	if len(parts) != 2 {

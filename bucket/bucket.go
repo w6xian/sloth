@@ -78,6 +78,12 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	)
 	b.cLock.Lock()
 	defer b.cLock.Unlock()
+	if ch0, ch_ok := b.chs[userId]; ch_ok {
+		ch0.Room().DeleteChannel(ch0)
+		ch0.Close()
+		// 关闭后，删除桶中的连接
+		delete(b.chs, userId)
+	}
 	// 原来有房间，先退出房间
 	if ch.Room() != nil {
 		if ch.Room().Id == roomId {

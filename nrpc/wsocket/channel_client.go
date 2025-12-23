@@ -74,6 +74,20 @@ func (c *WsChannelClient) Logout() (err error) {
 	c.Sign = ""
 	return
 }
+func (c *WsChannelClient) Close() error {
+	c.Lock.Lock()
+	defer c.Lock.Unlock()
+	if c.conn != nil {
+		c.conn.Close()
+	}
+	if c.connTcp != nil {
+		c.connTcp.Close()
+	}
+	c.UserId = 0
+	c.RoomId = 0
+	c.Sign = ""
+	return nil
+}
 
 // Push 客户端 发送消息到服务器
 func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error) {

@@ -16,4 +16,5 @@ type IChannel interface {
 	Room(r ...*Room) *Room
 	UserId(u ...int64) int64
 	Token(t ...string) string
+	Close() error
 }
