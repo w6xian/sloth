@@ -92,6 +92,10 @@ func Encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	return tlv_encode(tag, data, opts...)
 }
 
+func WithOptions(opts ...FrameOption) *Option {
+	return newOption(opts...)
+}
+
 func get_max_value_length(lengthSize byte) int {
 	if lengthSize == 1 {
 		return 0xFF
@@ -107,6 +111,9 @@ func get_max_value_length(lengthSize byte) int {
 
 func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	opt := newOption(opts...)
+	return tlv_encode_opt(tag, data, opt)
+}
+func tlv_encode_opt(tag byte, data []byte, opt *Option) ([]byte, error) {
 	l := len(data)
 	if l == 0x00 {
 		return []byte{tag, 0}, nil
@@ -138,7 +145,6 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 
 	lb := make([]byte, 4)
 	binary.BigEndian.PutUint32(lb, uint32(l))
-
 	switch opt.LengthSize {
 	case 1:
 		buf[1] = lb[3]
@@ -169,12 +175,15 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	return buf, nil
 }
 
-func Decode(b []byte) (byte, []byte, error) {
-	return tlv_decode(b)
+func Decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
+	return tlv_decode(b, opts...)
 }
 
 func tlv_decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
 	opt := newOption(opts...)
+	return tlv_decode_opt(b, opt)
+}
+func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
 	if len(b) < TLVX_HEADER_MIN_SIZE {
 		return 0, nil, ErrInvalidValueLength
 	}
