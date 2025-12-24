@@ -88,6 +88,23 @@ func get_header_size(lLen byte, checkCRC bool) byte {
 	return lLen + 1 + c
 }
 
+func Encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
+	return tlv_encode(tag, data, opts...)
+}
+
+func get_max_value_length(lengthSize byte) int {
+	if lengthSize == 1 {
+		return 0xFF
+	}
+	if lengthSize == 2 {
+		return 0xFFFF
+	}
+	if lengthSize == 3 {
+		return 0xFFFFFF
+	}
+	return 0xFFFFFFFF
+}
+
 func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	opt := newOption(opts...)
 	l := len(data)
@@ -98,40 +115,48 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 		return nil, ErrInvalidStructType
 	}
 	// 最大支持 0xFFFF 字节
-	if l > 0xFFFF {
+	if l > get_max_value_length(opt.MaxLength) {
 		return nil, ErrInvalidValueLength
 	}
 	// 根据长度大小判断是否需要扩展tag
-	if l > 0xFF {
+	if l > get_max_value_length(opt.MinLength) {
 		tag |= 0x80
-		opt.LengthSize = 2
+		opt.LengthSize = opt.MaxLength
 	} else {
-		opt.LengthSize = 1
+		opt.LengthSize = opt.MinLength
 	}
 
 	headerSize := get_header_size(opt.LengthSize, opt.CheckCRC)
 	buf := make([]byte, int(headerSize)+int(l))
 	buf[0] = tag
-	if opt.LengthSize == 2 {
+	if opt.LengthSize > opt.MinLength {
 		buf[0] |= 0x80
 	}
 	if opt.CheckCRC {
 		buf[0] |= 0x40
 	}
 
-	lb := make([]byte, 2)
-	binary.BigEndian.PutUint16(lb, uint16(l))
+	lb := make([]byte, 4)
+	binary.BigEndian.PutUint32(lb, uint32(l))
 
 	switch opt.LengthSize {
 	case 1:
-		buf[1] = lb[1]
+		buf[1] = lb[3]
 	case 2:
+		buf[1] = lb[2]
+		buf[2] = lb[3]
+	case 3:
+		buf[1] = lb[1]
+		buf[2] = lb[2]
+		buf[3] = lb[3]
+	case 4:
 		buf[1] = lb[0]
 		buf[2] = lb[1]
+		buf[3] = lb[2]
+		buf[4] = lb[3]
 	default:
 		return nil, ErrInvalidLengthSize
 	}
-
 	//
 	if opt.CheckCRC {
 		crc := utils.GetCrC(data)
@@ -144,19 +169,24 @@ func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 	return buf, nil
 }
 
-func tlv_decode(b []byte) (byte, []byte, error) {
+func Decode(b []byte) (byte, []byte, error) {
+	return tlv_decode(b)
+}
+
+func tlv_decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
+	opt := newOption(opts...)
 	if len(b) < TLVX_HEADER_MIN_SIZE {
 		return 0, nil, ErrInvalidValueLength
 	}
 	tag := b[0]
 	// 64 32 24 16 | 8 4 2 1
-	lengthSize := byte(1)
+	lengthSize := opt.MinLength
 	if lengthSize <= 0 {
 		return tag, []byte{}, nil
 	}
 	checkCRC := false
 	if tag&0x80 > 0 {
-		lengthSize = 2
+		lengthSize = opt.MaxLength
 	}
 	if tag&0x40 > 0 {
 		checkCRC = true
@@ -170,6 +200,8 @@ func tlv_decode(b []byte) (byte, []byte, error) {
 		l = int(b[1])
 	case 2:
 		l = int(binary.BigEndian.Uint16(b[1 : 1+lengthSize]))
+	case 3, 4:
+		l = int(binary.BigEndian.Uint32(b[1 : 1+lengthSize]))
 	default:
 		return 0, nil, ErrInvalidLengthSize
 	}

@@ -27,7 +27,7 @@ func TestAll(t *testing.T) {
 	}{
 		{
 			tag:  TLV_TYPE_STRING,
-			data: "ACDE中国人",
+			data: strings.Repeat("ACDE中国", 0x100),
 		},
 		{
 			tag: TLV_TYPE_JSON,

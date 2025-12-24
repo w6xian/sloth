@@ -7,3 +7,13 @@ func CheckCRC() FrameOption {
 		opt.CheckCRC = true
 	}
 }
+
+func LengthSize(minSize, maxSize byte) FrameOption {
+	return func(opt *Option) {
+		if minSize > maxSize {
+			minSize, maxSize = maxSize, minSize
+		}
+		opt.MaxLength = maxSize
+		opt.MinLength = minSize
+	}
+}

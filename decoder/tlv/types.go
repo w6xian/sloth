@@ -12,15 +12,25 @@ type TLVFrame []byte
 type Option struct {
 	CheckCRC   bool
 	LengthSize byte
+	MaxLength  byte
+	MinLength  byte
 }
 
 func newOption(opts ...FrameOption) Option {
 	opt := Option{
 		CheckCRC:   false,
 		LengthSize: 1,
+		MaxLength:  0x02,
+		MinLength:  0x01,
 	}
 	for _, o := range opts {
 		o(&opt)
+	}
+	if opt.LengthSize < opt.MinLength {
+		opt.LengthSize = opt.MinLength
+	}
+	if opt.LengthSize > opt.MaxLength {
+		opt.LengthSize = opt.MaxLength
 	}
 	return opt
 }
@@ -200,14 +210,14 @@ func FrameToBin(v TLVFrame) (Bin, error) {
 	return data, nil
 }
 
-func Deserialize(v []byte) (*TlV, error) {
+func Deserialize(v []byte, opts ...FrameOption) (*TlV, error) {
 	if v == nil {
 		return nil, ErrInvalidValueLength
 	}
 	if len(v) < TLVX_HEADER_MIN_SIZE {
 		return nil, ErrInvalidValueLength
 	}
-	tlv, err := NewTLVFromFrame(v)
+	tlv, err := NewTLVFromFrame(v, opts...)
 	if tlv == nil {
 		return nil, err
 	}
@@ -215,8 +225,8 @@ func Deserialize(v []byte) (*TlV, error) {
 }
 
 // Unmarshal 从tlv解码为结构体
-func Json2Struct(v []byte, t any) error {
-	tlv, err := Deserialize(v)
+func Json2Struct(v []byte, t any, opts ...FrameOption) error {
+	tlv, err := Deserialize(v, opts...)
 	if err != nil {
 		return err
 	}
@@ -232,69 +242,69 @@ func Marshal(v any, opts ...FrameOption) []byte {
 	return FrameFromJson(v, opts...)
 }
 
-func Serialize(v any) []byte {
+func Serialize(v any, opts ...FrameOption) []byte {
 	if v == nil {
 		return []byte{TLV_TYPE_NIL, 0}
 	}
 	switch ft := v.(type) {
 	case float64:
 		// fmt.Println("float64", ft)
-		return FrameFromFloat64(float64(ft))
+		return FrameFromFloat64(float64(ft), opts...)
 	case float32:
 		// fmt.Println("float32", ft)
-		return FrameFromFloat64(float64(ft))
+		return FrameFromFloat64(float64(ft), opts...)
 	case int:
 		// fmt.Println("int", ft)
-		return FrameFromInt64(int64(ft))
+		return FrameFromInt64(int64(ft), opts...)
 	case uint:
 		// fmt.Println("uint", ft)
-		return FrameFromUint64(uint64(ft))
+		return FrameFromUint64(uint64(ft), opts...)
 	case int8:
 		// fmt.Println("int8", ft)
-		return FrameFromInt64(int64(ft))
+		return FrameFromInt64(int64(ft), opts...)
 	case uint8:
 		// fmt.Println("uint8", ft)
-		return FrameFromByte(byte(ft))
+		return FrameFromByte(byte(ft), opts...)
 	case int16:
 		// fmt.Println("int16", ft)
-		return FrameFromInt64(int64(ft))
+		return FrameFromInt64(int64(ft), opts...)
 	case uint16:
 		// fmt.Println("uint16", ft)
-		return FrameFromUint64(uint64(ft))
+		return FrameFromUint64(uint64(ft), opts...)
 	case int32:
 		// fmt.Println("int32", ft)
-		return FrameFromInt64(int64(ft))
+		return FrameFromInt64(int64(ft), opts...)
 	case uint32:
 		// fmt.Println("uint32", ft)
-		return FrameFromUint64(uint64(ft))
+		return FrameFromUint64(uint64(ft), opts...)
 	case int64:
 		// fmt.Println("int64", ft)
-		return FrameFromInt64(ft)
+		return FrameFromInt64(ft, opts...)
 	case uint64:
 		// fmt.Println("uint64", ft)
-		return FrameFromUint64(ft)
+		return FrameFromUint64(ft, opts...)
 	case Bin:
 		// fmt.Println("Bin", ft)
-		return FrameFromBinary(ft)
+		return FrameFromBinary(ft, opts...)
 	case []byte:
 		// fmt.Println("[]byte", ft)
-		return FrameFromBinary(ft)
+		return FrameFromBinary(ft, opts...)
 	case string:
 		// fmt.Println("string", ft)
-		return FrameFromString(ft)
+		return FrameFromString(ft, opts...)
 	default:
 		// fmt.Println("default", ft)
-		return FrameFromJson(v)
+		return FrameFromJson(v, opts...)
 	}
 }
 
 // DefaultEncoder is the default encoder.
-func DefaultEncoder(v any) ([]byte, error) {
-	return Serialize(v), nil
+func DefaultEncoder(v any, opts ...FrameOption) ([]byte, error) {
+	return Serialize(v, opts...), nil
 }
 
 // DefaultDecoder is the default decoder.
-func DefaultDecoder(data []byte) ([]byte, error) {
+func DefaultDecoder(data []byte, opts ...FrameOption) ([]byte, error) {
 	// 空数据
 	if len(data) == 0 {
 		return nil, nil
@@ -302,7 +312,7 @@ func DefaultDecoder(data []byte) ([]byte, error) {
 	if len(data) < TLVX_HEADER_MIN_SIZE {
 		return data, nil
 	}
-	d, err := Deserialize(data)
+	d, err := Deserialize(data, opts...)
 	if err != nil {
 		return data, nil
 	}
