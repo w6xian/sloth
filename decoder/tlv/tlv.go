@@ -96,12 +96,6 @@ func get_header_size(lLen byte, checkCRC bool) byte {
 	return lLen + 1 + c
 }
 
-func Encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
-	option := NewOption(opts...)
-	return tlv_encode_opt(tag, data, option)
-
-}
-
 func get_max_value_length(lengthSize byte) int {
 	if lengthSize == 1 {
 		return 0x000000FF
