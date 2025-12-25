@@ -53,8 +53,9 @@ func TestAll(t *testing.T) {
 	for _, tt := range tests {
 		switch tt.tag {
 		case TLV_TYPE_STRING:
-			from := FrameFromString(tt.data.(string), CheckCRC())
-			tag, data, err := tlv_decode(from)
+			option := NewOption(CheckCRC(), MaxLength(3), MinLength(1))
+			frame := FrameFromString(tt.data.(string))
+			tag, data, err := tlv_decode_opt(frame, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
@@ -65,8 +66,8 @@ func TestAll(t *testing.T) {
 				t.Errorf("tlv_decode() = %v, want %v", data, []byte(tt.data.(string)))
 			}
 			t255 := strings.Repeat("ABC", 0x100)
-			from = FrameFromString(t255)
-			tag, data, err = tlv_decode(from)
+			frame = FrameFromString(t255)
+			tag, data, err = tlv_decode_opt(frame, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
@@ -74,12 +75,13 @@ func TestAll(t *testing.T) {
 				t.Errorf("tlv_decode() = %v, want %v", tag, TLV_TYPE_STRING)
 			}
 			if !bytes.Equal(data, []byte(t255)) {
-				t.Errorf("tlv_decode() = %v, want %v", data, []byte(tt.data.(string)))
+				t.Errorf("tlv_decode() = %v, want %v", data, []byte(t255))
 			}
 			return
 		case TLV_TYPE_JSON:
-			from := FrameFromJson(tt.data)
-			tag, data, err := tlv_decode(from)
+			option := NewOption(CheckCRC())
+			frame := FrameFromJson(tt.data)
+			tag, data, err := tlv_decode_opt(frame, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
@@ -98,8 +100,8 @@ func TestAll(t *testing.T) {
 			}
 		case TLV_TYPE_INT64:
 			from := FrameFromInt64(tt.data.(int64))
-
-			tag, data, err := tlv_decode(from)
+			option := NewOption()
+			tag, data, err := tlv_decode_opt(from, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
@@ -113,8 +115,8 @@ func TestAll(t *testing.T) {
 			}
 		case TLV_TYPE_FLOAT64:
 			from := FrameFromFloat64(tt.data.(float64))
-
-			tag, data, err := tlv_decode(from)
+			option := NewOption()
+			tag, data, err := tlv_decode_opt(from, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}
@@ -126,9 +128,9 @@ func TestAll(t *testing.T) {
 				t.Errorf("tlv_decode() = %v, want %v", float64Val, tt.data.(float64))
 			}
 		case TLV_TYPE_UINT64:
-			from := FrameFromUint64(tt.data.(uint64))
-
-			tag, data, err := tlv_decode(from)
+			frame := FrameFromUint64(tt.data.(uint64))
+			option := NewOption()
+			tag, data, err := tlv_decode_opt(frame, option)
 			if err != nil {
 				t.Errorf("tlv_decode() = %v, want %v", err, nil)
 			}

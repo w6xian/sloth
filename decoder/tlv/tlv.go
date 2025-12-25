@@ -28,11 +28,18 @@ const (
 	TLV_TYPE_STRING  = 0x01
 	TLV_TYPE_JSON    = 0x02
 	TLV_TYPE_BINARY  = 0x03
-	TLV_TYPE_INT64   = 0x04
-	TLV_TYPE_UINT64  = 0x05
-	TLV_TYPE_FLOAT64 = 0x06
-	TLV_TYPE_BYTE    = 0x07
-	TLV_TYPE_NIL     = 0x08
+	TLV_TYPE_INT8    = 0x04
+	TLV_TYPE_INT16   = 0x05
+	TLV_TYPE_INT32   = 0x06
+	TLV_TYPE_INT64   = 0x07
+	TLV_TYPE_UINT8   = 0x08
+	TLV_TYPE_UINT16  = 0x09
+	TLV_TYPE_UINT32  = 0x0A
+	TLV_TYPE_UINT64  = 0x0B
+	TLV_TYPE_FLOAT32 = 0x0C
+	TLV_TYPE_FLOAT64 = 0x0D
+	TLV_TYPE_BYTE    = 0x08
+	TLV_TYPE_NIL     = 0x0F
 )
 
 const TLVX_HEADER_SIZE = 5
@@ -44,13 +51,13 @@ type TlV struct {
 	V []byte // value
 }
 
-func NewTLVFromFrame(b []byte, opts ...FrameOption) (*TlV, error) {
+func tlv_new_from_frame(b []byte, opts *Option) (*TlV, error) {
 	t := &TlV{
 		T: 0,
 		L: 0,
 		V: []byte{},
 	}
-	tag, data, err := tlv_decode(b)
+	tag, data, err := tlv_decode_opt(b, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +83,8 @@ func (t *TlV) Json(v any) error {
 }
 
 func IsTLVFrame(b []byte) bool {
-	_, _, err := tlv_decode(b)
+	option := NewOption()
+	_, _, err := tlv_decode_opt(b, option)
 	return err == nil
 }
 
@@ -89,11 +97,9 @@ func get_header_size(lLen byte, checkCRC bool) byte {
 }
 
 func Encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
-	return tlv_encode(tag, data, opts...)
-}
+	option := NewOption(opts...)
+	return tlv_encode_opt(tag, data, option)
 
-func WithOptions(opts ...FrameOption) *Option {
-	return newOption(opts...)
 }
 
 func get_max_value_length(lengthSize byte) int {
@@ -109,10 +115,6 @@ func get_max_value_length(lengthSize byte) int {
 	return 0xFFFFFFFF
 }
 
-func tlv_encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
-	opt := newOption(opts...)
-	return tlv_encode_opt(tag, data, opt)
-}
 func tlv_encode_opt(tag byte, data []byte, opt *Option) ([]byte, error) {
 	l := len(data)
 	if l == 0x00 {
@@ -176,13 +178,10 @@ func tlv_encode_opt(tag byte, data []byte, opt *Option) ([]byte, error) {
 }
 
 func Decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
-	return tlv_decode(b, opts...)
+	option := NewOption(opts...)
+	return tlv_decode_opt(b, option)
 }
 
-func tlv_decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
-	opt := newOption(opts...)
-	return tlv_decode_opt(b, opt)
-}
 func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
 	if len(b) < TLVX_HEADER_MIN_SIZE {
 		return 0, nil, ErrInvalidValueLength
@@ -208,9 +207,15 @@ func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
 	case 1:
 		l = int(b[1])
 	case 2:
-		l = int(binary.BigEndian.Uint16(b[1 : 1+lengthSize]))
+		pos := int(max(0, min(1+lengthSize, byte(len(b)))))
+		u16 := []byte{0, 0}
+		copy(u16, b[1:pos])
+		l = int(binary.BigEndian.Uint16(u16))
 	case 3, 4:
-		l = int(binary.BigEndian.Uint32(b[1 : 1+lengthSize]))
+		minLen := int(max(1, min(1+lengthSize, byte(len(b)))))
+		u32 := []byte{0, 0, 0, 0}
+		copy(u32, b[1:minLen])
+		l = int(binary.BigEndian.Uint32(u32))
 	default:
 		return 0, nil, ErrInvalidLengthSize
 	}

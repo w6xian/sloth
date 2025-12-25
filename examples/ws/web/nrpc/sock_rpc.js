@@ -105,13 +105,13 @@ class SockRpc {
             this.sock.close();
             this.sock = null;
         }
-        // 清空this.listeners
-        this.listeners = {
-            onopen: [],
-            onclose: [],
-            onmessage: [],
-            onerror: [],
-        };
+        // // 清空this.listeners
+        // this.listeners = {
+        //     onopen: [],
+        //     onclose: [],
+        //     onmessage: [],
+        //     onerror: [],
+        // };
     }
     Send(data) {
         if (isObject(data)) {
