@@ -104,13 +104,13 @@ func Encode(tag byte, data []byte, opts ...FrameOption) ([]byte, error) {
 
 func get_max_value_length(lengthSize byte) int {
 	if lengthSize == 1 {
-		return 0xFF
+		return 0x000000FF
 	}
 	if lengthSize == 2 {
-		return 0xFFFF
+		return 0x0000FFFF
 	}
 	if lengthSize == 3 {
-		return 0xFFFFFF
+		return 0x00FFFFFF
 	}
 	return 0xFFFFFFFF
 }
@@ -182,15 +182,32 @@ func Decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
 	return tlv_decode_opt(b, option)
 }
 
+func Next(b []byte, opts ...FrameOption) (byte, int, []byte, error) {
+	option := NewOption(opts...)
+	tag, l, dataBuf, err := tlv_decode_with_len(b, option)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return tag, l, dataBuf, nil
+}
+
 func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
+	tag, _, dataBuf, err := tlv_decode_with_len(b, opt)
+	if err != nil {
+		return 0, nil, err
+	}
+	return tag, dataBuf, nil
+}
+
+func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 	if len(b) < TLVX_HEADER_MIN_SIZE {
-		return 0, nil, ErrInvalidValueLength
+		return 0, 0, nil, ErrInvalidValueLength
 	}
 	tag := b[0]
 	// 64 32 24 16 | 8 4 2 1
-	lengthSize := opt.MinLength
+	lengthSize := opt.LengthSize
 	if lengthSize <= 0 {
-		return tag, []byte{}, nil
+		return tag, 0, []byte{}, nil
 	}
 	checkCRC := false
 	if tag&0x80 > 0 {
@@ -214,20 +231,20 @@ func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
 	case 3, 4:
 		minLen := int(max(1, min(1+lengthSize, byte(len(b)))))
 		u32 := []byte{0, 0, 0, 0}
-		copy(u32, b[1:minLen])
+		copy(u32[4-lengthSize:], b[1:minLen])
 		l = int(binary.BigEndian.Uint32(u32))
 	default:
-		return 0, nil, ErrInvalidLengthSize
+		return 0, 0, nil, ErrInvalidLengthSize
 	}
 	if len(b) < int(int(headerSize)+l) {
-		return 0, nil, ErrInvalidValueLength
+		return 0, 0, nil, ErrInvalidValueLength
 	}
 	dataBuf := b[headerSize : int(headerSize)+l] // b[6:6+l]
 	if checkCRC {
 		crc := b[headerSize-2 : headerSize]
 		if !utils.CheckCRC(dataBuf, crc) {
-			return 0, nil, ErrInvalidCrc
+			return 0, 0, nil, ErrInvalidCrc
 		}
 	}
-	return tag, dataBuf, nil
+	return tag, 1 + int(lengthSize) + l, dataBuf, nil
 }

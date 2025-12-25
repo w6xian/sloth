@@ -181,9 +181,7 @@ function Encode(s, opts = []) {
         checkCRC = true;
         tag |= CRC;
     }
-    
-    console.log(tag, opt.LengthSize, checkCRC);
-    
+
     const headerSize = get_header_size(opt.LengthSize, checkCRC);
     const buf = new Uint8Array(headerSize + l);
     

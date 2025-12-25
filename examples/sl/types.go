@@ -8,7 +8,7 @@ type StructName struct {
 
 func (s StructName) TlV() []byte {
 	// T L V
-	return append([]byte{0xFD, byte(len(s.Name))}, []byte(s.Name)...)
+	return append([]byte{0x3F, byte(len(s.Name))}, []byte(s.Name)...)
 }
 
 func get_tlv_struct_name(name string) []byte {
@@ -16,7 +16,7 @@ func get_tlv_struct_name(name string) []byte {
 	return append([]byte{0xFD, byte(len(name))}, []byte(name)...)
 }
 func get_tlv_struct_feild(name []byte, value []byte) []byte {
-	t := []byte{0xFE, byte(len(name) + len(value))}
+	t := []byte{0x3E, byte(len(name) + len(value))}
 	t = append(t, name...)
 	return append(t, value...)
 }

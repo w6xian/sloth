@@ -13,18 +13,21 @@ func LengthSize(minSize, maxSize byte) FrameOption {
 		if minSize > maxSize {
 			minSize, maxSize = maxSize, minSize
 		}
-		opt.MaxLength = max(4, maxSize)
-		opt.MinLength = min(4, minSize)
+		// 不超过4
+		opt.MaxLength = min(4, maxSize)
+		// 不小与1
+		opt.MinLength = max(1, minSize)
 	}
 }
 
 func MaxLength(maxSize byte) FrameOption {
 	return func(opt *Option) {
-		maxSize = max(4, maxSize)
+		maxSize = min(4, maxSize)
 		if opt.MinLength > maxSize {
 			opt.MinLength, maxSize = maxSize, opt.MinLength
 		}
-		opt.MaxLength = max(4, maxSize)
+		// 不超过4
+		opt.MaxLength = min(4, maxSize)
 	}
 }
 
@@ -33,6 +36,8 @@ func MinLength(minSize byte) FrameOption {
 		if opt.MinLength > minSize {
 			opt.MinLength, minSize = minSize, opt.MinLength
 		}
-		opt.MinLength = min(4, minSize)
+		minSize = min(4, minSize)
+		// 不小与1
+		opt.MinLength = max(1, minSize)
 	}
 }

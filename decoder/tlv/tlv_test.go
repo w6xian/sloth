@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -13,10 +12,21 @@ func TestStr(t *testing.T) {
 	frame := "eyJyZXEiOiJzZXJ2ZXIgMSIsInRpbWUiOiIyMDI1LTEyLTA1IDEyOjM0OjA4In0="
 	decoded, err := base64.StdEncoding.DecodeString(frame)
 	if err != nil {
-		fmt.Println("Error decoding:", err)
 		return
 	}
-	fmt.Println("Decoded:", string(decoded))
+	s := strings.Repeat(string(decoded), 20000)
+	option := NewOption(MaxLength(3), MinLength(2))
+	f := FrameFromString(s)
+	tag, data, err := tlv_decode_opt(f, option)
+	if err != nil {
+		t.Errorf("tlv_decode() = %v, want %v", err, nil)
+	}
+	if tag != TLV_TYPE_STRING {
+		t.Errorf("tlv_decode() = %v, want %v", tag, TLV_TYPE_STRING)
+	}
+	if !bytes.Equal(data, []byte(s)) {
+		t.Errorf("tlv_decode() = %v, want %v", data, []byte(s))
+	}
 }
 
 func TestAll(t *testing.T) {
