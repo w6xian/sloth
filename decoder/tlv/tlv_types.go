@@ -489,7 +489,7 @@ func tlv_serialize_sting(t string, v any, opt *Option) []byte {
 		// fmt.Println("rune:", ft)
 		return tlv_frame_from_rune(v.(rune), opt)
 	default:
-		fmt.Println("default: %v", v)
+		fmt.Println("default: %v", t, v)
 		return tlv_frame_from_json(v, opt)
 	}
 }

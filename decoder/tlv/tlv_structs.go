@@ -59,12 +59,22 @@ func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
 				return "", errors.New("tlv value tag is not 0x3D")
 			}
 			name := fmt.Sprintf("\"%s\"", string(nv))
-			vt, _, vv, verr := Next(fv[nl:])
-			if verr != nil {
-				return "", verr
+			data := fv[nl:]
+			tag := data[0]
+			if tag == 0x3F {
+				value, err := read_tlv_struct_string(data, opt)
+				if err != nil {
+					return "", err
+				}
+				rst = append(rst, fmt.Sprintf("%s:%s", name, value))
+			} else {
+				vt, _, vv, verr := Next(data)
+				if verr != nil {
+					return "", verr
+				}
+				value := get_value_string(vt, vv)
+				rst = append(rst, fmt.Sprintf("%s:%s", name, value))
 			}
-			value := get_value_string(vt, vv)
-			rst = append(rst, fmt.Sprintf("%s:%s", name, value))
 		}
 		pos += fl
 		l -= fl

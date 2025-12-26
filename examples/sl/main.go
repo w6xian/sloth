@@ -10,9 +10,10 @@ type T struct {
 	Tag   byte
 	Value []byte
 	A     A
-	B     struct {
-		C byte
-	}
+}
+
+type B struct {
+	C string `tlv:"c"`
 }
 
 // A 结构体 包含golang所有基础数据类型
@@ -47,6 +48,7 @@ type A struct {
 	// 字节和字符类型
 	Byte byte `tlv:"byte"`
 	Rune rune `tlv:"rune"`
+	B    B    `tlv:"b"`
 }
 
 func main() {
@@ -70,6 +72,9 @@ func main() {
 		String:     "Hello, Go!",
 		Byte:       'A',
 		Rune:       '中',
+		B: B{
+			C: "中文ab1234`",
+		},
 	}
 
 	tlv.NewOption(tlv.LengthSize(1, 4))
