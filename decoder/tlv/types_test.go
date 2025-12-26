@@ -12,7 +12,7 @@ func TestTypes(t *testing.T) {
 		data any
 	}{
 		{
-			tag:  TLV_TYPE_BYTE,
+			tag:  TLV_TYPE_UINT8,
 			data: byte(0x01),
 		},
 		{

@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"encoding/binary"
-	"math"
 	"reflect"
 )
 
@@ -79,40 +77,4 @@ func GetType(needPtr bool, name string, data []byte) reflect.Value {
 	default:
 		return reflect.ValueOf(data)
 	}
-}
-
-func BytesToInt(data []byte) int {
-	r := binary.BigEndian.Uint64(data)
-	return int(r)
-}
-
-func BytesToInt32(data []byte) int32 {
-	return int32(binary.BigEndian.Uint64(data))
-}
-
-func BytesToInt64(data []byte) int64 {
-	return int64(binary.BigEndian.Uint64(data))
-}
-
-func BytesToUint32(data []byte) uint32 {
-	return binary.BigEndian.Uint32(data)
-}
-func BytesToUint(data []byte) uint {
-	return uint(binary.BigEndian.Uint64(data))
-}
-
-func BytesToUint64(data []byte) uint64 {
-	return binary.BigEndian.Uint64(data)
-}
-
-func BytesToFloat32(data []byte) float32 {
-	return math.Float32frombits(binary.BigEndian.Uint32(data))
-}
-
-func BytesToFloat64(data []byte) float64 {
-	return math.Float64frombits(binary.BigEndian.Uint64(data))
-}
-
-func BytesToBool(data []byte) bool {
-	return data[0] != 0
 }

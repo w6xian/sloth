@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/w6xian/sloth/internal/utils"
 )
@@ -20,47 +22,55 @@ func ToStruct(v []byte, s any, opts ...FrameOption) error {
 	return read_tlv_struct(v, s, option)
 }
 
-// func ToString(v []byte, opts ...FrameOption) (string, error) {
-// 	option := NewOption(opts...)
-// 	return fmt.Sprintf("%v", rst)
-// }
+func ToString(v []byte, opts ...FrameOption) (string, error) {
+	option := NewOption(opts...)
+	return read_tlv_struct_string(v, option)
+}
 
-func read_tlv_struct_string(v []byte, opt *Option) error {
-
+func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
 	t, l, v, err := Next(v)
 	if err != nil {
-		return err
+		return "", err
 	}
 	total := l
 	if t != 0x3F {
-		return errors.New("tlv tag is not struct")
+		return "", errors.New("tlv tag is not struct")
 	}
 	pos := 0
 	rst := []string{}
 	for l > 0 && pos+2 < total {
 		data := v[pos:]
+		if len(data) < 2 {
+			break
+		}
 		if data[0] != 0x3E {
-			return errors.New("tlv field tag is not 0x3E")
+			return "", errors.New("tlv field tag is not 0x3E")
 		}
 		ft, fl, fv, ferr := read_tlv_field(data)
 		if ferr != nil {
-			return ferr
+			return "", ferr
 		}
 		if ft == 0x3E {
-			nt, _, nv, nerr := Next(fv)
+			nt, nl, nv, nerr := Next(fv)
 			if nerr != nil {
-				return nerr
+				return "", nerr
 			}
 			if nt != 0x3D {
-				return errors.New("tlv value tag is not 0x3D")
+				return "", errors.New("tlv value tag is not 0x3D")
 			}
-			rst = append(rst, string(nv))
-
+			name := fmt.Sprintf("\"%s\"", string(nv))
+			vt, _, vv, verr := Next(fv[nl:])
+			if verr != nil {
+				return "", verr
+			}
+			value := get_value_string(vt, vv)
+			rst = append(rst, fmt.Sprintf("%s:%s", name, value))
 		}
 		pos += fl
 		l -= fl
 	}
-	return nil
+	str := strings.Join(rst, ",")
+	return fmt.Sprintf("{%s}", str), nil
 }
 
 func read_tlv_struct(v []byte, s any, opt *Option) error {
@@ -133,6 +143,70 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 	return nil
 }
 
+func get_value_string(tag byte, data []byte) string {
+	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+	switch tag {
+	case TLV_TYPE_INT:
+		by := utils.BytesToInt(data)
+		return strconv.FormatInt(int64(by), 10)
+	case TLV_TYPE_INT8:
+		by := utils.BytesToByte(data)
+		return strconv.FormatInt(int64(by), 10)
+	case TLV_TYPE_INT16:
+		by := utils.BytesToInt16(data)
+		return strconv.FormatInt(int64(by), 10)
+	case TLV_TYPE_INT32:
+		by := utils.BytesToInt32(data)
+		return strconv.FormatInt(int64(by), 10)
+	case TLV_TYPE_INT64:
+		by := utils.BytesToInt64(data)
+		return strconv.FormatInt(by, 10)
+	case TLV_TYPE_UINT:
+		by := utils.BytesToUint(data)
+		return strconv.FormatUint(uint64(by), 10)
+	case TLV_TYPE_UINT8:
+		by := utils.BytesToByte(data)
+		return strconv.FormatUint(uint64(by), 10)
+	case TLV_TYPE_UINT16:
+		by := utils.BytesToUint16(data)
+		return strconv.FormatUint(uint64(by), 10)
+	case TLV_TYPE_UINT32:
+		by := utils.BytesToUint32(data)
+		return strconv.FormatUint(uint64(by), 10)
+	case TLV_TYPE_UINT64:
+		by := utils.BytesToUint64(data)
+		return strconv.FormatUint(by, 10)
+	case TLV_TYPE_FLOAT32:
+		by := utils.BytesToFloat32(data)
+		return strconv.FormatFloat(float64(by), 'f', -1, 32)
+	case TLV_TYPE_FLOAT64:
+		by := utils.BytesToFloat64(data)
+		return strconv.FormatFloat(by, 'f', -1, 64)
+	case TLV_TYPE_STRING:
+		return fmt.Sprintf("\"%s\"", string(data))
+	case TLV_TYPE_BOOL:
+		by := utils.BytesToBool(data)
+		return strconv.FormatBool(by)
+		// 复数类型
+	case TLV_TYPE_COMPLEX64:
+		by := utils.BytesToComplex64(data)
+		return fmt.Sprintf("\"%v\"", by)
+	case TLV_TYPE_COMPLEX128:
+		by := utils.BytesToComplex128(data)
+		return fmt.Sprintf("\"%v\"", by)
+	case TLV_TYPE_UINTPTR:
+		return fmt.Sprintf("%v", utils.BytesToUintptr(data))
+	case TLV_TYPE_RUNE:
+		return fmt.Sprintf("\"%s\"", utils.BytesToRune(data))
+	case TLV_TYPE_JSON:
+		// fmt.Println("TLV_TYPE_JSON:::", data)
+		return fmt.Sprintf("%s", data)
+	default:
+		fmt.Println("tlv type not found", tag, data)
+		return reflect.ValueOf(data).String()
+	}
+}
+
 func read_tlv_field(v []byte) (byte, int, []byte, error) {
 	t, l, v, err := Next(v)
 	if err != nil {
@@ -160,6 +234,7 @@ func create_tlv_struct(t any, opt *Option) ([]byte, error) {
 		f := sv.Field(num)
 		tyf := ty.Field(num)
 		frame := create_tlv_struct_feild_v1(f, tyf, opt)
+		// fmt.Println("::", tyf.Name, frame)
 		fs = append(fs, frame...)
 	}
 	fs, err := tlv_encode_opt(0x3F, fs, opt)
@@ -219,7 +294,7 @@ func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *O
 			val = frame
 		}
 	} else {
-		val = Serialize(f.Interface())
+		val = tlv_serialize_sting(tyf.Name, f.Interface(), opt)
 	}
 	if val == nil {
 		val = EmptyFrame()

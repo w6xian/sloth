@@ -24,22 +24,35 @@ var (
 
 // tag/type 只支持 0x01-0x40（1-63）
 const (
-	TLV_TYPE_FRAME   = 0x00
-	TLV_TYPE_STRING  = 0x01
-	TLV_TYPE_JSON    = 0x02
-	TLV_TYPE_BINARY  = 0x03
-	TLV_TYPE_INT8    = 0x04
-	TLV_TYPE_INT16   = 0x05
-	TLV_TYPE_INT32   = 0x06
-	TLV_TYPE_INT64   = 0x07
-	TLV_TYPE_UINT8   = 0x08
-	TLV_TYPE_UINT16  = 0x09
-	TLV_TYPE_UINT32  = 0x0A
-	TLV_TYPE_UINT64  = 0x0B
-	TLV_TYPE_FLOAT32 = 0x0C
-	TLV_TYPE_FLOAT64 = 0x0D
-	TLV_TYPE_BYTE    = 0x08
-	TLV_TYPE_NIL     = 0x0F
+	TLV_TYPE_FRAME = 0x00
+	// 字符串类型
+	TLV_TYPE_STRING = 0x01
+	TLV_TYPE_JSON   = 0x02
+	TLV_TYPE_BINARY = 0x03
+	// 整数类型
+	TLV_TYPE_INT    = 0x04
+	TLV_TYPE_INT8   = 0x05
+	TLV_TYPE_INT16  = 0x06
+	TLV_TYPE_INT32  = 0x07
+	TLV_TYPE_INT64  = 0x08
+	TLV_TYPE_UINT   = 0x09
+	TLV_TYPE_UINT8  = 0x0A
+	TLV_TYPE_UINT16 = 0x0B
+	TLV_TYPE_UINT32 = 0x0C
+	TLV_TYPE_UINT64 = 0x0D
+	// 浮点类型
+	TLV_TYPE_FLOAT32 = 0x0E
+	TLV_TYPE_FLOAT64 = 0x0F
+	// 布尔类型
+	TLV_TYPE_BOOL = 0x10
+	// 复数类型
+	TLV_TYPE_COMPLEX64  = 0x11
+	TLV_TYPE_COMPLEX128 = 0x12
+	TLV_TYPE_UINTPTR    = 0x13
+	// 字节和字符类型
+	TLV_TYPE_RUNE = 0x14
+	TLV_TYPE_BYTE = 0x15
+	TLV_TYPE_NIL  = 0x1F
 )
 
 const TLVX_HEADER_SIZE = 5
@@ -199,7 +212,7 @@ func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 	}
 	tag := b[0]
 	// 64 32 24 16 | 8 4 2 1
-	lengthSize := opt.LengthSize
+	lengthSize := opt.MinLength
 	if lengthSize <= 0 {
 		return tag, 0, []byte{}, nil
 	}

@@ -85,7 +85,7 @@ func FrameFromByte(v byte, opts ...FrameOption) TLVFrame {
 	option := NewOption(opts...)
 	bytes := make([]byte, 1)
 	bytes[0] = v
-	r, err := tlv_encode_opt(TLV_TYPE_BYTE, bytes, option)
+	r, err := tlv_encode_opt(TLV_TYPE_UINT8, bytes, option)
 	if err != nil {
 		return []byte{}
 	}
