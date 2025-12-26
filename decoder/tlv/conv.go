@@ -1,8 +1,10 @@
-package utils
+package tlv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
+	"strings"
 )
 
 // BytesToInt converts a byte slice to a 64-bit integer.
@@ -86,4 +88,93 @@ func BytesToRune(data []byte) string {
 		return ""
 	}
 	return string(int32(binary.BigEndian.Uint32(data)))
+}
+
+// SliceByteToString converts a byte slice to a slice of byte values.
+func SliceByteToString(data []byte) string {
+	s := []string{}
+	for _, v := range data {
+		s = append(s, fmt.Sprintf("%d", v))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+// SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.
+func SliceInt16ToString(data []byte) string {
+	s := []string{}
+	// 2字节为一个int16
+	for i := 0; i < len(data); i += 2 {
+		s = append(s, fmt.Sprintf("%d", BytesToInt16(data[i:i+2])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func SliceUint16ToString(data []byte) string {
+	s := []string{}
+	// 2字节为一个uint16
+	for i := 0; i < len(data); i += 2 {
+		s = append(s, fmt.Sprintf("%d", BytesToUint16(data[i:i+2])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+// SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.
+func SliceInt32ToString(data []byte) string {
+	s := []string{}
+	// 4字节为一个int32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, fmt.Sprintf("%d", BytesToInt32(data[i:i+4])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func SliceUint32ToString(data []byte) string {
+	s := []string{}
+	// 4字节为一个uint32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, fmt.Sprintf("%d", BytesToUint32(data[i:i+4])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func SliceInt64ToString(data []byte) string {
+	s := []string{}
+	// 8字节为一个int64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, fmt.Sprintf("%d", BytesToInt64(data[i:i+8])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+func SliceUint64ToString(data []byte) string {
+	s := []string{}
+	// 8字节为一个uint64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, fmt.Sprintf("%d", BytesToUint64(data[i:i+8])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+// SliceStringToString converts a byte slice to a slice of string values.
+func SliceStringToString(v []byte) string {
+	pos := 0
+	rst := []string{}
+	total := len(v)
+	for pos+2 < total {
+		data := v[pos:]
+		if len(data) < 2 {
+			break
+		}
+		ft, fl, fv, ferr := read_tlv_field(data)
+		if ferr != nil {
+			rst = append(rst, "\"\"")
+			break
+		}
+		if ft != TLV_TYPE_STRING {
+			rst = append(rst, "\"\"")
+			break
+		}
+		rst = append(rst, fmt.Sprintf("\"%s\"", string(fv)))
+		pos += fl
+	}
+	return fmt.Sprintf("[%s]", strings.Join(rst, ","))
 }

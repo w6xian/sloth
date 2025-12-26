@@ -5,16 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strings"
+	"reflect"
 )
-
-func tlv_empty_frame(opts *Option) TLVFrame {
-	r, err := tlv_encode_opt(TLV_TYPE_NIL, []byte{}, opts)
-	if err != nil {
-		return []byte{}
-	}
-	return r
-}
 
 func tlv_frame_from_string(v string, opts *Option) TLVFrame {
 	r, err := tlv_encode_opt(TLV_TYPE_STRING, []byte(v), opts)
@@ -36,8 +28,136 @@ func tlv_frame_from_json(v any, opts *Option) TLVFrame {
 	return r
 }
 
-func tlv_frame_from_binary(v Bin, opts *Option) TLVFrame {
-	r, err := tlv_encode_opt(TLV_TYPE_BINARY, v, opts)
+func tlv_frame_from_slice(v any, opts *Option) TLVFrame {
+	switch v := v.(type) {
+	// 1
+	case []byte, []int8:
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_BYTE, v.([]byte), opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []int16:
+		// 2字节为一个int16
+		d := []int16(v)
+		data := []byte{}
+		// 2字节为一个int16
+		for i := 0; i < len(d); i++ {
+			data = append(data, Int16ToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_INT16, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []uint16:
+		// 2字节为一个uint16
+		d := []uint16(v)
+		data := []byte{}
+		// 2字节为一个uint16
+		for i := 0; i < len(d); i++ {
+			data = append(data, Uint16ToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_UINT16, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []int32:
+		// 4字节为一个int32
+		d := []int32(v)
+		data := []byte{}
+		// 4字节为一个int32
+		for i := 0; i < len(d); i++ {
+			data = append(data, Int32ToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_INT32, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []uint32:
+		// 4字节为一个uint32
+		d := []uint32(v)
+		data := []byte{}
+		// 4字节为一个uint32
+		for i := 0; i < len(d); i++ {
+			data = append(data, Uint32ToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_UINT32, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []int64:
+		// 8字节为一个int64
+		d := []int64(v)
+		data := []byte{}
+		// 8字节为一个int64
+		for i := 0; i < len(d); i++ {
+			data = append(data, IntToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_INT64, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []int:
+		// 8字节为一个int64
+		d := []int(v)
+		data := []byte{}
+		// 8字节为一个int64
+		for i := 0; i < len(d); i++ {
+			data = append(data, IntToBytes(int64(d[i]))...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_INT64, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []uint64:
+		// 8字节为一个uint64
+		d := []uint64(v)
+		data := []byte{}
+		// 8字节为一个uint64
+		for i := 0; i < len(d); i++ {
+			data = append(data, UintToBytes(d[i])...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_UINT64, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []uint:
+		// 8字节为一个uint64
+		d := []uint(v)
+		data := []byte{}
+		// 8字节为一个uint64
+		for i := 0; i < len(d); i++ {
+			data = append(data, UintToBytes(uint64(d[i]))...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_UINT64, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	case []string:
+		// 字符串编码为json
+		data := []byte{}
+		for i := 0; i < len(v); i++ {
+			data = append(data, tlv_frame_from_string(v[i], opts)...)
+		}
+		r, err := tlv_encode_opt(TLV_TYPE_SLICE_STRING, data, opts)
+		if err != nil {
+			return []byte{}
+		}
+		return r
+	}
+	jsonData, err := json.Marshal(v)
+	if err != nil {
+		return []byte{}
+	}
+	r, err := tlv_encode_opt(TLV_TYPE_SLICE, jsonData, opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -308,26 +428,6 @@ func tlv_frame_to_struct(v TLVFrame, t any, opts *Option) error {
 	return nil
 }
 
-func tlv_frame_to_binary(v TLVFrame, opts *Option) (Bin, error) {
-	if v == nil {
-		return nil, ErrInvalidValueLength
-	}
-	if len(v) < TLVX_HEADER_SIZE {
-		return nil, ErrInvalidValueLength
-	}
-	t, data, err := tlv_decode_opt(v, opts)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, ErrInvalidValueLength
-	}
-	if t != TLV_TYPE_BINARY {
-		return nil, ErrInvalidBinType
-	}
-	return data, nil
-}
-
 func tlv_deserialize(v []byte, opts *Option) (*TlV, error) {
 	if v == nil {
 		return nil, ErrInvalidValueLength
@@ -379,7 +479,7 @@ func tlv_serialize(v any, opt *Option) []byte {
 		// fmt.Println("int16", ft)
 		return tlv_frame_from_int16(int16(ft), opt)
 	case int32:
-		// fmt.Println("int32", ft)
+		fmt.Println("int32", ft)
 		return tlv_frame_from_int32(int32(ft), opt)
 	case int64:
 		// fmt.Println("int64", ft)
@@ -396,12 +496,9 @@ func tlv_serialize(v any, opt *Option) []byte {
 	case uint64:
 		// fmt.Println("uint64", ft)
 		return tlv_frame_from_uint64(ft, opt)
-	case Bin:
-		// fmt.Println("Bin", ft)
-		return tlv_frame_from_binary(ft, opt)
 	case []byte:
-		// fmt.Println("[]byte", ft)
-		return tlv_frame_from_binary(ft, opt)
+		fmt.Println("[]byte", ft)
+		return tlv_frame_from_slice(ft, opt)
 	case string:
 		// fmt.Println("string", ft)
 		return tlv_frame_from_string(ft, opt)
@@ -418,78 +515,70 @@ func tlv_serialize(v any, opt *Option) []byte {
 		// fmt.Println("uintptr:", ft)
 		return tlv_frame_from_uintptr(ft, opt)
 	default:
-		fmt.Println(fmt.Sprintf("default: %v", ft))
 		return tlv_frame_from_json(v, opt)
 	}
 }
 
-func tlv_serialize_sting(t string, v any, opt *Option) []byte {
+func tlv_serialize_value(f reflect.Value, opt *Option) []byte {
+	v := f.Interface()
 	if v == nil {
 		return []byte{TLV_TYPE_NIL, 0}
 	}
-	t = strings.ToLower(t)
-	switch t {
-	case "float64":
+	switch k := f.Kind(); k {
+	case reflect.Float64:
 		// fmt.Println("float64", ft)
 		return tlv_frame_from_float64(v.(float64), opt)
-	case "float32":
+	case reflect.Float32:
 		// fmt.Println("float32", ft)
 		return tlv_frame_from_float32(v.(float32), opt)
-	case "int":
+	case reflect.Int:
 		// fmt.Println("int", ft)
 		return tlv_frame_from_int64(int64(v.(int)), opt)
-	case "uint":
+	case reflect.Uint:
 		// fmt.Println("uint", ft)
 		return tlv_frame_from_uint64(uint64(v.(uint)), opt)
-	case "int8":
+	case reflect.Int8:
 		// fmt.Println("int8", ft)
 		return tlv_frame_from_int8(v.(int8), opt)
-	case "int16":
+	case reflect.Int16:
 		// fmt.Println("int16", ft)
 		return tlv_frame_from_int16(v.(int16), opt)
-	case "int32":
+	case reflect.Int32:
 		// fmt.Println("int32", ft)
 		return tlv_frame_from_int32(v.(int32), opt)
-	case "int64":
+	case reflect.Int64:
 		// fmt.Println("int64", ft)
 		return tlv_frame_from_int64(v.(int64), opt)
-	case "uint8":
+	case reflect.Uint8:
 		// fmt.Println("uint8", ft)
 		return tlv_frame_from_uint8(v.(uint8), opt)
-	case "uint16":
+	case reflect.Uint16:
 		// fmt.Println("uint16", ft)
 		return tlv_frame_from_uint16(v.(uint16), opt)
-	case "uint32":
+	case reflect.Uint32:
 		// fmt.Println("uint32", ft)
 		return tlv_frame_from_uint32(v.(uint32), opt)
-	case "uint64":
+	case reflect.Uint64:
 		// fmt.Println("uint64", ft)
 		return tlv_frame_from_uint64(v.(uint64), opt)
-	case "byte":
-		return tlv_frame_from_byte(v.(byte), opt)
-	case "[]byte":
-		// fmt.Println("[]byte", ft)
-		return tlv_frame_from_binary(v.([]byte), opt)
-	case "string":
+	case reflect.Slice:
+		return tlv_frame_from_slice(v, opt)
+	case reflect.String:
 		// fmt.Println("string", ft)
 		return tlv_frame_from_string(v.(string), opt)
-	case "bool":
+	case reflect.Bool:
 		// fmt.Println("bool", ft)
 		return tlv_frame_from_bool(v.(bool), opt)
-	case "complex64":
+	case reflect.Complex64:
 		// fmt.Println("complex64", ft)
 		return tlv_frame_from_complex64(v.(complex64), opt)
-	case "complex128":
+	case reflect.Complex128:
 		// fmt.Println("complex128", ft)
 		return tlv_frame_from_complex128(v.(complex128), opt)
-	case "uintptr":
+	case reflect.Uintptr:
 		// fmt.Println("uintptr:", ft)
 		return tlv_frame_from_uintptr(v.(uintptr), opt)
-	case "rune":
-		// fmt.Println("rune:", ft)
-		return tlv_frame_from_rune(v.(rune), opt)
 	default:
-		fmt.Println("default: %v", t, v)
 		return tlv_frame_from_json(v, opt)
 	}
 }

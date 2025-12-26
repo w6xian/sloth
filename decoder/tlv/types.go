@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"reflect"
 )
 
 func NewTLVFromFrame(frame TLVFrame, opts ...FrameOption) (*TlV, error) {
@@ -40,15 +41,6 @@ func FrameFromJson(v any, opts ...FrameOption) TLVFrame {
 		return []byte{}
 	}
 	r, err := tlv_encode_opt(TLV_TYPE_JSON, jsonData, option)
-	if err != nil {
-		return []byte{}
-	}
-	return r
-}
-
-func FrameFromBinary(v Bin, opts ...FrameOption) TLVFrame {
-	option := NewOption(opts...)
-	r, err := tlv_encode_opt(TLV_TYPE_BINARY, v, option)
 	if err != nil {
 		return []byte{}
 	}
@@ -164,9 +156,7 @@ func FrameToStruct(v TLVFrame, t any, opts ...FrameOption) error {
 	if len(v) < TLVX_HEADER_SIZE {
 		return ErrInvalidValueLength
 	}
-	if v[0] != TLV_TYPE_JSON {
-		return ErrInvalidStructType
-	}
+
 	option := NewOption(opts...)
 	_, data, err := tlv_decode_opt(v, option)
 	if err != nil {
@@ -186,9 +176,7 @@ func FrameToBin(v TLVFrame, opts ...FrameOption) (Bin, error) {
 	if len(v) < TLVX_HEADER_SIZE {
 		return nil, ErrInvalidValueLength
 	}
-	if v[0] != TLV_TYPE_BINARY {
-		return nil, ErrInvalidBinType
-	}
+
 	option := NewOption(opts...)
 	_, data, err := tlv_decode_opt(v, option)
 	if err != nil {
@@ -250,4 +238,79 @@ func DefaultDecoder(data []byte) ([]byte, error) {
 		return data, nil
 	}
 	return data, nil
+}
+
+func GetType(needPtr bool, name string, data []byte) reflect.Value {
+	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+
+	switch name {
+	case "int":
+		by := BytesToInt(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "int32":
+		by := BytesToInt32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "int64":
+		by := BytesToInt64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "uint":
+		by := BytesToUint(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "uint32":
+		by := BytesToUint32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "uint64":
+		by := BytesToUint64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "float32":
+		by := BytesToFloat32(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "float64":
+		by := BytesToFloat64(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "string":
+		str := string(data)
+		if needPtr {
+			return reflect.ValueOf(&str)
+		}
+		return reflect.ValueOf(str)
+	case "uint8":
+		by := data[0]
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	case "bool":
+		by := BytesToBool(data)
+		if needPtr {
+			return reflect.ValueOf(&by)
+		}
+		return reflect.ValueOf(by)
+	default:
+		return reflect.ValueOf(data)
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/w6xian/sloth/decoder/tlv"
@@ -22,7 +23,7 @@ type A struct {
 	Bool bool `tlv:"bool"`
 
 	// 整数类型
-	Int     int     `tlv:"int"`
+	Int1    int     `tlv:"int"`
 	Int8    int8    `tlv:"int8"`
 	Int16   int16   `tlv:"int16"`
 	Int32   int32   `tlv:"int32"`
@@ -46,15 +47,23 @@ type A struct {
 	String string `tlv:"string"`
 
 	// 字节和字符类型
-	Byte byte `tlv:"byte"`
-	Rune rune `tlv:"rune"`
-	B    B    `tlv:"b"`
+	Byte     byte           `tlv:"byte"`
+	Rune     rune           `tlv:"rune"`
+	B        B              `tlv:"b"`
+	Slice    []int          `tlv:"slice"`
+	Slice16  []int16        `tlv:"slice16"`
+	Slice32  []int32        `tlv:"slice32"`
+	Slice64  []int64        `tlv:"slice64"`
+	Slicestr []string       `tlv:"slicestr"`
+	Map      map[string]int `tlv:"map"`
+	Arraya   []string       `tlv:"arraya"`
+	Arrayb   []byte         `tlv:"arrayb"`
 }
 
 func main() {
 	t := A{
 		Bool:       true,
-		Int:        -42,
+		Int1:       -42,
 		Int8:       -8,
 		Int16:      -16,
 		Int32:      -32,
@@ -75,6 +84,14 @@ func main() {
 		B: B{
 			C: "中文ab1234`",
 		},
+		Slice:    []int{-1, 2, 3, 4, 5},
+		Slice16:  []int16{1, -2, 3, 4, 5},
+		Slice32:  []int32{1, 2, -3, 4, 5},
+		Slice64:  []int64{1, 2, 3, -4, 5},
+		Slicestr: []string{"a", "b", "c"},
+		Map:      map[string]int{"a": 1, "b": 2, "c": 3},
+		Arraya:   []string{"a", "b", "c"},
+		Arrayb:   []byte{0x01, 0x02, 0x03},
 	}
 
 	tlv.NewOption(tlv.LengthSize(1, 4))
@@ -86,5 +103,14 @@ func main() {
 	if err != nil {
 		fmt.Println(s, err)
 	}
+
 	fmt.Println(s)
+}
+
+func PrettyStruct(data interface{}) (string, error) {
+	val, err := json.MarshalIndent(data, "", " ")
+	if err != nil {
+		return "", err
+	}
+	return string(val), nil
 }
