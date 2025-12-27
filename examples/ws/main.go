@@ -149,7 +149,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	}
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
 	fmt.Println("Sign args:", string(data))
-	return tlv.Marshal(auth), nil
+	return tlv.Json(auth), nil
 }
 
 func (h *HelloService) TestByte(ctx context.Context, b []byte, i int, req HelloReq, resp *Hello, str *string, bytes *[]byte, strs []string, strsptr *[]string) (any, error) {

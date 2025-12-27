@@ -1,17 +1,11 @@
-package main
+package tlv
 
 import (
 	"encoding/json"
-	"fmt"
-
-	"github.com/w6xian/sloth/decoder/tlv"
+	"testing"
 )
 
-type T struct {
-	Tag   byte
-	Value []byte
-	A     A
-}
+//go test -bench=. -benchmem -run=none
 
 type B struct {
 	C string `tlv:"c"`
@@ -60,8 +54,8 @@ type A struct {
 	Arrayb   []byte         `tlv:"arrayb"`
 }
 
-func main() {
-	t := A{
+func NewMockA() *A {
+	return &A{
 		Bool:    true,
 		Int1:    -42,
 		Int8:    -8,
@@ -93,30 +87,45 @@ func main() {
 		Arraya:   []string{"a", "b", "c"},
 		Arrayb:   []byte{0x01, 0x02, 0x03},
 	}
-
-	// js, err := json.Marshal(t)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// fmt.Println(string(js))
-
-	tlv.NewOption(tlv.LengthSize(1, 4))
-	fs, err := tlv.Marshal(t)
-	if err != nil {
-		fmt.Println(err)
-	}
-	s, err := tlv.ToString(fs)
-	if err != nil {
-		fmt.Println(s, err)
-	}
-
-	fmt.Println(s)
 }
 
-func PrettyStruct(data interface{}) (string, error) {
-	val, err := json.MarshalIndent(data, "", " ")
-	if err != nil {
-		return "", err
+func BenchmarkMarshal200(b *testing.B) {
+	a := NewMockA()
+	b.ResetTimer()
+	NewOption(LengthSize(1, 4))
+
+	for i := 0; i < b.N; i++ {
+		_, err := Marshal(a)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
-	return string(val), nil
+	b.StopTimer()
 }
+
+func BenchmarkJson200(b *testing.B) {
+	a := NewMockA()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := json.Marshal(a)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+}
+
+// go test -bench=. -benchmem -run=none
+// 对比结果 2025/12/27(第一次尝试)
+// goos: windows
+// goarch: amd64
+// pkg: github.com/w6xian/sloth/decoder/tlv
+// cpu: Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz
+// BenchmarkMarshal200-6              94322             12607 ns/op            6778 B/op        308 allocs/op
+// BenchmarkJson200-6                505194              2281 ns/op             648 B/op          8 allocs/op
+//									执行总次数             每次执行耗时(ns)        内存分配次数        内存分配字节数
+// 调优相关记录
+// 第一次优化
+// BenchmarkMarshal200-6              60546             20156 ns/op            1936 B/op        102 allocs/op
+// BenchmarkJson200-6                515382              2293 ns/op             648 B/op          8 allocs/op
+// 操作：加pool读取byte，内存分配次数减少到1/3次, 内存分配字节数减少到1/3次

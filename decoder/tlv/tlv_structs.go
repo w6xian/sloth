@@ -1,14 +1,17 @@
 package tlv
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"strconv"
 	"strings"
 )
+
+func Marshal(v any, opts ...FrameOption) ([]byte, error) {
+	option := NewOption(opts...)
+	return create_tlv_struct(v, option)
+}
 
 func FromStruct(t any, opts ...FrameOption) ([]byte, error) {
 	option := NewOption(opts...)
@@ -31,35 +34,36 @@ func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
 		return "", err
 	}
 	total := l
-	if t != 0x3F {
+	if (t & 0x3F) != 0x3F {
 		return "", errors.New("tlv tag is not struct")
 	}
 	pos := 0
 	rst := []string{}
 	for l > 0 && pos+2 < total {
 		data := v[pos:]
+
 		if len(data) < 2 {
 			break
 		}
-		if data[0] != 0x3E {
+		if (data[0] & 0x3E) != 0x3E {
 			return "", errors.New("tlv field tag is not 0x3E")
 		}
 		ft, fl, fv, ferr := read_tlv_field(data)
 		if ferr != nil {
 			return "", ferr
 		}
-		if ft == 0x3E {
+		if (ft & 0x3E) == 0x3E {
 			nt, nl, nv, nerr := Next(fv)
 			if nerr != nil {
 				return "", nerr
 			}
-			if nt != 0x3D {
+			if (nt & 0x3D) != 0x3D {
 				return "", errors.New("tlv value tag is not 0x3D")
 			}
 			name := fmt.Sprintf("\"%s\"", string(nv))
 			data := fv[nl:]
 			tag := data[0]
-			if tag == 0x3F {
+			if (tag & 0x3F) == 0x3F {
 				value, err := read_tlv_struct_string(data, opt)
 				if err != nil {
 					return "", err
@@ -95,7 +99,7 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 		if err != nil {
 			continue
 		}
-		tags[string(tag)] = tyf.Name
+		tags[tag] = tyf.Name
 	}
 	t, l, v, err := Next(v)
 	if err != nil {
@@ -229,7 +233,7 @@ func get_value_string(tag byte, data []byte) string {
 		// fmt.Println("TLV_TYPE_JSON:::", data)
 		return fmt.Sprintf("%s", data)
 	default:
-		fmt.Println("tlv type not found", tag, data)
+		// fmt.Println("tlv type not found", tag, data)
 		return reflect.ValueOf(data).String()
 	}
 }
@@ -254,148 +258,109 @@ func get_any_info(v any) (reflect.Kind, reflect.Type, reflect.Value) {
 func create_tlv_struct(t any, opt *Option) ([]byte, error) {
 	kind, ty, sv := get_any_info(t)
 	if kind != reflect.Struct {
-		return []byte{}, errors.New("tlv struct is not struct")
+		return nil, errors.New("tlv struct is not struct")
 	}
-	fs := []byte{}
+	buf := opt.pool.Get()
+	defer opt.pool.Put(buf)
+	pos := 0
 	for num := 0; num < sv.NumField(); num++ {
 		f := sv.Field(num)
 		tyf := ty.Field(num)
-		frame := create_tlv_struct_feild_v1(f, tyf, opt)
-		// fmt.Println("::", tyf.Name, frame)
-		fs = append(fs, frame...)
+		frame, err := create_tlv_struct_feild_v1(f, tyf, opt)
+		if err != nil {
+			continue
+		}
+		copy(buf[pos:], frame)
+		pos += len(frame)
 	}
-	fs, err := tlv_encode_opt(0x3F, fs, opt)
+	fs, err := tlv_encode_opt(0x3F, buf[0:pos], opt)
 	if err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	return fs, nil
 }
 
-func get_tlv_struct_feild_name(tyf reflect.StructField) ([]byte, error) {
+func get_tlv_struct_feild_name(tyf reflect.StructField) (string, error) {
 	tag := tyf.Tag.Get("tlv")
 	if tag == "" {
 		tag = tyf.Name
 	}
 	//是否为忽略
 	if tag == "-" {
-		return []byte{}, errors.New("tlv tag is -")
+		return "", errors.New("tlv tag is -")
 	}
-	return []byte(tag), nil
+	return tag, nil
 }
 
-func create_tlv_struct_feild(f reflect.Value, tyf reflect.StructField) []byte {
-	opt := NewOption()
-	tag, err := get_tlv_struct_feild_name(tyf)
-	if err != nil {
-		return []byte{}
-	}
-	nam, err := tlv_encode_opt(0x3E, tag, opt)
-	if err != nil {
-		fmt.Println(err)
-	}
-	val := get_tlv_feild_value(f.Interface())
-	if val == nil {
-		return []byte{}
-	}
-	v, e := tlv_encode_opt(0x3D, val, opt)
-	if e != nil {
-		fmt.Println(e)
-	}
-	return get_tlv_struct_feild(nam, v)
+// func create_tlv_struct_feild(f reflect.Value, tyf reflect.StructField) []byte {
+// 	opt := NewOption()
+// 	tag, err := get_tlv_struct_feild_name(tyf)
+// 	if err != nil {
+// 		return []byte{}
+// 	}
+// 	nam, err := tlv_encode_opt(0x3E, tag, opt)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+// 	val := get_tlv_feild_value(f.Interface())
+// 	if val == nil {
+// 		return []byte{}
+// 	}
+// 	v, e := tlv_encode_opt(0x3D, val, opt)
+// 	if e != nil {
+// 		fmt.Println(e)
+// 	}
+// 	return get_tlv_struct_feild(nam, v)
+// }
+
+func create_tlv_struct_feild_label(nam []byte, opt *Option) []byte {
+	ln := len(nam)
+	hsize := get_header_size(ln, opt)
+	total := int(hsize) + ln
+	frame := opt.pool.Get()
+	defer opt.pool.Put(frame)
+	frame[0] = 0x3D
+	l := tlv_length_bytes(ln, opt)
+	copy(frame[1:hsize], l)
+	copy(frame[hsize:total], nam)
+	return frame[0:total]
 }
 
-func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) []byte {
+func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
+	label, err := get_tlv_struct_feild_name(tyf)
+	if err != nil {
+		return nil, err
+	}
 
-	tag, err := get_tlv_struct_feild_name(tyf)
+	pos := 0
+	buf := opt.pool.Get()
+	defer opt.pool.Put(buf)
+	nam := create_tlv_struct_feild_label([]byte(label), opt)
 	if err != nil {
-		return []byte{}
+		return nil, err
 	}
-	nam, err := tlv_encode_opt(0x3D, tag, opt)
-	if err != nil {
-		fmt.Println(err)
-	}
-	val := EmptyFrame()
+	copy(buf[pos:], nam)
+	pos += len(nam)
 	if f.Kind() == reflect.Struct {
 		frame, err := create_tlv_struct(f.Interface(), opt)
-		if err == nil {
-			val = frame
+		if err != nil {
+			return nil, err
 		}
+		copy(buf[pos:], frame)
+		pos += len(frame)
 	} else {
-		val = tlv_serialize_value(f, opt)
+		val := tlv_serialize_value(f, opt)
+		copy(buf[pos:], val)
+		pos += len(val)
 	}
-	if val == nil {
-		val = EmptyFrame()
-	}
-	return get_tlv_struct_feild(nam, val)
-}
-
-// 不用binary.Write，因为它会根据系统字节序编码,语言兼容
-func get_tlv_feild_value(val any) []byte {
-	switch v := val.(type) {
-	case []uint8:
-		return v
-	case string:
-		return []byte(v)
-	case int:
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, uint64(v))
-		return buf
-	case int8:
-		buf := make([]byte, 1)
-		buf[0] = byte(v)
-		return buf
-	case int16:
-		buf := make([]byte, 2)
-		binary.BigEndian.PutUint16(buf, uint16(v))
-		return buf
-	case int32:
-		buf := make([]byte, 4)
-		binary.BigEndian.PutUint32(buf, uint32(v))
-		return buf
-	case int64:
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, uint64(v))
-		return buf
-	case uint:
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, uint64(v))
-		return buf
-	case uint8:
-		return []byte{v}
-	case uint16:
-		buf := make([]byte, 2)
-		binary.BigEndian.PutUint16(buf, v)
-		return buf
-	case uint32:
-		buf := make([]byte, 4)
-		binary.BigEndian.PutUint32(buf, v)
-		return buf
-	case uint64:
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, v)
-		return buf
-	case float32:
-		bits := math.Float32bits(v)
-		buf := make([]byte, 4)
-		binary.BigEndian.PutUint32(buf, bits)
-		return buf
-	case float64:
-		bits := math.Float64bits(v)
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, bits)
-		return buf
-	case bool:
-		if v {
-			return []byte{1}
-		}
-		return []byte{0}
-	default:
-		return nil
-	}
-}
-
-func get_tlv_struct_feild(name []byte, value []byte) []byte {
-	t := []byte{0x3E, byte(len(name) + len(value))}
-	t = append(t, name...)
-	return append(t, value...)
+	rst := opt.pool.Get()
+	defer opt.pool.Put(rst)
+	rst[0] = 0x3E
+	hsize := get_header_size(pos, opt)
+	total := int(hsize) + pos
+	// 写入长度
+	lb := tlv_length_bytes(pos, opt)
+	copy(rst[1:hsize], lb)
+	copy(rst[hsize:total], buf[0:pos])
+	return rst[0:total], nil
 }

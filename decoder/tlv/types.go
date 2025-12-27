@@ -18,11 +18,7 @@ func NewTLVFromFrame(frame TLVFrame, opts ...FrameOption) (*TlV, error) {
 
 func EmptyFrame(opts ...FrameOption) TLVFrame {
 	option := NewOption(opts...)
-	r, err := tlv_encode_opt(0x00, []byte(""), option)
-	if err != nil {
-		return []byte{}
-	}
-	return r
+	return tlv_empty_frame(option)
 }
 
 func FrameFromString(v string, opts ...FrameOption) TLVFrame {
@@ -49,15 +45,16 @@ func FrameFromJson(v any, opts ...FrameOption) TLVFrame {
 
 // Float64 从float64编码为tlv
 func FrameFromFloat64(v float64, opts ...FrameOption) TLVFrame {
-	bits := math.Float64bits(v)
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(bytes, bits)
 	option := NewOption(opts...)
+	bits := math.Float64bits(v)
+	bytes := make([]byte, 8+option.MinLength+1)
+	binary.BigEndian.PutUint64(bytes[option.MinLength+1:], bits)
 	r, err := tlv_encode_opt(TLV_TYPE_FLOAT64, bytes, option)
 	if err != nil {
 		return []byte{}
 	}
 	return r
+
 }
 
 // Int64 从int64编码为tlv
@@ -215,7 +212,7 @@ func Json2Struct(v []byte, t any, opts ...FrameOption) error {
 }
 
 // Marshal 从结构体编码为tlv
-func Marshal(v any, opts ...FrameOption) []byte {
+func Json(v any, opts ...FrameOption) []byte {
 	return FrameFromJson(v, opts...)
 }
 

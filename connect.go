@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/bucket"
+	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/array"
@@ -293,7 +294,7 @@ func instance_params(params reflect.Type, data []byte) (reflect.Value, error) {
 	} else if array.InArray(nameStr, commonTypes) {
 		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
 		// fmt.Println("nameStr:", nameStr)
-		r := utils.GetType(isPtr, nameStr, data)
+		r := tlv.GetType(isPtr, nameStr, data)
 		return r, nil
 	} else {
 		// 转换参数类型为reflect.Value

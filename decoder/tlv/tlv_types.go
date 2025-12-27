@@ -3,7 +3,6 @@ package tlv
 import (
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"math"
 	"reflect"
 )
@@ -167,9 +166,10 @@ func tlv_frame_from_slice(v any, opts *Option) TLVFrame {
 // Float32 从float32编码为tlv
 func tlv_frame_from_float32(v float32, opts *Option) TLVFrame {
 	bits := math.Float32bits(v)
-	bytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(bytes, bits)
-	r, err := tlv_encode_opt(TLV_TYPE_FLOAT32, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint32(buf[:4], bits)
+	r, err := tlv_encode_opt(TLV_TYPE_FLOAT32, buf[:4], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -179,9 +179,10 @@ func tlv_frame_from_float32(v float32, opts *Option) TLVFrame {
 // Float64 从float64编码为tlv
 func tlv_frame_from_float64(v float64, opts *Option) TLVFrame {
 	bits := math.Float64bits(v)
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(bytes, bits)
-	r, err := tlv_encode_opt(TLV_TYPE_FLOAT64, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint64(buf[:8], bits)
+	r, err := tlv_encode_opt(TLV_TYPE_FLOAT64, buf[:8], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -190,20 +191,10 @@ func tlv_frame_from_float64(v float64, opts *Option) TLVFrame {
 
 // Int32 从int32编码为tlv
 func tlv_frame_from_int32(v int32, opts *Option) TLVFrame {
-	bytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(bytes, uint32(v))
-	r, err := tlv_encode_opt(TLV_TYPE_INT32, bytes, opts)
-	if err != nil {
-		return []byte{}
-	}
-	return r
-}
-
-// Rune 从rune编码为tlv
-func tlv_frame_from_rune(v rune, opts *Option) TLVFrame {
-	bytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(bytes, uint32(v))
-	r, err := tlv_encode_opt(TLV_TYPE_RUNE, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint32(buf[:4], uint32(v))
+	r, err := tlv_encode_opt(TLV_TYPE_INT32, buf[:4], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -212,9 +203,10 @@ func tlv_frame_from_rune(v rune, opts *Option) TLVFrame {
 
 // Int8 从int8编码为tlv
 func tlv_frame_from_int8(v int8, opts *Option) TLVFrame {
-	bytes := make([]byte, 1)
-	bytes[0] = byte(v)
-	r, err := tlv_encode_opt(TLV_TYPE_INT8, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	buf[0] = byte(v)
+	r, err := tlv_encode_opt(TLV_TYPE_INT8, buf[:1], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -223,9 +215,11 @@ func tlv_frame_from_int8(v int8, opts *Option) TLVFrame {
 
 // Int16 从int16编码为tlv
 func tlv_frame_from_int16(v int16, opts *Option) TLVFrame {
-	bytes := make([]byte, 2)
-	binary.BigEndian.PutUint16(bytes, uint16(v))
-	r, err := tlv_encode_opt(TLV_TYPE_INT16, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	buf[0] = byte(v)
+	buf[1] = byte(v >> 8)
+	r, err := tlv_encode_opt(TLV_TYPE_INT16, buf[:2], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -233,20 +227,10 @@ func tlv_frame_from_int16(v int16, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_int64(v int64, opts *Option) TLVFrame {
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(bytes, uint64(v))
-	r, err := tlv_encode_opt(TLV_TYPE_INT64, bytes, opts)
-	if err != nil {
-		return []byte{}
-	}
-	return r
-}
-
-// Byte 从byte编码为tlv
-func tlv_frame_from_byte(v byte, opts *Option) TLVFrame {
-	bytes := make([]byte, 1)
-	bytes[0] = v
-	r, err := tlv_encode_opt(TLV_TYPE_UINT8, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint64(buf[:8], uint64(v))
+	r, err := tlv_encode_opt(TLV_TYPE_INT64, buf[:8], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -255,13 +239,13 @@ func tlv_frame_from_byte(v byte, opts *Option) TLVFrame {
 
 // Bool 从bool编码为tlv
 func tlv_frame_from_bool(v bool, opts *Option) TLVFrame {
-	bytes := make([]byte, 1)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	buf[0] = 0
 	if v {
-		bytes[0] = 1
-	} else {
-		bytes[0] = 0
+		buf[0] = 1
 	}
-	r, err := tlv_encode_opt(TLV_TYPE_BOOL, bytes, opts)
+	r, err := tlv_encode_opt(TLV_TYPE_BOOL, buf[:1], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -269,10 +253,11 @@ func tlv_frame_from_bool(v bool, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_complex64(v complex64, opts *Option) TLVFrame {
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint32(bytes, math.Float32bits(float32(real(complex128(v)))))
-	binary.BigEndian.PutUint32(bytes[4:], math.Float32bits(float32(imag(complex128(v)))))
-	r, err := tlv_encode_opt(TLV_TYPE_COMPLEX64, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint32(buf, math.Float32bits(float32(real(complex128(v)))))
+	binary.BigEndian.PutUint32(buf[4:], math.Float32bits(float32(imag(complex128(v)))))
+	r, err := tlv_encode_opt(TLV_TYPE_COMPLEX64, buf[:8], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -280,10 +265,11 @@ func tlv_frame_from_complex64(v complex64, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_complex128(v complex128, opts *Option) TLVFrame {
-	bytes := make([]byte, 16)
-	binary.BigEndian.PutUint64(bytes, math.Float64bits(real(v)))
-	binary.BigEndian.PutUint64(bytes[8:], math.Float64bits(imag(v)))
-	r, err := tlv_encode_opt(TLV_TYPE_COMPLEX128, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint64(buf[:8], math.Float64bits(real(v)))
+	binary.BigEndian.PutUint64(buf[8:], math.Float64bits(imag(v)))
+	r, err := tlv_encode_opt(TLV_TYPE_COMPLEX128, buf[:16], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -292,7 +278,10 @@ func tlv_frame_from_complex128(v complex128, opts *Option) TLVFrame {
 
 // Nil 从nil编码为tlv
 func tlv_frame_from_nil(opts *Option) TLVFrame {
-	r, err := tlv_encode_opt(TLV_TYPE_NIL, []byte{}, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	buf[0] = 0
+	r, err := tlv_encode_opt(TLV_TYPE_NIL, buf[:1], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -301,9 +290,10 @@ func tlv_frame_from_nil(opts *Option) TLVFrame {
 
 // Uint64 从uintptr编码为tlv
 func tlv_frame_from_uintptr(v uintptr, opts *Option) TLVFrame {
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(bytes, uint64(v))
-	r, err := tlv_encode_opt(TLV_TYPE_UINTPTR, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint64(buf[:8], uint64(v))
+	r, err := tlv_encode_opt(TLV_TYPE_UINTPTR, buf[:8], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -311,9 +301,10 @@ func tlv_frame_from_uintptr(v uintptr, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_uint64(v uint64, opts *Option) TLVFrame {
-	bytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(bytes, v)
-	r, err := tlv_encode_opt(TLV_TYPE_UINT64, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint64(buf[:8], v)
+	r, err := tlv_encode_opt(TLV_TYPE_UINT64, buf[:8], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -321,9 +312,10 @@ func tlv_frame_from_uint64(v uint64, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_uint32(v uint32, opts *Option) TLVFrame {
-	bytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(bytes, v)
-	r, err := tlv_encode_opt(TLV_TYPE_UINT32, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint32(buf[:4], v)
+	r, err := tlv_encode_opt(TLV_TYPE_UINT32, buf[:4], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -331,9 +323,10 @@ func tlv_frame_from_uint32(v uint32, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_uint8(v uint8, opts *Option) TLVFrame {
-	bytes := make([]byte, 1)
-	bytes[0] = v
-	r, err := tlv_encode_opt(TLV_TYPE_UINT8, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	buf[0] = v
+	r, err := tlv_encode_opt(TLV_TYPE_UINT8, buf[:1], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -341,9 +334,10 @@ func tlv_frame_from_uint8(v uint8, opts *Option) TLVFrame {
 }
 
 func tlv_frame_from_uint16(v uint16, opts *Option) TLVFrame {
-	bytes := make([]byte, 2)
-	binary.BigEndian.PutUint16(bytes, v)
-	r, err := tlv_encode_opt(TLV_TYPE_UINT16, bytes, opts)
+	buf := opts.pool.Get()
+	defer opts.pool.Put(buf)
+	binary.BigEndian.PutUint16(buf[:2], v)
+	r, err := tlv_encode_opt(TLV_TYPE_UINT16, buf[:2], opts)
 	if err != nil {
 		return []byte{}
 	}
@@ -479,7 +473,7 @@ func tlv_serialize(v any, opt *Option) []byte {
 		// fmt.Println("int16", ft)
 		return tlv_frame_from_int16(int16(ft), opt)
 	case int32:
-		fmt.Println("int32", ft)
+		// fmt.Println("int32", ft)
 		return tlv_frame_from_int32(int32(ft), opt)
 	case int64:
 		// fmt.Println("int64", ft)
@@ -497,7 +491,7 @@ func tlv_serialize(v any, opt *Option) []byte {
 		// fmt.Println("uint64", ft)
 		return tlv_frame_from_uint64(ft, opt)
 	case []byte:
-		fmt.Println("[]byte", ft)
+		// fmt.Println("[]byte", ft)
 		return tlv_frame_from_slice(ft, opt)
 	case string:
 		// fmt.Println("string", ft)
@@ -520,6 +514,7 @@ func tlv_serialize(v any, opt *Option) []byte {
 }
 
 func tlv_serialize_value(f reflect.Value, opt *Option) []byte {
+
 	v := f.Interface()
 	if v == nil {
 		return []byte{TLV_TYPE_NIL, 0}
@@ -579,6 +574,8 @@ func tlv_serialize_value(f reflect.Value, opt *Option) []byte {
 		// fmt.Println("uintptr:", ft)
 		return tlv_frame_from_uintptr(v.(uintptr), opt)
 	default:
-		return tlv_frame_from_json(v, opt)
+		// fmt.Println("default", k)
+		return tlv_empty_frame(opt)
+		//return tlv_frame_from_json(v, opt)
 	}
 }

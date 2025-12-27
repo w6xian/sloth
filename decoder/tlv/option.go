@@ -2,6 +2,8 @@ package tlv
 
 import (
 	"sync"
+
+	"github.com/w6xian/sloth/internal/lpool"
 )
 
 type Bin []byte
@@ -15,6 +17,9 @@ type Option struct {
 	LengthSize byte
 	MaxLength  byte
 	MinLength  byte
+	EmptyFrame []byte
+	size       []byte
+	pool       *lpool.BytePool
 }
 
 func NewOption(opts ...FrameOption) *Option {
@@ -24,7 +29,10 @@ func NewOption(opts ...FrameOption) *Option {
 			LengthSize: 1,
 			MaxLength:  0x02,
 			MinLength:  0x01,
+			size:       make([]byte, 4),
+			pool:       lpool.NewBytePool(100, 1024),
 		}
+		default_option.EmptyFrame = make([]byte, default_option.MinLength+1)
 	})
 	opt := default_option
 	for _, o := range opts {
