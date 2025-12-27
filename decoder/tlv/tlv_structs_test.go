@@ -128,4 +128,7 @@ func BenchmarkJson200(b *testing.B) {
 // 第一次优化
 // BenchmarkMarshal200-6              60546             20156 ns/op            1936 B/op        102 allocs/op
 // BenchmarkJson200-6                515382              2293 ns/op             648 B/op          8 allocs/op
-// 操作：加pool读取byte，内存分配次数减少到1/3次, 内存分配字节数减少到1/3次
+// 操作：加pool读取byte，
+// 内存分配次数减少到1/3次, 内存分配字节数减少到1/3次.
+// 执行耗时增加了1倍，总次数减少了1/3次.
+// 时间换空间（失败的优化）
