@@ -95,10 +95,11 @@ func BenchmarkMarshal200(b *testing.B) {
 	NewOption(LengthSize(1, 4))
 
 	for i := 0; i < b.N; i++ {
-		_, err := Marshal(a)
+		frame, err := Marshal(a)
 		if err != nil {
 			b.Fatal(err)
 		}
+		_ = frame
 	}
 	b.StopTimer()
 }
@@ -107,10 +108,11 @@ func BenchmarkJson200(b *testing.B) {
 	a := NewMockA()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := json.Marshal(a)
+		js, err := json.Marshal(a)
 		if err != nil {
 			b.Fatal(err)
 		}
+		_ = js
 	}
 	b.StopTimer()
 }

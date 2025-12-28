@@ -326,6 +326,17 @@ func create_tlv_struct_feild_label(nam []byte, opt *Option) []byte {
 	return frame[0:total]
 }
 
+func create_tlv_struct_feild_label_use_buffer(nam []byte, opt *Option) []byte {
+	ln := len(nam)
+	es := opt.GetEncoder()
+	defer opt.PutEncoder(es)
+	es.WriteByte(0x3D)
+	l := tlv_length_bytes(ln, opt)
+	es.Write(l)
+	es.Write(nam)
+	return es.Bytes()
+}
+
 func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
 	label, err := get_tlv_struct_feild_name(tyf)
 	if err != nil {
@@ -335,7 +346,7 @@ func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *O
 	pos := 0
 	buf := opt.pool.Get()
 	defer opt.pool.Put(buf)
-	nam := create_tlv_struct_feild_label([]byte(label), opt)
+	nam := create_tlv_struct_feild_label_use_buffer([]byte(label), opt)
 	if err != nil {
 		return nil, err
 	}

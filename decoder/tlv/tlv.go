@@ -148,10 +148,8 @@ func tlv_length_bytes(l int, opt *Option) []byte {
 	if l > maxValueLength {
 		m = opt.MaxLength
 	}
-	buf := opt.pool.Get()
-	defer opt.pool.Put(buf)
-	binary.BigEndian.PutUint32(buf[:4], uint32(l))
-	return buf[4-m : 4]
+	binary.BigEndian.PutUint32(opt.size, uint32(l))
+	return opt.size[4-m : 4]
 }
 
 func tlv_encode_opt(tag byte, data []byte, opt *Option) ([]byte, error) {

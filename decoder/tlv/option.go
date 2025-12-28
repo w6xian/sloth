@@ -13,13 +13,14 @@ var tlv_option_option sync.Once
 var default_option *Option
 
 type Option struct {
-	CheckCRC   bool
-	LengthSize byte
-	MaxLength  byte
-	MinLength  byte
-	EmptyFrame []byte
-	size       []byte
-	pool       *lpool.BytePool
+	CheckCRC    bool
+	LengthSize  byte
+	MaxLength   byte
+	MinLength   byte
+	EmptyFrame  []byte
+	size        []byte
+	pool        *lpool.BytePool
+	encodeState *encodeState
 }
 
 func NewOption(opts ...FrameOption) *Option {
@@ -63,4 +64,11 @@ func (opt *Option) MinLengthOption() FrameOption {
 	return func(o *Option) {
 		o.MinLength = opt.MinLength
 	}
+}
+
+func (opt *Option) GetEncoder() *encodeState {
+	return newEncodeState()
+}
+func (opt *Option) PutEncoder(es *encodeState) {
+	encodeStatePool.Put(es)
 }

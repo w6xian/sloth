@@ -575,7 +575,7 @@ func tlv_serialize_value(f reflect.Value, opt *Option) []byte {
 		return tlv_frame_from_uintptr(v.(uintptr), opt)
 	default:
 		// fmt.Println("default", k)
-		return tlv_empty_frame(opt)
-		//return tlv_frame_from_json(v, opt)
+		// return tlv_empty_frame(opt)
+		return tlv_frame_from_json(v, opt)
 	}
 }
