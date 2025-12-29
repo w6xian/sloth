@@ -2,8 +2,6 @@ package tlv
 
 import (
 	"sync"
-
-	"github.com/w6xian/sloth/internal/lpool"
 )
 
 type Bin []byte
@@ -13,13 +11,13 @@ var tlv_option_option sync.Once
 var default_option *Option
 
 type Option struct {
-	CheckCRC    bool
-	LengthSize  byte
-	MaxLength   byte
-	MinLength   byte
-	EmptyFrame  []byte
-	size        []byte
-	pool        *lpool.BytePool
+	CheckCRC   bool
+	LengthSize byte
+	MaxLength  byte
+	MinLength  byte
+	EmptyFrame []byte
+	size       []byte
+	// pool        *lpool.BytePool
 	encodeState *encodeState
 }
 
@@ -31,7 +29,30 @@ func NewOption(opts ...FrameOption) *Option {
 			MaxLength:  0x02,
 			MinLength:  0x01,
 			size:       make([]byte, 4),
-			pool:       lpool.NewBytePool(100, 1024),
+		}
+		default_option.EmptyFrame = make([]byte, default_option.MinLength+1)
+	})
+	opt := default_option
+	for _, o := range opts {
+		o(opt)
+	}
+	if opt.LengthSize < opt.MinLength {
+		opt.LengthSize = opt.MinLength
+	}
+	if opt.LengthSize > opt.MaxLength {
+		opt.LengthSize = opt.MaxLength
+	}
+	return opt
+}
+
+func newOptionV1(opts ...FrameOption) *Option {
+	tlv_option_option.Do(func() {
+		default_option = &Option{
+			CheckCRC:   false,
+			LengthSize: 1,
+			MaxLength:  0x02,
+			MinLength:  0x01,
+			size:       make([]byte, 4),
 		}
 		default_option.EmptyFrame = make([]byte, default_option.MinLength+1)
 	})

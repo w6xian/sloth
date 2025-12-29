@@ -1,6 +1,7 @@
 package tlv
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -9,8 +10,12 @@ import (
 )
 
 func Marshal(v any, opts ...FrameOption) ([]byte, error) {
-	option := NewOption(opts...)
+	option := newOptionV1(opts...)
 	return create_tlv_struct(v, option)
+}
+func Unmarshal(v []byte, s any, opts ...FrameOption) error {
+	option := NewOption(opts...)
+	return read_tlv_struct(v, s, option)
 }
 
 func FromStruct(t any, opts ...FrameOption) ([]byte, error) {
@@ -131,13 +136,22 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 			isPtr := f.Kind() == reflect.Pointer
 			isStruct := f.Kind() == reflect.Struct
 			if !isStruct {
-				_, _, vv, verr := Next(fv[nl:])
+				vt, _, vv, verr := Next(fv[nl:])
 				if verr != nil {
 					return verr
 				}
+				fmt.Println("value:", vt, vv)
 				// 设置值
-				value := GetType(isPtr, f.Type().Name(), vv)
-				f.Set(value)
+				if vt == TLV_TYPE_JSON {
+					instance := reflect.New(f.Type())
+					err := json.Unmarshal(vv, instance.Interface())
+					if err == nil {
+						f.Set(instance.Elem())
+					}
+				} else {
+					value := set_filed_value(isPtr, vt, vv)
+					f.Set(value)
+				}
 			} else {
 				instance := reflect.New(f.Type())
 				// 递归解析结构体
@@ -162,7 +176,7 @@ func get_value_string(tag byte, data []byte) string {
 		by := BytesToInt(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT8:
-		by := BytesToByte(data)
+		by := BytesToInt8(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT16:
 		by := BytesToInt16(data)
@@ -214,9 +228,9 @@ func get_value_string(tag byte, data []byte) string {
 		return fmt.Sprintf("%s", data)
 	case TLV_TYPE_SLICE_BYTE:
 		return SliceByteToString(data)
-	case TLV_TYPE_SLICE_INT64:
+	case TLV_TYPE_SLICE_INT64, TLV_TYPE_SLICE_INT:
 		return SliceInt64ToString(data)
-	case TLV_TYPE_SLICE_UINT64:
+	case TLV_TYPE_SLICE_UINT64, TLV_TYPE_SLICE_UINT:
 		return SliceUint64ToString(data)
 	case TLV_TYPE_SLICE_INT32:
 		return SliceInt32ToString(data)
@@ -260,20 +274,18 @@ func create_tlv_struct(t any, opt *Option) ([]byte, error) {
 	if kind != reflect.Struct {
 		return nil, errors.New("tlv struct is not struct")
 	}
-	buf := opt.pool.Get()
-	defer opt.pool.Put(buf)
-	pos := 0
+	buf := opt.GetEncoder()
+	defer opt.PutEncoder(buf)
 	for num := 0; num < sv.NumField(); num++ {
 		f := sv.Field(num)
 		tyf := ty.Field(num)
-		frame, err := create_tlv_struct_feild_v1(f, tyf, opt)
+		frame, err := create_tlv_struct_feild_v2(f, tyf, opt)
 		if err != nil {
 			continue
 		}
-		copy(buf[pos:], frame)
-		pos += len(frame)
+		buf.Write(frame)
 	}
-	fs, err := tlv_encode_opt(0x3F, buf[0:pos], opt)
+	fs, err := tlv_encode_option_with_buffer(0x3F, buf.Bytes(), opt)
 	if err != nil {
 		return nil, err
 	}
@@ -313,18 +325,18 @@ func get_tlv_struct_feild_name(tyf reflect.StructField) (string, error) {
 // 	return get_tlv_struct_feild(nam, v)
 // }
 
-func create_tlv_struct_feild_label(nam []byte, opt *Option) []byte {
-	ln := len(nam)
-	hsize := get_header_size(ln, opt)
-	total := int(hsize) + ln
-	frame := opt.pool.Get()
-	defer opt.pool.Put(frame)
-	frame[0] = 0x3D
-	l := tlv_length_bytes(ln, opt)
-	copy(frame[1:hsize], l)
-	copy(frame[hsize:total], nam)
-	return frame[0:total]
-}
+// func create_tlv_struct_feild_label(nam []byte, opt *Option) []byte {
+// 	ln := len(nam)
+// 	hsize := get_header_size(ln, opt)
+// 	total := int(hsize) + ln
+// 	frame := opt.pool.Get()
+// 	defer opt.pool.Put(frame)
+// 	frame[0] = 0x3D
+// 	l := tlv_length_bytes(ln, opt)
+// 	copy(frame[1:hsize], l)
+// 	copy(frame[hsize:total], nam)
+// 	return frame[0:total]
+// }
 
 func create_tlv_struct_feild_label_use_buffer(nam []byte, opt *Option) []byte {
 	ln := len(nam)
@@ -337,41 +349,65 @@ func create_tlv_struct_feild_label_use_buffer(nam []byte, opt *Option) []byte {
 	return es.Bytes()
 }
 
-func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
+// func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
+// 	label, err := get_tlv_struct_feild_name(tyf)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	pos := 0
+// 	buf := opt.pool.Get()
+// 	defer opt.pool.Put(buf)
+// 	nam := create_tlv_struct_feild_label_use_buffer([]byte(label), opt)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	copy(buf[pos:], nam)
+// 	pos += len(nam)
+// 	if f.Kind() == reflect.Struct {
+// 		frame, err := create_tlv_struct(f.Interface(), opt)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		copy(buf[pos:], frame)
+// 		pos += len(frame)
+// 	} else {
+// 		val := tlv_serialize_value(f, opt)
+// 		copy(buf[pos:], val)
+// 		pos += len(val)
+// 	}
+// 	rst := opt.pool.Get()
+// 	defer opt.pool.Put(rst)
+// 	rst[0] = 0x3E
+// 	hsize := get_header_size(pos, opt)
+// 	total := int(hsize) + pos
+// 	// 写入长度
+// 	lb := tlv_length_bytes(pos, opt)
+// 	copy(rst[1:hsize], lb)
+// 	copy(rst[hsize:total], buf[0:pos])
+// 	return rst[0:total], nil
+// }
+
+func create_tlv_struct_feild_v2(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
 	label, err := get_tlv_struct_feild_name(tyf)
 	if err != nil {
 		return nil, err
 	}
 
-	pos := 0
-	buf := opt.pool.Get()
-	defer opt.pool.Put(buf)
+	buf := opt.GetEncoder()
+	defer opt.PutEncoder(buf)
 	nam := create_tlv_struct_feild_label_use_buffer([]byte(label), opt)
-	if err != nil {
-		return nil, err
-	}
-	copy(buf[pos:], nam)
-	pos += len(nam)
+	buf.Write(nam)
 	if f.Kind() == reflect.Struct {
 		frame, err := create_tlv_struct(f.Interface(), opt)
 		if err != nil {
 			return nil, err
 		}
-		copy(buf[pos:], frame)
-		pos += len(frame)
+		buf.Write(frame)
 	} else {
 		val := tlv_serialize_value(f, opt)
-		copy(buf[pos:], val)
-		pos += len(val)
+		buf.Write(val)
 	}
-	rst := opt.pool.Get()
-	defer opt.pool.Put(rst)
-	rst[0] = 0x3E
-	hsize := get_header_size(pos, opt)
-	total := int(hsize) + pos
-	// 写入长度
-	lb := tlv_length_bytes(pos, opt)
-	copy(rst[1:hsize], lb)
-	copy(rst[hsize:total], buf[0:pos])
-	return rst[0:total], nil
+	return tlv_encode_option_with_buffer(0x3E, buf.Bytes(), opt)
+	// return rst[0:total], nil
 }

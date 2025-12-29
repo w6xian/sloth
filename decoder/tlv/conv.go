@@ -67,6 +67,14 @@ func BytesToByte(data []byte) byte {
 	return data[0]
 }
 
+func BytesToInt8(data []byte) int8 {
+	return int8(data[0])
+}
+
+func BytesToUint8(data []byte) uint8 {
+	return uint8(data[0])
+}
+
 // BytesToComplex64 converts a byte slice to a 64-bit complex number.
 func BytesToComplex64(data []byte) complex64 {
 	return complex(BytesToFloat32(data[:4]), BytesToFloat32(data[4:]))
@@ -99,6 +107,17 @@ func SliceByteToString(data []byte) string {
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
+func slice_so_String(data []byte) string {
+	return fmt.Sprintf("\"%s\"", string(data))
+}
+
+func slice_bytes_to_slice_strings(data []byte) []string {
+	if data[0] == '[' && data[len(data)-1] == ']' {
+		data = data[2 : len(data)-2]
+	}
+	return strings.Split(string(data), "\",\"")
+}
+
 // SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.
 func SliceInt16ToString(data []byte) string {
 	s := []string{}
@@ -109,6 +128,15 @@ func SliceInt16ToString(data []byte) string {
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
+func conv_to_slice_int16(data []byte) []int16 {
+	s := []int16{}
+	// 2字节为一个int16
+	for i := 0; i < len(data); i += 2 {
+		s = append(s, BytesToInt16(data[i:i+2]))
+	}
+	return s
+}
+
 func SliceUint16ToString(data []byte) string {
 	s := []string{}
 	// 2字节为一个uint16
@@ -116,6 +144,93 @@ func SliceUint16ToString(data []byte) string {
 		s = append(s, fmt.Sprintf("%d", BytesToUint16(data[i:i+2])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func conv_to_slice_int8(data []byte) []int8 {
+	s := []int8{}
+	// 1字节为一个int8
+	for i := 0; i < len(data); i += 1 {
+		s = append(s, int8(data[i]))
+	}
+	return s
+}
+
+func conv_to_slice_uint16(data []byte) []uint16 {
+	s := []uint16{}
+	// 2字节为一个uint16
+	for i := 0; i < len(data); i += 2 {
+		s = append(s, BytesToUint16(data[i:i+2]))
+	}
+	return s
+}
+
+func conv_to_slice_uint32(data []byte) []uint32 {
+	s := []uint32{}
+	// 4字节为一个uint32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, BytesToUint32(data[i:i+4]))
+	}
+	return s
+}
+
+func conv_to_slice_int32(data []byte) []int32 {
+	s := []int32{}
+	// 4字节为一个int32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, BytesToInt32(data[i:i+4]))
+	}
+	return s
+}
+
+func conv_to_slice_float32(data []byte) []float32 {
+	s := []float32{}
+	// 4字节为一个float32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, BytesToFloat32(data[i:i+4]))
+	}
+	return s
+}
+
+func conv_to_slice_float64(data []byte) []float64 {
+	s := []float64{}
+	// 8字节为一个float64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, BytesToFloat64(data[i:i+8]))
+	}
+	return s
+}
+
+func conv_to_slice_int(data []byte) []int {
+	s := []int{}
+	// 8字节为一个int64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, BytesToInt(data[i:i+8]))
+	}
+	return s
+}
+func conv_to_slice_int64(data []byte) []int64 {
+	s := []int64{}
+	// 8字节为一个int64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, BytesToInt64(data[i:i+8]))
+	}
+	return s
+}
+func conv_to_slice_uint(data []byte) []uint {
+	s := []uint{}
+	// 8字节为一个uint64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, BytesToUint(data[i:i+8]))
+	}
+	return s
+}
+func conv_to_slice_uint64(data []byte) []uint64 {
+	s := []uint64{}
+	// 8字节为一个uint64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, BytesToUint64(data[i:i+8]))
+	}
+	return s
 }
 
 // SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.

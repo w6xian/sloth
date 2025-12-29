@@ -34,8 +34,8 @@ type A struct {
 	Float64 float64 `tlv:"float64"`
 
 	// 复数类型
-	// Complex64  complex64  `tlv:"complex64"`
-	// Complex128 complex128 `tlv:"complex128"`
+	Complex64  complex64  `tlv:"complex64"`
+	Complex128 complex128 `tlv:"complex128"`
 
 	// 字符串类型
 	String string `tlv:"string"`
@@ -91,32 +91,42 @@ func NewMockA() *A {
 
 func BenchmarkMarshal200(b *testing.B) {
 	a := NewMockA()
+	frame, err := Marshal(a)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
-	NewOption(LengthSize(1, 4))
-
 	for i := 0; i < b.N; i++ {
-		frame, err := Marshal(a)
+		var a A
+		err = Unmarshal(frame, &a)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = frame
+		_ = a
 	}
 	b.StopTimer()
 }
 
 func BenchmarkJson200(b *testing.B) {
 	a := NewMockA()
+	js, err := json.Marshal(a)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		js, err := json.Marshal(a)
+		var a A
+		err := json.Unmarshal(js, &a)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = js
+		_ = a
 	}
 	b.StopTimer()
 }
 
+// 极限
+// BenchmarkMarshal200-6           18679048                64.35 ns/op            0 B/op          0 allocs/op
 // go test -bench=. -benchmem -run=none
 // 对比结果 2025/12/27(第一次尝试)
 // goos: windows
@@ -134,3 +144,5 @@ func BenchmarkJson200(b *testing.B) {
 // 内存分配次数减少到1/3次, 内存分配字节数减少到1/3次.
 // 执行耗时增加了1倍，总次数减少了1/3次.
 // 时间换空间（失败的优化）
+// BenchmarkMarshal200-6              91135             12639 ns/op            2161 B/op        110 allocs/op
+// BenchmarkJson200-6                531483              2300 ns/op             648 B/op          8 allocs/op
