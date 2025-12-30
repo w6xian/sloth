@@ -32,8 +32,10 @@ func tlv_frame_from_slice_v3(v any, opts *Option) int {
 	if total == 0 {
 		return 0
 	}
+	// fmt.Println(tag, total)
 	if tag > 0 && total > 0 {
 		tag, size := get_tlv_tag(tag, total, opts)
+		// fmt.Println(tag, size)
 		opts.WriteByte(tag)
 		// return r
 		dv := get_tlv_len(total, opts)
@@ -426,10 +428,10 @@ func tlv_frame_to_uint64_v3(v TLVFrame, opts *Option) (uint64, error) {
 
 func tlv_deserialize_v3(v []byte, opts *Option) (*TlV, error) {
 	if v == nil {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength3
 	}
 	if len(v) < TLVX_HEADER_MIN_SIZE {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength3
 	}
 	tlv, err := tlv_new_from_frame(v, opts)
 	if tlv == nil {
@@ -452,53 +454,53 @@ func tlv_json_struct_v3(v []byte, t any, opts *Option) error {
 }
 
 // Serialize 从结构体编码为tlv
-func tlv_serialize_v3(v any, opt *Option) int {
-	if v == nil {
-		return 0
-	}
-	buf := opt.GetEncoder()
-	defer opt.PutEncoder(buf)
-	switch ft := v.(type) {
-	case float64:
-		return tlv_frame_from_float64_v3(float64(ft), opt)
-	case float32:
-		return tlv_frame_from_float32_v3(float32(ft), opt)
-	case int:
-		return tlv_frame_from_int64_v3(int64(ft), opt)
-	case uint:
-		return tlv_frame_from_uint64_v3(uint64(ft), opt)
-	case int8:
-		return tlv_frame_from_int8_v3(int8(ft), opt)
-	case int16:
-		return tlv_frame_from_int16_v3(int16(ft), opt)
-	case int32:
-		return tlv_frame_from_int32_v3(int32(ft), opt)
-	case int64:
-		return tlv_frame_from_int64_v3(ft, opt)
-	case uint8:
-		return tlv_frame_from_uint8_v3(uint8(ft), opt)
-	case uint16:
-		return tlv_frame_from_uint16_v3(uint16(ft), opt)
-	case uint32:
-		return tlv_frame_from_uint32_v3(uint32(ft), opt)
-	case uint64:
-		return tlv_frame_from_uint64_v3(ft, opt)
-	case []byte:
-		return tlv_frame_from_slice_v3(ft, opt)
-	case string:
-		return tlv_frame_from_string_v3(ft, opt)
-	case bool:
-		return tlv_frame_from_bool_v3(ft, opt)
-	case complex64:
-		return tlv_frame_from_complex64_v3(ft, opt)
-	case complex128:
-		return tlv_frame_from_complex128_v3(ft, opt)
-	case uintptr:
-		return tlv_frame_from_uintptr_v3(ft, opt)
-	default:
-		return tlv_frame_from_json_v3(v, opt)
-	}
-}
+// func tlv_serialize_v3(v any, opt *Option) int {
+// 	if v == nil {
+// 		return 0
+// 	}
+// 	buf := opt.GetEncoder()
+// 	defer opt.PutEncoder(buf)
+// 	switch ft := v.(type) {
+// 	case float64:
+// 		return tlv_frame_from_float64_v3(float64(ft), opt)
+// 	case float32:
+// 		return tlv_frame_from_float32_v3(float32(ft), opt)
+// 	case int:
+// 		return tlv_frame_from_int64_v3(int64(ft), opt)
+// 	case uint:
+// 		return tlv_frame_from_uint_v3(uint(ft), opt)
+// 	case int8:
+// 		return tlv_frame_from_int8_v3(int8(ft), opt)
+// 	case int16:
+// 		return tlv_frame_from_int16_v3(int16(ft), opt)
+// 	case int32:
+// 		return tlv_frame_from_int32_v3(int32(ft), opt)
+// 	case int64:
+// 		return tlv_frame_from_int64_v3(ft, opt)
+// 	case uint8:
+// 		return tlv_frame_from_uint8_v3(uint8(ft), opt)
+// 	case uint16:
+// 		return tlv_frame_from_uint16_v3(uint16(ft), opt)
+// 	case uint32:
+// 		return tlv_frame_from_uint32_v3(uint32(ft), opt)
+// 	case uint64:
+// 		return tlv_frame_from_uint64_v3(ft, opt)
+// 	case []byte:
+// 		return tlv_frame_from_slice_v3(ft, opt)
+// 	case string:
+// 		return tlv_frame_from_string_v3(ft, opt)
+// 	case bool:
+// 		return tlv_frame_from_bool_v3(ft, opt)
+// 	case complex64:
+// 		return tlv_frame_from_complex64_v3(ft, opt)
+// 	case complex128:
+// 		return tlv_frame_from_complex128_v3(ft, opt)
+// 	case uintptr:
+// 		return tlv_frame_from_uintptr_v3(ft, opt)
+// 	default:
+// 		return tlv_frame_from_json_v3(v, opt)
+// 	}
+// }
 
 func tlv_serialize_value_v3(f reflect.Value, opt *Option) int {
 	v := f.Interface()

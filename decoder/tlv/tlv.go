@@ -4,22 +4,26 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/w6xian/sloth/internal/utils"
 )
 
 var (
-	ErrInvalidValueLength = errors.New("value length is too long")
-	ErrInvalidCrc         = errors.New("invalid crc")
-	ErrInvalidFloat64     = errors.New("invalid float64")
-	ErrInvalidFloat64Type = errors.New("invalid float64 type")
-	ErrInvalidInt64       = errors.New("invalid int64")
-	ErrInvalidInt64Type   = errors.New("invalid int64 type")
-	ErrInvalidUint64      = errors.New("invalid uint64")
-	ErrInvalidUint64Type  = errors.New("invalid uint64 type")
-	ErrInvalidStructType  = errors.New("invalid type 0x00< tax >0x40(64)")
-	ErrInvalidBinType     = errors.New("invalid binary type")
-	ErrInvalidLengthSize  = errors.New("invalid length size,1-4")
+	ErrInvalidValueLength  = errors.New("value length is too long")
+	ErrInvalidValueLength1 = errors.New("value length is too long1")
+	ErrInvalidValueLength2 = errors.New("value length is too long2")
+	ErrInvalidValueLength3 = errors.New("value length is too long3")
+	ErrInvalidCrc          = errors.New("invalid crc")
+	ErrInvalidFloat64      = errors.New("invalid float64")
+	ErrInvalidFloat64Type  = errors.New("invalid float64 type")
+	ErrInvalidInt64        = errors.New("invalid int64")
+	ErrInvalidInt64Type    = errors.New("invalid int64 type")
+	ErrInvalidUint64       = errors.New("invalid uint64")
+	ErrInvalidUint64Type   = errors.New("invalid uint64 type")
+	ErrInvalidStructType   = errors.New("invalid type 0x00< tax >0x40(64)")
+	ErrInvalidBinType      = errors.New("invalid binary type")
+	ErrInvalidLengthSize   = errors.New("invalid length size,1-4")
 )
 
 // tag/type 只支持 0x01-0x40（1-63）
@@ -283,7 +287,7 @@ func tlv_decode_opt(b []byte, opt *Option) (byte, []byte, error) {
 
 func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 	if len(b) < TLVX_HEADER_MIN_SIZE {
-		return 0, 0, nil, ErrInvalidValueLength
+		return 0, 0, nil, fmt.Errorf("tlv_decode_with_len value length is too long: %v", len(b))
 	}
 	tag := b[0]
 	// 64 32 24 16 | 8 4 2 1
@@ -306,20 +310,18 @@ func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 	case 1:
 		l = int(b[1])
 	case 2:
-		pos := int(max(0, min(1+lengthSize, byte(len(b)))))
 		u16 := []byte{0, 0}
-		copy(u16, b[1:pos])
+		copy(u16, b[1:3])
 		l = int(binary.BigEndian.Uint16(u16))
 	case 3, 4:
-		minLen := int(max(1, min(1+lengthSize, byte(len(b)))))
 		u32 := []byte{0, 0, 0, 0}
-		copy(u32[4-lengthSize:], b[1:minLen])
+		copy(u32[4-lengthSize:], b[1:5])
 		l = int(binary.BigEndian.Uint32(u32))
 	default:
 		return 0, 0, nil, ErrInvalidLengthSize
 	}
 	if len(b) < int(int(headerSize)+l) {
-		return 0, 0, nil, ErrInvalidValueLength
+		return 0, 0, nil, fmt.Errorf("tlv_decode_with_len value length is too long:tag:%d, %v", tag, len(b))
 	}
 	dataBuf := b[headerSize : int(headerSize)+l] // b[6:6+l]
 	if crc_len > 0 {

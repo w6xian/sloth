@@ -14,60 +14,79 @@ type B struct {
 type Strings struct {
 	// Strs    []string `tlv:"strs"`
 	// Byte    byte     `tlv:"byte"`
-	// Slice16 []int16  `tlv:"slice16"`
-	// Slice32 []int32  `tlv:"slice32"`
-	// Slice64 []int64  `tlv:"slice64"`
-	// Arraya  []string `tlv:"arraya"`
-	// Arrayb  []byte   `tlv:"arrayb"`
-	Slice []int `tlv:"slice"`
+	Float32  float32   `tlv:"float32"`
+	Float64  float64   `tlv:"float64"`
+	Slice16  []int16   `tlv:"slice16"`
+	Slice32  []int32   `tlv:"slice32"`
+	Slice64  []int64   `tlv:"slice64"`
+	Arraya   []string  `tlv:"arraya"`
+	Arrayb   []byte    `tlv:"arrayb"`
+	Slice    []int     `tlv:"slice"`
+	FLoats   []float32 `tlv:"floats"`
+	Float64s []float64 `tlv:"float64s"`
 }
 
-// func TestMarshalStrings(t *testing.T) {
-// 	strs := Strings{
-// 		// Strs:    []string{"abce罩", "bcde", "c北京时间"},
-// 		// Byte:    0x41,
-// 		// Slice16: []int16{1, -2, 3, 4, 5},
-// 		Slice: []int{-1, 2, 3, 4, 5},
-// 		// Slice32: []int32{1, 2, -3, 4, 5},
-// 		// Slice64: []int64{1, 2, 3, -4, 5},
-// 		// Arraya:  []string{"a", "b", "c"},
-// 		// Arrayb:  []byte{0x01, 0x02, 0x03},
-// 	}
+func TestMarshalStrings(t *testing.T) {
+	// strs := Strings{
+	// 	// Strs:    []string{"abce罩", "bcde", "c北京时间"},
+	// 	// Byte:    0x41,
+	// 	Float32:  10000.32,
+	// 	Float64:  10000.64,
+	// 	Slice16:  []int16{1, -2, 3, 4, 5},
+	// 	Slice32:  []int32{1, 2, -3, 4, 5},
+	// 	Slice64:  []int64{1, 2, 3, -4, 5},
+	// 	Slice:    []int{-1, 2, 3, 4, 5},
+	// 	FLoats:   []float32{10000.32, 2.2, 3.3},
+	// 	Float64s: []float64{10000.64, 2.2, 3.3},
+	// 	Arraya:   []string{"a", "b", "c"},
+	// 	Arrayb:   []byte{0x01, 0x02, 0x03},
+	// }
 
-// 	b, err := Marshal(strs)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	t.Log(b)
-// 	str := Strings{}
-// 	Unmarshal(b, &str)
-// 	// fmt.Println(str.Strs)
-// 	// fmt.Println(str.Byte)
-// 	// fmt.Println(str.Slice16)
-// 	fmt.Println("---")
-// 	fmt.Println(str.Slice)
-// 	// fmt.Println(str.Slice32)
-// 	// fmt.Println(str.Slice64)
-// 	// fmt.Println(str.Arraya)
-// 	// fmt.Println(str.Arrayb)
-// }
+	strs := NewMockA()
+	b, err := Marshal(strs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(b)
+
+	s, err := ToString(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(s)
+
+	// str := Strings{}
+	// Unmarshal(b, &str)
+	// // fmt.Println(str.Strs)
+	// // fmt.Println(str.Byte)
+	// fmt.Println(str.Slice16)
+	// fmt.Println(str.Slice)
+	// fmt.Println(str.FLoats)
+	// fmt.Println(str.Float64s)
+	// fmt.Println("---")
+	// fmt.Println(str.Slice32)
+	// fmt.Println(str.Slice64)
+	// fmt.Println(str.Arraya)
+	// fmt.Println(str.Arrayb)
+}
 
 // A 结构体 包含golang所有基础数据类型
 type A struct {
 	// 布尔类型
-	Bool bool `tlv:"bool"`
+	// Bool bool `tlv:"bool"`
 
 	// 整数类型
-	Int1    int     `tlv:"int"`
-	Int8    int8    `tlv:"int8"`
-	Int16   int16   `tlv:"int16"`
-	Int32   int32   `tlv:"int32"`
-	Int64   int64   `tlv:"int64"`
-	Uint    uint    `tlv:"uint"`
-	Uint8   uint8   `tlv:"uint8"`
-	Uint16  uint16  `tlv:"uint16"`
-	Uint32  uint32  `tlv:"uint32"`
-	Uint64  uint64  `tlv:"uint64"`
+	Int1   int    `tlv:"int"`
+	Int8   int8   `tlv:"int8"`
+	Int16  int16  `tlv:"int16"`
+	Int32  int32  `tlv:"int32"`
+	Int64  int64  `tlv:"int64"`
+	Uint   uint   `tlv:"uint"`
+	Uint8  uint8  `tlv:"uint8"`
+	Uint16 uint16 `tlv:"uint16"`
+	Uint32 uint32 `tlv:"uint32"`
+	Uint64 uint64 `tlv:"uint64"`
+	//
 	Uintptr uintptr `tlv:"uintptr"`
 
 	// 浮点类型
@@ -93,11 +112,14 @@ type A struct {
 	Map      map[string]int `tlv:"map"`
 	Arraya   []string       `tlv:"arraya"`
 	Arrayb   []byte         `tlv:"arrayb"`
+	//
+	FLoats   []float32 `tlv:"floats"`
+	Float64s []float64 `tlv:"float64s"`
 }
 
 func NewMockA() *A {
 	return &A{
-		Bool:    true,
+		// Bool:    true,
 		Int1:    -42,
 		Int8:    -8,
 		Int16:   -16,
@@ -127,6 +149,8 @@ func NewMockA() *A {
 		Map:      map[string]int{"a": 1, "b": 2, "c": 3},
 		Arraya:   []string{"a", "b", "c"},
 		Arrayb:   []byte{0x01, 0x02, 0x03},
+		FLoats:   []float32{10000.32, 2.2, 3.3},
+		Float64s: []float64{10000.64, 2.2, 3.3},
 	}
 }
 

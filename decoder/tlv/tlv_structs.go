@@ -174,83 +174,87 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 
 func get_value_string(tag byte, data []byte, opt *Option) string {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+	// fmt.Println("tag", tag, data)
 	switch tag {
 	case TLV_TYPE_INT:
-		by := BytesToInt(data)
+		by := bytes_to_int(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT8:
-		by := BytesToInt8(data)
+		by := bytes_to_int8(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT16:
-		by := BytesToInt16(data)
+		by := bytes_to_int16(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT32:
-		by := BytesToInt32(data)
+		by := bytes_to_int32(data)
 		return strconv.FormatInt(int64(by), 10)
 	case TLV_TYPE_INT64:
-		by := BytesToInt64(data)
+		by := bytes_to_int64(data)
 		return strconv.FormatInt(by, 10)
 	case TLV_TYPE_UINT:
-		by := BytesToUint(data)
+		by := bytes_to_uint(data)
 		return strconv.FormatUint(uint64(by), 10)
 	case TLV_TYPE_UINT8:
-		by := BytesToByte(data)
+		by := bytes_to_byte(data)
 		return strconv.FormatUint(uint64(by), 10)
 	case TLV_TYPE_UINT16:
-		by := BytesToUint16(data)
+		by := bytes_to_uint16(data)
 		return strconv.FormatUint(uint64(by), 10)
 	case TLV_TYPE_UINT32:
-		by := BytesToUint32(data)
+		by := bytes_to_uint32(data)
 		return strconv.FormatUint(uint64(by), 10)
 	case TLV_TYPE_UINT64:
-		by := BytesToUint64(data)
+		by := bytes_to_uint64(data)
 		return strconv.FormatUint(by, 10)
 	case TLV_TYPE_FLOAT32:
-		by := BytesToFloat32(data)
+		by := bytes_to_float32(data)
 		return strconv.FormatFloat(float64(by), 'f', -1, 32)
 	case TLV_TYPE_FLOAT64:
-		by := BytesToFloat64(data)
+		by := bytes_to_float64(data)
 		return strconv.FormatFloat(by, 'f', -1, 64)
 	case TLV_TYPE_STRING:
 		return fmt.Sprintf("\"%s\"", string(data))
 	case TLV_TYPE_BOOL:
-		by := BytesToBool(data)
+		by := bytes_to_bool(data)
 		return strconv.FormatBool(by)
 		// 复数类型
 	case TLV_TYPE_COMPLEX64:
-		by := BytesToComplex64(data)
+		by := bytes_to_complex64(data)
 		return fmt.Sprintf("\"%v\"", by)
 	case TLV_TYPE_COMPLEX128:
-		by := BytesToComplex128(data)
+		by := bytes_to_complex128(data)
 		return fmt.Sprintf("\"%v\"", by)
 	case TLV_TYPE_UINTPTR:
-		return fmt.Sprintf("%v", BytesToUintptr(data))
+		return fmt.Sprintf("%v", bytes_to_uintptr(data))
 	case TLV_TYPE_RUNE:
-		return fmt.Sprintf("\"%s\"", BytesToRune(data))
+		return fmt.Sprintf("\"%s\"", bytes_to_rune(data))
 	case TLV_TYPE_SLICE:
 		return fmt.Sprintf("%s", data)
-	case TLV_TYPE_SLICE_BYTE:
-		return SliceByteToString(data)
+	case TLV_TYPE_SLICE_BYTE, TLV_TYPE_SLICE_UINT8:
+		return slice_byte_to_string(data)
 	case TLV_TYPE_SLICE_INT64, TLV_TYPE_SLICE_INT:
-		return SliceInt64ToString(data)
+		return slice_int64_to_string(data)
 	case TLV_TYPE_SLICE_UINT64, TLV_TYPE_SLICE_UINT:
-		return SliceUint64ToString(data)
+		return slice_uint64_to_string(data)
 	case TLV_TYPE_SLICE_INT32:
-		return SliceInt32ToString(data)
+		return slice_int32_to_string(data)
 	case TLV_TYPE_SLICE_UINT32:
-		return SliceUint32ToString(data)
+		return slice_uint32_to_string(data)
 	case TLV_TYPE_SLICE_INT16:
-		return SliceInt16ToString(data)
+		return slice_int16_to_string(data)
 	case TLV_TYPE_SLICE_UINT16:
-		return SliceUint16ToString(data)
+		return slice_uint16_to_string(data)
 	case TLV_TYPE_SLICE_STRING:
-		return SliceStringToString(data, opt)
-
+		return slice_string_to_string(data, opt)
+	case TLV_TYPE_SLICE_FLOAT32:
+		return slice_float32_to_string(data)
+	case TLV_TYPE_SLICE_FLOAT64:
+		return slice_float64_to_string(data)
 	case TLV_TYPE_JSON:
 		// fmt.Println("TLV_TYPE_JSON:::", data)
 		return fmt.Sprintf("%s", data)
 	default:
-		// fmt.Println("tlv type not found", tag, data)
+		fmt.Println("tlv type not found", tag, data)
 		return reflect.ValueOf(data).String()
 	}
 }

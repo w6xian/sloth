@@ -149,10 +149,10 @@ func FrameToUint64(v TLVFrame) (uint64, error) {
 // Int64 从int64编码为tlv
 func FrameToStruct(v TLVFrame, t any, opts ...FrameOption) error {
 	if v == nil {
-		return ErrInvalidValueLength
+		return ErrInvalidValueLength2
 	}
 	if len(v) < TLVX_HEADER_SIZE {
-		return ErrInvalidValueLength
+		return ErrInvalidValueLength2
 	}
 
 	option := NewOption(opts...)
@@ -169,10 +169,10 @@ func FrameToStruct(v TLVFrame, t any, opts ...FrameOption) error {
 
 func FrameToBin(v TLVFrame, opts ...FrameOption) (Bin, error) {
 	if v == nil {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength2
 	}
 	if len(v) < TLVX_HEADER_SIZE {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength2
 	}
 
 	option := NewOption(opts...)
@@ -185,10 +185,10 @@ func FrameToBin(v TLVFrame, opts ...FrameOption) (Bin, error) {
 
 func Deserialize(v []byte, opts ...FrameOption) (*TlV, error) {
 	if v == nil {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength2
 	}
 	if len(v) < TLVX_HEADER_MIN_SIZE {
-		return nil, ErrInvalidValueLength
+		return nil, ErrInvalidValueLength2
 	}
 	newOpt := NewOption(opts...)
 	tlv, err := tlv_new_from_frame(v, newOpt)
@@ -242,61 +242,61 @@ func GetType(needPtr bool, name string, data []byte) reflect.Value {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 	switch name {
 	case "int":
-		by := BytesToInt(data)
+		by := bytes_to_int(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "int16":
-		by := BytesToInt16(data)
+		by := bytes_to_int16(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "int32":
-		by := BytesToInt32(data)
+		by := bytes_to_int32(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "int64":
-		by := BytesToInt64(data)
+		by := bytes_to_int64(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "uint":
-		by := BytesToUint(data)
+		by := bytes_to_uint(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "uint16":
-		by := BytesToUint16(data)
+		by := bytes_to_uint16(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "uint32":
-		by := BytesToUint32(data)
+		by := bytes_to_uint32(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "uint64":
-		by := BytesToUint64(data)
+		by := bytes_to_uint64(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "float32":
-		by := BytesToFloat32(data)
+		by := bytes_to_float32(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "float64":
-		by := BytesToFloat64(data)
+		by := bytes_to_float64(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
@@ -320,13 +320,13 @@ func GetType(needPtr bool, name string, data []byte) reflect.Value {
 		}
 		return reflect.ValueOf(by)
 	case "uintptr":
-		by := BytesToUintptr(data)
+		by := bytes_to_uintptr(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "bool":
-		by := BytesToBool(data)
+		by := bytes_to_bool(data)
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
@@ -341,73 +341,73 @@ func set_filed_value(prt bool, tag byte, data []byte, opt *Option) reflect.Value
 	// fmt.Println(tag, len(data), data)
 	switch tag {
 	case TLV_TYPE_INT:
-		by := BytesToInt(data)
+		by := bytes_to_int(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_INT8:
-		by := BytesToInt8(data)
+		by := bytes_to_int8(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_INT16:
-		by := BytesToInt16(data)
+		by := bytes_to_int16(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_INT32:
-		by := BytesToInt32(data)
+		by := bytes_to_int32(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_INT64:
-		by := BytesToInt64(data)
+		by := bytes_to_int64(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINT:
-		by := BytesToUint(data)
+		by := bytes_to_uint(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINT8:
-		by := BytesToUint8(data)
+		by := bytes_to_uint8(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINT16:
-		by := BytesToUint16(data)
+		by := bytes_to_uint16(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINT32:
-		by := BytesToUint32(data)
+		by := bytes_to_uint32(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINT64:
-		by := BytesToUint64(data)
+		by := bytes_to_uint64(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_FLOAT32:
-		by := BytesToFloat32(data)
+		by := bytes_to_float32(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_FLOAT64:
-		by := BytesToFloat64(data)
+		by := bytes_to_float64(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
@@ -419,32 +419,32 @@ func set_filed_value(prt bool, tag byte, data []byte, opt *Option) reflect.Value
 		}
 		return reflect.ValueOf(str)
 	case TLV_TYPE_BOOL:
-		by := BytesToBool(data)
+		by := bytes_to_bool(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 		// 复数类型
 	case TLV_TYPE_COMPLEX64:
-		by := BytesToComplex64(data)
+		by := bytes_to_complex64(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_COMPLEX128:
-		by := BytesToComplex128(data)
+		by := bytes_to_complex128(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_UINTPTR:
-		by := BytesToUintptr(data)
+		by := bytes_to_uintptr(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_RUNE:
-		by := BytesToRune(data)
+		by := bytes_to_rune(data)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
@@ -534,6 +534,7 @@ func set_filed_value(prt bool, tag byte, data []byte, opt *Option) reflect.Value
 }
 
 func int_data_size(data any, opt *Option) (byte, int) {
+	//fmt.Println(data, reflect.TypeOf(data))
 	switch data := data.(type) {
 	case bool, *bool:
 		return TLV_TYPE_BOOL, 1
@@ -742,6 +743,13 @@ func write_any_data(opt *Option, data any) (int, error) {
 		opt.WriteByte(byte(bits))
 		return 8, nil
 	case []float32:
+		for _, b := range data {
+			bits := math.Float32bits(b)
+			opt.WriteByte(byte(bits >> 24))
+			opt.WriteByte(byte(bits >> 16))
+			opt.WriteByte(byte(bits >> 8))
+			opt.WriteByte(byte(bits))
+		}
 		return 4 * len(data), nil
 	case []float64:
 		for _, b := range data {

@@ -8,98 +8,101 @@ import (
 )
 
 // BytesToInt converts a byte slice to a 64-bit integer.
-func BytesToInt(data []byte) int {
+func bytes_to_int(data []byte) int {
 	return int(binary.BigEndian.Uint64(data))
 }
 
-// BytesToInt16 converts a byte slice to a 16-bit integer.
-func BytesToInt16(data []byte) int16 {
+// bytes_to_int16 converts a byte slice to a 16-bit integer.
+func bytes_to_int16(data []byte) int16 {
 	r := binary.BigEndian.Uint16(data)
 	return int16(r)
 }
 
-// BytesToInt32 converts a byte slice to a 32-bit integer.
-func BytesToInt32(data []byte) int32 {
+// bytes_to_int32 converts a byte slice to a 32-bit integer.
+func bytes_to_int32(data []byte) int32 {
 	return int32(binary.BigEndian.Uint32(data))
 }
 
-// BytesToInt64 converts a byte slice to a 64-bit integer.
-func BytesToInt64(data []byte) int64 {
+// bytes_to_int64 converts a byte slice to a 64-bit integer.
+func bytes_to_int64(data []byte) int64 {
 	return int64(binary.BigEndian.Uint64(data))
 }
 
-// BytesToUint converts a byte slice to a 64-bit unsigned integer.
-func BytesToUint(data []byte) uint {
+// bytes_to_uint converts a byte slice to a 64-bit unsigned integer.
+func bytes_to_uint(data []byte) uint {
 	return uint(binary.BigEndian.Uint64(data))
 }
 
-// BytesToUint16 converts a byte slice to a 16-bit unsigned integer.
-func BytesToUint16(data []byte) uint16 {
+// bytes_to_uint16 converts a byte slice to a 16-bit unsigned integer.
+func bytes_to_uint16(data []byte) uint16 {
 	return uint16(binary.BigEndian.Uint16(data))
 }
 
-// BytesToUint32 converts a byte slice to a 32-bit unsigned integer.
-func BytesToUint32(data []byte) uint32 {
+// bytes_to_uint32 converts a byte slice to a 32-bit unsigned integer.
+func bytes_to_uint32(data []byte) uint32 {
 	return binary.BigEndian.Uint32(data)
 }
 
-// BytesToUint64 converts a byte slice to a 64-bit unsigned integer.
-func BytesToUint64(data []byte) uint64 {
+// bytes_to_uint64 converts a byte slice to a 64-bit unsigned integer.
+func bytes_to_uint64(data []byte) uint64 {
 	return binary.BigEndian.Uint64(data)
 }
 
-func BytesToFloat32(data []byte) float32 {
+// bytes_to_float32 converts a byte slice to a 32-bit floating-point number.
+func bytes_to_float32(data []byte) float32 {
 	return math.Float32frombits(binary.BigEndian.Uint32(data))
 }
 
 // BytesToFloat64 converts a byte slice to a 64-bit floating-point number.
-func BytesToFloat64(data []byte) float64 {
+func bytes_to_float64(data []byte) float64 {
 	return math.Float64frombits(binary.BigEndian.Uint64(data))
 }
 
 // BytesToBool converts a byte slice to a boolean value.
-func BytesToBool(data []byte) bool {
+func bytes_to_bool(data []byte) bool {
 	return data[0] != 0
 }
 
-// BytesToByte converts a byte slice to a byte value.
-func BytesToByte(data []byte) byte {
+// bytes_to_byte converts a byte slice to a byte value.
+func bytes_to_byte(data []byte) byte {
 	return data[0]
 }
 
-func BytesToInt8(data []byte) int8 {
+// bytes_to_int8 converts a byte slice to a 8-bit integer.
+func bytes_to_int8(data []byte) int8 {
 	return int8(data[0])
 }
 
-func BytesToUint8(data []byte) uint8 {
+// bytes_to_uint8 converts a byte slice to a 8-bit unsigned integer.
+func bytes_to_uint8(data []byte) uint8 {
 	return uint8(data[0])
 }
 
-// BytesToComplex64 converts a byte slice to a 64-bit complex number.
-func BytesToComplex64(data []byte) complex64 {
-	return complex(BytesToFloat32(data[:4]), BytesToFloat32(data[4:]))
+// bytes_to_complex64 converts a byte slice to a 64-bit complex number.
+func bytes_to_complex64(data []byte) complex64 {
+	return complex(bytes_to_float32(data[:4]), bytes_to_float32(data[4:]))
 }
 
-// BytesToComplex128 converts a byte slice to a 128-bit complex number.
-func BytesToComplex128(data []byte) complex128 {
-	return complex(BytesToFloat64(data[:8]), BytesToFloat64(data[8:]))
+// bytes_to_complex128 converts a byte slice to a 128-bit complex number.
+func bytes_to_complex128(data []byte) complex128 {
+	return complex(bytes_to_float64(data[:8]), bytes_to_float64(data[8:]))
 }
 
-// BytesToUintptr converts a byte slice to a uintptr value.
-func BytesToUintptr(data []byte) uintptr {
+// bytes_to_uintptr converts a byte slice to a uintptr value.
+func bytes_to_uintptr(data []byte) uintptr {
 	return uintptr(binary.BigEndian.Uint64(data))
 }
 
-// BytesToRune converts a byte slice to a rune value.
-func BytesToRune(data []byte) string {
+// bytes_to_rune converts a byte slice to a rune value.
+func bytes_to_rune(data []byte) string {
 	if len(data) < 4 {
 		return ""
 	}
 	return string(int32(binary.BigEndian.Uint32(data)))
 }
 
-// SliceByteToString converts a byte slice to a slice of byte values.
-func SliceByteToString(data []byte) string {
+// slice_byte_to_string converts a byte slice to a slice of byte values.
+func slice_byte_to_string(data []byte) string {
 	s := []string{}
 	for _, v := range data {
 		s = append(s, fmt.Sprintf("%d", v))
@@ -107,7 +110,7 @@ func SliceByteToString(data []byte) string {
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
-func slice_so_String(data []byte) string {
+func slice_to_string(data []byte) string {
 	return fmt.Sprintf("\"%s\"", string(data))
 }
 
@@ -123,18 +126,18 @@ func slice_bytes_to_slice_strings(data []byte, opt *Option) []string {
 		if err != nil {
 			break
 		}
-		strs = append(strs, slice_so_String(vv))
+		strs = append(strs, slice_to_string(vv))
 		pos += vl
 	}
 	return strs
 }
 
-// SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.
-func SliceInt16ToString(data []byte) string {
+// slice_int16_to_string converts a byte slice to a slice of 16-bit integer values.
+func slice_int16_to_string(data []byte) string {
 	s := []string{}
 	// 2字节为一个int16
 	for i := 0; i < len(data); i += 2 {
-		s = append(s, fmt.Sprintf("%d", BytesToInt16(data[i:i+2])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_int16(data[i:i+2])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
@@ -143,16 +146,33 @@ func conv_to_slice_int16(data []byte) []int16 {
 	s := []int16{}
 	// 2字节为一个int16
 	for i := 0; i < len(data); i += 2 {
-		s = append(s, BytesToInt16(data[i:i+2]))
+		s = append(s, bytes_to_int16(data[i:i+2]))
 	}
 	return s
 }
 
-func SliceUint16ToString(data []byte) string {
+func slice_uint16_to_string(data []byte) string {
 	s := []string{}
 	// 2字节为一个uint16
 	for i := 0; i < len(data); i += 2 {
-		s = append(s, fmt.Sprintf("%d", BytesToUint16(data[i:i+2])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_uint16(data[i:i+2])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func slice_float32_to_string(data []byte) string {
+	s := []string{}
+	// 4字节为一个float32
+	for i := 0; i < len(data); i += 4 {
+		s = append(s, fmt.Sprintf("%f", bytes_to_float32(data[i:i+4])))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+func slice_float64_to_string(data []byte) string {
+	s := []string{}
+	// 8字节为一个float64
+	for i := 0; i < len(data); i += 8 {
+		s = append(s, fmt.Sprintf("%f", bytes_to_float64(data[i:i+8])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
@@ -170,7 +190,7 @@ func conv_to_slice_uint16(data []byte) []uint16 {
 	s := []uint16{}
 	// 2字节为一个uint16
 	for i := 0; i < len(data); i += 2 {
-		s = append(s, BytesToUint16(data[i:i+2]))
+		s = append(s, bytes_to_uint16(data[i:i+2]))
 	}
 	return s
 }
@@ -179,7 +199,7 @@ func conv_to_slice_uint32(data []byte) []uint32 {
 	s := []uint32{}
 	// 4字节为一个uint32
 	for i := 0; i < len(data); i += 4 {
-		s = append(s, BytesToUint32(data[i:i+4]))
+		s = append(s, bytes_to_uint32(data[i:i+4]))
 	}
 	return s
 }
@@ -188,7 +208,7 @@ func conv_to_slice_int32(data []byte) []int32 {
 	s := []int32{}
 	// 4字节为一个int32
 	for i := 0; i < len(data); i += 4 {
-		s = append(s, BytesToInt32(data[i:i+4]))
+		s = append(s, bytes_to_int32(data[i:i+4]))
 	}
 	return s
 }
@@ -197,7 +217,7 @@ func conv_to_slice_float32(data []byte) []float32 {
 	s := []float32{}
 	// 4字节为一个float32
 	for i := 0; i < len(data); i += 4 {
-		s = append(s, BytesToFloat32(data[i:i+4]))
+		s = append(s, bytes_to_float32(data[i:i+4]))
 	}
 	return s
 }
@@ -206,7 +226,7 @@ func conv_to_slice_float64(data []byte) []float64 {
 	s := []float64{}
 	// 8字节为一个float64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, BytesToFloat64(data[i:i+8]))
+		s = append(s, bytes_to_float64(data[i:i+8]))
 	}
 	return s
 }
@@ -215,7 +235,7 @@ func conv_to_slice_int(data []byte) []int {
 	s := []int{}
 	// 8字节为一个int64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, BytesToInt(data[i:i+8]))
+		s = append(s, int(bytes_to_int64(data[i:i+8])))
 	}
 	return s
 }
@@ -223,7 +243,7 @@ func conv_to_slice_int64(data []byte) []int64 {
 	s := []int64{}
 	// 8字节为一个int64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, BytesToInt64(data[i:i+8]))
+		s = append(s, bytes_to_int64(data[i:i+8]))
 	}
 	return s
 }
@@ -231,7 +251,7 @@ func conv_to_slice_uint(data []byte) []uint {
 	s := []uint{}
 	// 8字节为一个uint64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, BytesToUint(data[i:i+8]))
+		s = append(s, bytes_to_uint(data[i:i+8]))
 	}
 	return s
 }
@@ -239,49 +259,52 @@ func conv_to_slice_uint64(data []byte) []uint64 {
 	s := []uint64{}
 	// 8字节为一个uint64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, BytesToUint64(data[i:i+8]))
+		s = append(s, bytes_to_uint64(data[i:i+8]))
 	}
 	return s
 }
 
-// SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.
-func SliceInt32ToString(data []byte) string {
+// slice_int32_to_string converts a byte slice to a slice of 32-bit integer values.
+func slice_int32_to_string(data []byte) string {
 	s := []string{}
 	// 4字节为一个int32
 	for i := 0; i < len(data); i += 4 {
-		s = append(s, fmt.Sprintf("%d", BytesToInt32(data[i:i+4])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_int32(data[i:i+4])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
-func SliceUint32ToString(data []byte) string {
+func slice_uint32_to_string(data []byte) string {
 	s := []string{}
 	// 4字节为一个uint32
 	for i := 0; i < len(data); i += 4 {
-		s = append(s, fmt.Sprintf("%d", BytesToUint32(data[i:i+4])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_uint32(data[i:i+4])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
-func SliceInt64ToString(data []byte) string {
+// slice_int64_to_string converts a byte slice to a slice of 64-bit integer values.
+func slice_int64_to_string(data []byte) string {
 	s := []string{}
 	// 8字节为一个int64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, fmt.Sprintf("%d", BytesToInt64(data[i:i+8])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_int64(data[i:i+8])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
-func SliceUint64ToString(data []byte) string {
+
+// slice_uint64_to_string converts a byte slice to a slice of 64-bit unsigned integer values.
+func slice_uint64_to_string(data []byte) string {
 	s := []string{}
 	// 8字节为一个uint64
 	for i := 0; i < len(data); i += 8 {
-		s = append(s, fmt.Sprintf("%d", BytesToUint64(data[i:i+8])))
+		s = append(s, fmt.Sprintf("%d", bytes_to_uint64(data[i:i+8])))
 	}
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
 // SliceStringToString converts a byte slice to a slice of string values.
-func SliceStringToString(v []byte, opt *Option) string {
+func slice_string_to_string(v []byte, opt *Option) string {
 	pos := 0
 	rst := []string{}
 	total := len(v)
