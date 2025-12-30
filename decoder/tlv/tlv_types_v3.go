@@ -28,130 +28,23 @@ func tlv_frame_from_json_v3(v any, opts *Option) int {
 }
 
 func tlv_frame_from_slice_v3(v any, opts *Option) int {
-	switch v := v.(type) {
-	// 1
-	case []byte, []int8:
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_BYTE, v.([]byte), opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []int16:
-		// 2字节为一个int16
-		d := []int16(v)
-		data := []byte{}
-		// 2字节为一个int16
-		for i := 0; i < len(d); i++ {
-			data = append(data, Int16ToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_INT16, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []uint16:
-		// 2字节为一个uint16
-		d := []uint16(v)
-		data := []byte{}
-		// 2字节为一个uint16
-		for i := 0; i < len(d); i++ {
-			data = append(data, Uint16ToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_UINT16, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []int32:
-		// 4字节为一个int32
-		d := []int32(v)
-		data := []byte{}
-		// 4字节为一个int32
-		for i := 0; i < len(d); i++ {
-			data = append(data, Int32ToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_INT32, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []uint32:
-		// 4字节为一个uint32
-		d := []uint32(v)
-		data := []byte{}
-		// 4字节为一个uint32
-		for i := 0; i < len(d); i++ {
-			data = append(data, Uint32ToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_UINT32, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []int64:
-		// 8字节为一个int64
-		d := []int64(v)
-		data := []byte{}
-		// 8字节为一个int64
-		for i := 0; i < len(d); i++ {
-			data = append(data, IntToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_INT64, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []int:
-		// 8字节为一个int64
-		d := []int(v)
-		data := []byte{}
-		// 8字节为一个int64
-		for i := 0; i < len(d); i++ {
-			data = append(data, IntToBytes(int64(d[i]))...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_INT, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []uint64:
-		// 8字节为一个uint64
-		d := []uint64(v)
-		data := []byte{}
-		// 8字节为一个uint64
-		for i := 0; i < len(d); i++ {
-			data = append(data, UintToBytes(d[i])...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_UINT64, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []uint:
-		// 8字节为一个uint64
-		d := []uint(v)
-		data := []byte{}
-		// 8字节为一个uint64
-		for i := 0; i < len(d); i++ {
-			data = append(data, UintToBytes(uint64(d[i]))...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_UINT, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
-	case []string:
-		// 字符串编码为json
-		data := []byte{}
-		for i := 0; i < len(v); i++ {
-			data = append(data, tlv_frame_from_string(v[i], opts)...)
-		}
-		r, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_SLICE_STRING, data, opts)
-		if err != nil {
-			return 0
-		}
-		return r
+	tag, total := int_data_size(v, opts)
+	if total == 0 {
+		return 0
 	}
+	if tag > 0 && total > 0 {
+		tag, size := get_tlv_tag(tag, total, opts)
+		opts.WriteByte(tag)
+		// return r
+		dv := get_tlv_len(total, opts)
+		opts.Write(dv)
+		r, err := write_any_data(opts, v)
+		if err != nil {
+			return 0
+		}
+		return r + int(size) + 1
+	}
+
 	jsonData, err := json.Marshal(v)
 	if err != nil {
 		return 0
@@ -608,7 +501,6 @@ func tlv_serialize_v3(v any, opt *Option) int {
 }
 
 func tlv_serialize_value_v3(f reflect.Value, opt *Option) int {
-
 	v := f.Interface()
 	if v == nil {
 		return 0

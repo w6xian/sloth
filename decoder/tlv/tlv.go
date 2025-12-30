@@ -52,20 +52,25 @@ const (
 	// json 类型
 	TLV_TYPE_JSON = 0x14
 	// 切片类型
-	TLV_TYPE_SLICE         = 0x15
-	TLV_TYPE_SLICE_BYTE    = 0x16
-	TLV_TYPE_SLICE_INT16   = 0x17
-	TLV_TYPE_SLICE_UINT16  = 0x18
-	TLV_TYPE_SLICE_INT32   = 0x19
-	TLV_TYPE_SLICE_UINT32  = 0x1A
-	TLV_TYPE_SLICE_INT64   = 0x1B
-	TLV_TYPE_SLICE_UINT64  = 0x1C
-	TLV_TYPE_SLICE_FLOAT32 = 0x1D
-	TLV_TYPE_SLICE_FLOAT64 = 0x1E
-	TLV_TYPE_SLICE_BOOL    = 0x1F
-	TLV_TYPE_SLICE_STRING  = 0x20
-	TLV_TYPE_SLICE_INT     = 0x21
-	TLV_TYPE_SLICE_UINT    = 0x22
+	TLV_TYPE_SLICE            = 0x15
+	TLV_TYPE_SLICE_BYTE       = 0x16
+	TLV_TYPE_SLICE_INT16      = 0x17
+	TLV_TYPE_SLICE_UINT16     = 0x18
+	TLV_TYPE_SLICE_INT32      = 0x19
+	TLV_TYPE_SLICE_UINT32     = 0x1A
+	TLV_TYPE_SLICE_INT64      = 0x1B
+	TLV_TYPE_SLICE_UINT64     = 0x1C
+	TLV_TYPE_SLICE_FLOAT32    = 0x1D
+	TLV_TYPE_SLICE_FLOAT64    = 0x1E
+	TLV_TYPE_SLICE_BOOL       = 0x1F
+	TLV_TYPE_SLICE_STRING     = 0x20
+	TLV_TYPE_SLICE_INT        = 0x21
+	TLV_TYPE_SLICE_UINT       = 0x22
+	TLV_TYPE_SLICE_RUNE       = 0x23
+	TLV_TYPE_SLICE_INT8       = 0x24
+	TLV_TYPE_SLICE_UINT8      = 0x25
+	TLV_TYPE_SLICE_COMPLEX64  = 0x26
+	TLV_TYPE_SLICE_COMPLEX128 = 0x27
 	// nil 类型
 	TLV_TYPE_NIL = 0x00
 )
@@ -157,43 +162,6 @@ func tlv_length_bytes(l int, opt *Option) []byte {
 	return opt.size[4-m : 4]
 }
 
-// func tlv_encode_opt(tag byte, data []byte, opt *Option) ([]byte, error) {
-// 	l := len(data)
-// 	if l == 0x00 {
-// 		return tlv_empty_frame(opt), nil
-// 	}
-// 	if tag > 0x40 {
-// 		return nil, ErrInvalidStructType
-// 	}
-
-// 	headerSize := get_header_size(l, opt)
-// 	pos := 1
-// 	buf := opt.pool.Get()
-// 	defer opt.pool.Put(buf)
-// 	buf[0] = tag
-// 	if l > get_max_value_length(opt.MinLength) {
-// 		buf[0] |= 0x80
-// 	}
-// 	if opt.CheckCRC {
-// 		buf[0] |= 0x40
-// 	}
-// 	// 写入长度
-// 	lb := tlv_length_bytes(l, opt)
-// 	copy(buf[1:headerSize], lb)
-// 	pos += int(headerSize) - 1
-// 	//
-// 	if opt.CheckCRC {
-// 		crc := utils.GetCrC(data)
-// 		// 写入crc
-// 		buf[headerSize-2] = crc[0]
-// 		buf[headerSize-1] = crc[1]
-// 	}
-// 	// 写入数据
-// 	copy(buf[pos:], data)
-// 	pos += l
-// 	return buf[0:pos], nil
-// }
-
 func get_tlv_tag(tag byte, size int, opt *Option) (byte, byte) {
 	lengthSize := opt.MinLength
 	if size > get_max_value_length(opt.MinLength) {
@@ -213,12 +181,19 @@ func tlv_encode_option_with_buffer_v3(tag byte, data []byte, opt *Option) (int, 
 	}
 	tag, size := get_tlv_tag(tag, l, opt)
 	opt.WriteByte(tag)
-	// 写入长度
-	binary.BigEndian.PutUint32(opt.size, uint32(l))
-	opt.Write(opt.size[4-size : 4])
+	lth := tlv_length_bytes(l, opt)
+	opt.Write(lth)
+
+	if opt.CheckCRC {
+		opt.Write(utils.GetCrC(data))
+		// 写入数据
+		opt.Write(data)
+		return l + int(size) + 3, nil
+	}
 	// 写入数据
 	opt.Write(data)
 	return l + int(size) + 1, nil
+
 }
 
 func tlv_encode_option_with_buffer(tag byte, data []byte, opt *Option) ([]byte, error) {

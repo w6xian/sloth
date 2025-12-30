@@ -111,11 +111,22 @@ func slice_so_String(data []byte) string {
 	return fmt.Sprintf("\"%s\"", string(data))
 }
 
-func slice_bytes_to_slice_strings(data []byte) []string {
-	if data[0] == '[' && data[len(data)-1] == ']' {
-		data = data[2 : len(data)-2]
+func slice_bytes_to_slice_strings(data []byte, opt *Option) []string {
+	pos := 0
+	total := len(data)
+	strs := []string{}
+	for {
+		if pos >= total {
+			break
+		}
+		_, vl, vv, err := Next(data[pos:], opt)
+		if err != nil {
+			break
+		}
+		strs = append(strs, slice_so_String(vv))
+		pos += vl
 	}
-	return strings.Split(string(data), "\",\"")
+	return strs
 }
 
 // SliceInt64ToString converts a byte slice to a slice of 64-bit integer values.

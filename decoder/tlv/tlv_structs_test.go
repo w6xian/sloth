@@ -11,6 +11,47 @@ type B struct {
 	C string `tlv:"c"`
 }
 
+type Strings struct {
+	// Strs    []string `tlv:"strs"`
+	// Byte    byte     `tlv:"byte"`
+	// Slice16 []int16  `tlv:"slice16"`
+	// Slice32 []int32  `tlv:"slice32"`
+	// Slice64 []int64  `tlv:"slice64"`
+	// Arraya  []string `tlv:"arraya"`
+	// Arrayb  []byte   `tlv:"arrayb"`
+	Slice []int `tlv:"slice"`
+}
+
+// func TestMarshalStrings(t *testing.T) {
+// 	strs := Strings{
+// 		// Strs:    []string{"abce罩", "bcde", "c北京时间"},
+// 		// Byte:    0x41,
+// 		// Slice16: []int16{1, -2, 3, 4, 5},
+// 		Slice: []int{-1, 2, 3, 4, 5},
+// 		// Slice32: []int32{1, 2, -3, 4, 5},
+// 		// Slice64: []int64{1, 2, 3, -4, 5},
+// 		// Arraya:  []string{"a", "b", "c"},
+// 		// Arrayb:  []byte{0x01, 0x02, 0x03},
+// 	}
+
+// 	b, err := Marshal(strs)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	t.Log(b)
+// 	str := Strings{}
+// 	Unmarshal(b, &str)
+// 	// fmt.Println(str.Strs)
+// 	// fmt.Println(str.Byte)
+// 	// fmt.Println(str.Slice16)
+// 	fmt.Println("---")
+// 	fmt.Println(str.Slice)
+// 	// fmt.Println(str.Slice32)
+// 	// fmt.Println(str.Slice64)
+// 	// fmt.Println(str.Arraya)
+// 	// fmt.Println(str.Arrayb)
+// }
+
 // A 结构体 包含golang所有基础数据类型
 type A struct {
 	// 布尔类型
@@ -142,3 +183,8 @@ func BenchmarkJson200(b *testing.B) {
 // BenchmarkMarshal200-6             108876             10809 ns/op            4259 B/op        117 allocs/op
 // 用buffer优化后
 // BenchmarkMarshal200-6             119476              9922 ns/op            4258 B/op        117 allocs/op
+// 顺序写buffer后
+// 对比结果 2025/12/27(第二次尝试)
+// 执行性能提升了3/5（0.6倍）
+// BenchmarkMarshal200-6             152913              7821 ns/op            2625 B/op         45 allocs/op
+// BenchmarkJson200-6                527168              2286 ns/op             648 B/op          8 allocs/op

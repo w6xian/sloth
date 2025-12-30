@@ -19,7 +19,7 @@ func Marshal(v any, opts ...FrameOption) ([]byte, error) {
 	return option.Bytes(), nil
 }
 func Unmarshal(v []byte, s any, opts ...FrameOption) error {
-	option := NewOption(opts...)
+	option := newOptionV1(opts...)
 	return read_tlv_struct(v, s, option)
 }
 
@@ -153,7 +153,7 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 						f.Set(instance.Elem())
 					}
 				} else {
-					value := set_filed_value(isPtr, vt, vv)
+					value := set_filed_value(isPtr, vt, vv, opt)
 					f.Set(value)
 				}
 			} else {
@@ -163,7 +163,6 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 				if err == nil {
 					f.Set(instance.Elem())
 				}
-
 			}
 
 		}
@@ -312,11 +311,12 @@ func create_tlv_struct_v3(t any, opt *Option) (int, error) {
 	if kind != reflect.Struct {
 		return 0, errors.New("tlv struct is not struct")
 	}
-	bg := opt.Encoder().Len()
+	stat := opt.Encoder().Len()
 	// tag
 	opt.WriteByte(0x3F | 0x80)
 	//length
-	opt.Write(get_tlv_max_len_bytes(0, opt))
+	structLen := get_tlv_max_len_bytes(0, opt)
+	opt.Write(structLen)
 	obj_size := 0
 	for num := 0; num < sv.NumField(); num++ {
 		f := sv.Field(num)
@@ -327,18 +327,17 @@ func create_tlv_struct_v3(t any, opt *Option) (int, error) {
 		}
 		obj_size += l
 	}
-	// fmt.Println("create_tlv_struct len:", opt.Encoder().Len())
-
 	ls := get_tlv_max_len_bytes(obj_size, opt)
-	// fmt.Printf("create_tlv_struct: %d\n", size)
-	// fmt.Println(data[0], data[0]&0x3F)
-	copy(opt.Bytes()[bg+1:bg+1+len(ls)], ls)
+	copy(opt.Bytes()[stat+1:stat+1+len(structLen)], ls)
 	return obj_size + 1 + int(opt.MaxLength), nil
-	// fs, err := tlv_encode_option_with_buffer_v1(0x3F, opt.Bytes(), opt)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return fs, nil
+}
+
+func get_tlv_len_size(l int, opt *Option) byte {
+	s := opt.MinLength
+	if l > get_max_value_length(opt.MinLength) {
+		s = opt.MaxLength
+	}
+	return s
 }
 
 func get_tlv_len(l int, opt *Option) []byte {
@@ -349,6 +348,7 @@ func get_tlv_len(l int, opt *Option) []byte {
 	binary.BigEndian.PutUint32(opt.size, uint32(l))
 	return opt.size[4-s : 4]
 }
+
 func get_tlv_max_len_bytes(l int, opt *Option) []byte {
 	s := opt.MaxLength
 	binary.BigEndian.PutUint32(opt.size, uint32(l))
@@ -418,10 +418,13 @@ func create_tlv_struct_feild_label_use_buffer_v3(nam []byte, opt *Option) int {
 	// opt.WriteByte(0x3D)
 	// opt.WriteByte(opt.size[3])
 	// opt.Write(nam)
-	s, err := tlv_encode_option_with_buffer_v3(0x3D, nam, opt)
+	// fmt.Println("create_tlv_struct_feild_label_use_buffer_v3:Nam:", nam)
+	tag, _ := get_tlv_tag(0x3D, len(nam), opt)
+	s, err := tlv_encode_option_with_buffer_v3(tag, nam, opt)
 	if err != nil {
 		return 0
 	}
+	// fmt.Println("create_tlv_struct_feild_label_use_buffer_v3:Label:", s)
 	return s
 }
 
@@ -490,16 +493,18 @@ func create_tlv_struct_feild_v2(f reflect.Value, tyf reflect.StructField, opt *O
 
 func create_tlv_struct_feild_v3(f reflect.Value, tyf reflect.StructField, opt *Option) (int, error) {
 	label, err := get_tlv_struct_feild_name(tyf)
+
 	if err != nil {
 		return 0, err
 	}
 	stat := opt.Encoder().Len()
 	opt.WriteByte(0x3E | 0x80)
-	//length
-	opt.Write(opt.size)
-	l := 0
-	l += create_tlv_struct_feild_label_use_buffer_v3([]byte(label), opt)
+	structLen := get_tlv_max_len_bytes(0, opt)
+	opt.Write(structLen)
 
+	l := 0
+	label_l := create_tlv_struct_feild_label_use_buffer_v3([]byte(label), opt)
+	l += label_l
 	if f.Kind() == reflect.Struct {
 		sl, err := create_tlv_struct_v3(f.Interface(), opt)
 		if err != nil {
@@ -507,12 +512,10 @@ func create_tlv_struct_feild_v3(f reflect.Value, tyf reflect.StructField, opt *O
 		}
 		l += sl
 	} else {
-		l += tlv_serialize_value_v3(f, opt)
+		value_l := tlv_serialize_value_v3(f, opt)
+		l += value_l
 	}
-	binary.BigEndian.PutUint32(opt.size, uint32(l+stat))
-	maxLen := get_tlv_max_len_bytes(l+stat, opt)
-	copy(opt.Bytes()[stat+1:stat+5], maxLen)
-	return l + int(opt.MaxLength) + 1, nil
-	//return tlv_encode_option_with_buffer(0x3E, opt.Bytes(), opt)
-	// return rst[0:total], nil
+	maxLen := get_tlv_max_len_bytes(l, opt)
+	copy(opt.Bytes()[stat+1:stat+1+len(maxLen)], maxLen)
+	return l + int(len(maxLen)) + 1, nil
 }

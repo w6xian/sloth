@@ -3,7 +3,7 @@ package tlv
 import (
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"math"
 	"reflect"
 )
@@ -240,7 +240,6 @@ func DefaultDecoder(data []byte) ([]byte, error) {
 
 func GetType(needPtr bool, name string, data []byte) reflect.Value {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
-	fmt.Println(name, len(data))
 	switch name {
 	case "int":
 		by := BytesToInt(data)
@@ -337,7 +336,7 @@ func GetType(needPtr bool, name string, data []byte) reflect.Value {
 	}
 }
 
-func set_filed_value(prt bool, tag byte, data []byte) reflect.Value {
+func set_filed_value(prt bool, tag byte, data []byte, opt *Option) reflect.Value {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 	// fmt.Println(tag, len(data), data)
 	switch tag {
@@ -509,7 +508,7 @@ func set_filed_value(prt bool, tag byte, data []byte) reflect.Value {
 		}
 		return reflect.ValueOf(by)
 	case TLV_TYPE_SLICE_STRING:
-		by := slice_bytes_to_slice_strings(data)
+		by := slice_bytes_to_slice_strings(data, opt)
 		if prt {
 			return reflect.ValueOf(&by)
 		}
@@ -532,4 +531,241 @@ func set_filed_value(prt bool, tag byte, data []byte) reflect.Value {
 		}
 		return reflect.ValueOf(data)
 	}
+}
+
+func int_data_size(data any, opt *Option) (byte, int) {
+	switch data := data.(type) {
+	case bool, *bool:
+		return TLV_TYPE_BOOL, 1
+	case int8, *int8:
+		return TLV_TYPE_INT8, 1
+	case uint8, *uint8:
+		return TLV_TYPE_UINT8, 1
+	case int16, *int16:
+		return TLV_TYPE_INT16, 2
+	case uint16, *uint16:
+		return TLV_TYPE_UINT16, 2
+	case []bool:
+		return TLV_TYPE_SLICE_BOOL, len(data)
+	case []int8:
+		return TLV_TYPE_SLICE_INT8, len(data)
+	case []uint8:
+		return TLV_TYPE_SLICE_UINT8, len(data)
+	case []int16:
+		return TLV_TYPE_SLICE_INT16, 2 * len(data)
+	case []uint16:
+		return TLV_TYPE_SLICE_UINT16, 2 * len(data)
+	case int32, uint32, *int32, *uint32:
+		return TLV_TYPE_INT32, 4
+	case []int32:
+		return TLV_TYPE_SLICE_INT32, 4 * len(data)
+	case []int:
+		return TLV_TYPE_SLICE_INT, 8 * len(data)
+	case []uint:
+		return TLV_TYPE_SLICE_UINT, 8 * len(data)
+	case []uint32:
+		return TLV_TYPE_SLICE_UINT32, 4 * len(data)
+	case int64, uint64, *int64, *uint64:
+		return TLV_TYPE_INT64, 8
+	case []int64:
+		return TLV_TYPE_SLICE_INT64, 8 * len(data)
+	case []uint64:
+		return TLV_TYPE_SLICE_UINT64, 8 * len(data)
+	case float32, *float32:
+		return TLV_TYPE_FLOAT32, 4
+	case float64, *float64:
+		return TLV_TYPE_FLOAT64, 8
+	case []float32:
+		return TLV_TYPE_SLICE_FLOAT32, 4 * len(data)
+	case []float64:
+		return TLV_TYPE_SLICE_FLOAT64, 8 * len(data)
+	case complex64, *complex64:
+		return TLV_TYPE_COMPLEX64, 8
+	case complex128, *complex128:
+		return TLV_TYPE_COMPLEX128, 16
+	case []complex64:
+		return TLV_TYPE_SLICE_COMPLEX64, 8 * len(data)
+	case []complex128:
+		return TLV_TYPE_SLICE_COMPLEX128, 16 * len(data)
+	case []string:
+		total := 0
+		for _, s := range data {
+			l := len([]byte(s))
+			total += l
+			total += int(get_tlv_len_size(l, opt))
+			total += 1
+		}
+		return TLV_TYPE_SLICE_STRING, total
+	default:
+		return 0, 0
+	}
+}
+
+func write_any_data(opt *Option, data any) (int, error) {
+	switch data := data.(type) {
+	case bool, int8, uint8, *bool, *int8, *uint8:
+		opt.WriteByte(data.(byte))
+		return 1, nil
+	case []bool:
+		for _, b := range data {
+			if b {
+				opt.WriteByte(1)
+			} else {
+				opt.WriteByte(0)
+			}
+		}
+		return len(data), nil
+	case []int8:
+		for _, b := range data {
+			opt.WriteByte(byte(b))
+		}
+		return len(data), nil
+	case []uint8:
+		for _, b := range data {
+			opt.WriteByte(b)
+		}
+		return len(data), nil
+	case int16, uint16, *int16, *uint16:
+		binary.Write(opt, binary.BigEndian, data)
+		return 2, nil
+	case []int16:
+		for _, b := range data {
+			binary.Write(opt, binary.BigEndian, b)
+		}
+		return 2 * len(data), nil
+	case []uint16:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 2 * len(data), nil
+	case int32, uint32, *int32, *uint32:
+		b := data.(uint32)
+		opt.WriteByte(byte(b >> 24))
+		opt.WriteByte(byte(b >> 16))
+		opt.WriteByte(byte(b >> 8))
+		opt.WriteByte(byte(b))
+		return 4, nil
+	case []int32:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 4 * len(data), nil
+	case []uint32:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 4 * len(data), nil
+	case int64, uint64, *int64, *uint64:
+		b := data.(uint64)
+		opt.WriteByte(byte(b >> 56))
+		opt.WriteByte(byte(b >> 48))
+		opt.WriteByte(byte(b >> 40))
+		opt.WriteByte(byte(b >> 32))
+		opt.WriteByte(byte(b >> 24))
+		opt.WriteByte(byte(b >> 16))
+		opt.WriteByte(byte(b >> 8))
+		opt.WriteByte(byte(b))
+		return 8, nil
+	case []int64:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 56))
+			opt.WriteByte(byte(b >> 48))
+			opt.WriteByte(byte(b >> 40))
+			opt.WriteByte(byte(b >> 32))
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 8 * len(data), nil
+	case []int:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 56))
+			opt.WriteByte(byte(b >> 48))
+			opt.WriteByte(byte(b >> 40))
+			opt.WriteByte(byte(b >> 32))
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 8 * len(data), nil
+	case []uint64:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 56))
+			opt.WriteByte(byte(b >> 48))
+			opt.WriteByte(byte(b >> 40))
+			opt.WriteByte(byte(b >> 32))
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 8 * len(data), nil
+	case []uint:
+		for _, b := range data {
+			opt.WriteByte(byte(b >> 56))
+			opt.WriteByte(byte(b >> 48))
+			opt.WriteByte(byte(b >> 40))
+			opt.WriteByte(byte(b >> 32))
+			opt.WriteByte(byte(b >> 24))
+			opt.WriteByte(byte(b >> 16))
+			opt.WriteByte(byte(b >> 8))
+			opt.WriteByte(byte(b))
+		}
+		return 8 * len(data), nil
+	case float32, *float32:
+		b := data.(float32)
+		bits := math.Float32bits(b)
+		opt.WriteByte(byte(bits >> 24))
+		opt.WriteByte(byte(bits >> 16))
+		opt.WriteByte(byte(bits >> 8))
+		opt.WriteByte(byte(bits))
+		return 4, nil
+	case float64, *float64:
+		b := data.(float64)
+		bits := math.Float64bits(b)
+		opt.WriteByte(byte(bits >> 56))
+		opt.WriteByte(byte(bits >> 48))
+		opt.WriteByte(byte(bits >> 40))
+		opt.WriteByte(byte(bits >> 32))
+		opt.WriteByte(byte(bits >> 24))
+		opt.WriteByte(byte(bits >> 16))
+		opt.WriteByte(byte(bits >> 8))
+		opt.WriteByte(byte(bits))
+		return 8, nil
+	case []float32:
+		return 4 * len(data), nil
+	case []float64:
+		for _, b := range data {
+			bits := math.Float64bits(b)
+			opt.WriteByte(byte(bits >> 56))
+			opt.WriteByte(byte(bits >> 48))
+			opt.WriteByte(byte(bits >> 40))
+			opt.WriteByte(byte(bits >> 32))
+			opt.WriteByte(byte(bits >> 24))
+			opt.WriteByte(byte(bits >> 16))
+			opt.WriteByte(byte(bits >> 8))
+			opt.WriteByte(byte(bits))
+		}
+		return 8 * len(data), nil
+	case []string:
+		l := 0
+		for _, s := range data {
+			p, err := tlv_encode_option_with_buffer_v3(TLV_TYPE_STRING, []byte(s), opt)
+			if err != nil {
+				return 0, err
+			}
+			l += p
+		}
+		return l, nil
+	}
+	return 0, errors.New("invalid data type")
 }
