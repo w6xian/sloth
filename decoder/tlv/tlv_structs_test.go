@@ -34,8 +34,8 @@ type A struct {
 	Float64 float64 `tlv:"float64"`
 
 	// 复数类型
-	Complex64  complex64  `tlv:"complex64"`
-	Complex128 complex128 `tlv:"complex128"`
+	// Complex64  complex64  `tlv:"complex64"`
+	// Complex128 complex128 `tlv:"complex128"`
 
 	// 字符串类型
 	String string `tlv:"string"`
@@ -146,3 +146,6 @@ func BenchmarkJson200(b *testing.B) {
 // 时间换空间（失败的优化）
 // BenchmarkMarshal200-6              91135             12639 ns/op            2161 B/op        110 allocs/op
 // BenchmarkJson200-6                531483              2300 ns/op             648 B/op          8 allocs/op
+//
+// BenchmarkMarshal200-6              92630             12734 ns/op            4128 B/op        100 allocs/op
+//

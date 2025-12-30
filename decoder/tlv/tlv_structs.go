@@ -34,7 +34,7 @@ func ToString(v []byte, opts ...FrameOption) (string, error) {
 }
 
 func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
-	t, l, v, err := Next(v)
+	t, l, v, err := Next(v, opt)
 	if err != nil {
 		return "", err
 	}
@@ -53,12 +53,12 @@ func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
 		if (data[0] & 0x3E) != 0x3E {
 			return "", errors.New("tlv field tag is not 0x3E")
 		}
-		ft, fl, fv, ferr := read_tlv_field(data)
+		ft, fl, fv, ferr := read_tlv_field(data, opt)
 		if ferr != nil {
 			return "", ferr
 		}
 		if (ft & 0x3E) == 0x3E {
-			nt, nl, nv, nerr := Next(fv)
+			nt, nl, nv, nerr := Next(fv, opt)
 			if nerr != nil {
 				return "", nerr
 			}
@@ -75,11 +75,11 @@ func read_tlv_struct_string(v []byte, opt *Option) (string, error) {
 				}
 				rst = append(rst, fmt.Sprintf("%s:%s", name, value))
 			} else {
-				vt, _, vv, verr := Next(data)
+				vt, _, vv, verr := Next(data, opt)
 				if verr != nil {
 					return "", verr
 				}
-				value := get_value_string(vt, vv)
+				value := get_value_string(vt, vv, opt)
 				rst = append(rst, fmt.Sprintf("%s:%s", name, value))
 			}
 		}
@@ -106,22 +106,22 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 		}
 		tags[tag] = tyf.Name
 	}
-	t, l, v, err := Next(v)
+	t, l, v, err := Next(v, opt)
 	if err != nil {
 		return err
 	}
-	total := l
+	total := len(v)
 	if t != 0x3F {
 		return errors.New("tlv tag is not struct")
 	}
 	pos := 0
 	for l > 0 && pos+2 < total {
-		ft, fl, fv, ferr := read_tlv_field(v[pos:])
+		ft, fl, fv, ferr := read_tlv_field(v[pos:], opt)
 		if ferr != nil {
 			return ferr
 		}
 		if ft == 0x3E {
-			nt, nl, nv, nerr := Next(fv)
+			nt, nl, nv, nerr := Next(fv, opt)
 			if nerr != nil {
 				return nerr
 			}
@@ -136,11 +136,10 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 			isPtr := f.Kind() == reflect.Pointer
 			isStruct := f.Kind() == reflect.Struct
 			if !isStruct {
-				vt, _, vv, verr := Next(fv[nl:])
+				vt, _, vv, verr := Next(fv[nl:], opt)
 				if verr != nil {
 					return verr
 				}
-				fmt.Println("value:", vt, vv)
 				// 设置值
 				if vt == TLV_TYPE_JSON {
 					instance := reflect.New(f.Type())
@@ -169,7 +168,7 @@ func read_tlv_struct(v []byte, s any, opt *Option) error {
 	return nil
 }
 
-func get_value_string(tag byte, data []byte) string {
+func get_value_string(tag byte, data []byte, opt *Option) string {
 	// []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 	switch tag {
 	case TLV_TYPE_INT:
@@ -241,7 +240,7 @@ func get_value_string(tag byte, data []byte) string {
 	case TLV_TYPE_SLICE_UINT16:
 		return SliceUint16ToString(data)
 	case TLV_TYPE_SLICE_STRING:
-		return SliceStringToString(data)
+		return SliceStringToString(data, opt)
 
 	case TLV_TYPE_JSON:
 		// fmt.Println("TLV_TYPE_JSON:::", data)
@@ -252,8 +251,8 @@ func get_value_string(tag byte, data []byte) string {
 	}
 }
 
-func read_tlv_field(v []byte) (byte, int, []byte, error) {
-	t, l, v, err := Next(v)
+func read_tlv_field(v []byte, opt *Option) (byte, int, []byte, error) {
+	t, l, v, err := Next(v, opt)
 	if err != nil {
 		return 0, 0, nil, err
 	}

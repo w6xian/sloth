@@ -270,7 +270,7 @@ func SliceUint64ToString(data []byte) string {
 }
 
 // SliceStringToString converts a byte slice to a slice of string values.
-func SliceStringToString(v []byte) string {
+func SliceStringToString(v []byte, opt *Option) string {
 	pos := 0
 	rst := []string{}
 	total := len(v)
@@ -279,7 +279,7 @@ func SliceStringToString(v []byte) string {
 		if len(data) < 2 {
 			break
 		}
-		ft, fl, fv, ferr := read_tlv_field(data)
+		ft, fl, fv, ferr := read_tlv_field(data, opt)
 		if ferr != nil {
 			rst = append(rst, "\"\"")
 			break

@@ -232,9 +232,8 @@ func Decode(b []byte, opts ...FrameOption) (byte, []byte, error) {
 	return tlv_decode_opt(b, option)
 }
 
-func Next(b []byte, opts ...FrameOption) (byte, int, []byte, error) {
-	option := NewOption(opts...)
-	tag, l, dataBuf, err := tlv_decode_with_len(b, option)
+func Next(b []byte, opt *Option) (byte, int, []byte, error) {
+	tag, l, dataBuf, err := tlv_decode_with_len(b, opt)
 	if err != nil {
 		return 0, 0, nil, err
 	}
