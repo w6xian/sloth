@@ -10,6 +10,7 @@ type encodeState struct {
 	bytes.Buffer // accumulated output
 	ptrLevel     uint
 	ptrSeen      map[any]struct{}
+	LengthSize   int
 }
 
 const startDetectingCyclesAfter = 1000

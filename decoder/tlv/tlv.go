@@ -194,6 +194,33 @@ func tlv_length_bytes(l int, opt *Option) []byte {
 // 	return buf[0:pos], nil
 // }
 
+func get_tlv_tag(tag byte, size int, opt *Option) (byte, byte) {
+	lengthSize := opt.MinLength
+	if size > get_max_value_length(opt.MinLength) {
+		tag |= 0x80
+		lengthSize = opt.MaxLength
+	}
+	if opt.CheckCRC {
+		tag |= 0x40
+	}
+	return tag, lengthSize
+}
+
+func tlv_encode_option_with_buffer_v3(tag byte, data []byte, opt *Option) (int, error) {
+	l := len(data)
+	if tag > 0x40 {
+		return 0, ErrInvalidStructType
+	}
+	tag, size := get_tlv_tag(tag, l, opt)
+	opt.WriteByte(tag)
+	// 写入长度
+	binary.BigEndian.PutUint32(opt.size, uint32(l))
+	opt.Write(opt.size[4-size : 4])
+	// 写入数据
+	opt.Write(data)
+	return l + int(size) + 1, nil
+}
+
 func tlv_encode_option_with_buffer(tag byte, data []byte, opt *Option) ([]byte, error) {
 	l := len(data)
 	if l == 0x00 {
@@ -225,6 +252,37 @@ func tlv_encode_option_with_buffer(tag byte, data []byte, opt *Option) ([]byte, 
 	// 写入数据
 	buf.Write(data)
 	return buf.Bytes(), nil
+}
+
+func tlv_encode_option_with_buffer_v1(tag byte, data []byte, opt *Option) ([]byte, error) {
+	l := len(data)
+	if l == 0x00 {
+		return tlv_empty_frame(opt), nil
+	}
+	if tag > 0x40 {
+		return nil, ErrInvalidStructType
+	}
+
+	b1 := tag
+	if l > get_max_value_length(opt.MinLength) {
+		b1 |= 0x80
+	}
+	if opt.CheckCRC {
+		b1 |= 0x40
+	}
+	opt.WriteByte(b1)
+	// 写入长度
+	lb := tlv_length_bytes(l, opt)
+	// copy(buf[1:headerSize], lb)
+	opt.Write(lb)
+	//
+	if opt.CheckCRC {
+		crc := utils.GetCrC(data)
+		opt.Write(crc)
+	}
+	// 写入数据
+	opt.Write(data)
+	return opt.Bytes(), nil
 }
 
 func Decode(b []byte, opts ...FrameOption) (byte, []byte, error) {

@@ -1,6 +1,7 @@
 package tlv
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,11 @@ import (
 
 func Marshal(v any, opts ...FrameOption) ([]byte, error) {
 	option := newOptionV1(opts...)
-	return create_tlv_struct(v, option)
+	_, err := create_tlv_struct_v3(v, option)
+	if err != nil {
+		return nil, err
+	}
+	return option.Bytes(), nil
 }
 func Unmarshal(v []byte, s any, opts ...FrameOption) error {
 	option := NewOption(opts...)
@@ -273,22 +278,81 @@ func create_tlv_struct(t any, opt *Option) ([]byte, error) {
 	if kind != reflect.Struct {
 		return nil, errors.New("tlv struct is not struct")
 	}
-	buf := opt.GetEncoder()
-	defer opt.PutEncoder(buf)
+	bg := opt.Encoder().Len()
+	// tag
+	opt.WriteByte(0x3F | 0x80)
+	//length
+	opt.Write(get_tlv_max_len_bytes(0, opt))
+	obj_size := 0
 	for num := 0; num < sv.NumField(); num++ {
 		f := sv.Field(num)
 		tyf := ty.Field(num)
-		frame, err := create_tlv_struct_feild_v2(f, tyf, opt)
+		l, err := create_tlv_struct_feild_v3(f, tyf, opt)
 		if err != nil {
 			continue
 		}
-		buf.Write(frame)
+		obj_size += l
 	}
-	fs, err := tlv_encode_option_with_buffer(0x3F, buf.Bytes(), opt)
-	if err != nil {
-		return nil, err
+	// fmt.Println("create_tlv_struct len:", opt.Encoder().Len())
+
+	ls := get_tlv_max_len_bytes(obj_size, opt)
+	// fmt.Printf("create_tlv_struct: %d\n", size)
+	// fmt.Println(data[0], data[0]&0x3F)
+	copy(opt.Bytes()[bg+1:bg+1+len(ls)], ls)
+	return opt.Bytes(), nil
+	// fs, err := tlv_encode_option_with_buffer_v1(0x3F, opt.Bytes(), opt)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return fs, nil
+}
+
+func create_tlv_struct_v3(t any, opt *Option) (int, error) {
+	kind, ty, sv := get_any_info(t)
+	if kind != reflect.Struct {
+		return 0, errors.New("tlv struct is not struct")
 	}
-	return fs, nil
+	bg := opt.Encoder().Len()
+	// tag
+	opt.WriteByte(0x3F | 0x80)
+	//length
+	opt.Write(get_tlv_max_len_bytes(0, opt))
+	obj_size := 0
+	for num := 0; num < sv.NumField(); num++ {
+		f := sv.Field(num)
+		tyf := ty.Field(num)
+		l, err := create_tlv_struct_feild_v3(f, tyf, opt)
+		if err != nil {
+			continue
+		}
+		obj_size += l
+	}
+	// fmt.Println("create_tlv_struct len:", opt.Encoder().Len())
+
+	ls := get_tlv_max_len_bytes(obj_size, opt)
+	// fmt.Printf("create_tlv_struct: %d\n", size)
+	// fmt.Println(data[0], data[0]&0x3F)
+	copy(opt.Bytes()[bg+1:bg+1+len(ls)], ls)
+	return obj_size + 1 + int(opt.MaxLength), nil
+	// fs, err := tlv_encode_option_with_buffer_v1(0x3F, opt.Bytes(), opt)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return fs, nil
+}
+
+func get_tlv_len(l int, opt *Option) []byte {
+	s := opt.MinLength
+	if l > get_max_value_length(opt.MinLength) {
+		s = opt.MaxLength
+	}
+	binary.BigEndian.PutUint32(opt.size, uint32(l))
+	return opt.size[4-s : 4]
+}
+func get_tlv_max_len_bytes(l int, opt *Option) []byte {
+	s := opt.MaxLength
+	binary.BigEndian.PutUint32(opt.size, uint32(l))
+	return opt.size[4-s : 4]
 }
 
 func get_tlv_struct_feild_name(tyf reflect.StructField) (string, error) {
@@ -346,6 +410,19 @@ func create_tlv_struct_feild_label_use_buffer(nam []byte, opt *Option) []byte {
 	es.Write(l)
 	es.Write(nam)
 	return es.Bytes()
+}
+
+// 最小长度为1字节
+func create_tlv_struct_feild_label_use_buffer_v3(nam []byte, opt *Option) int {
+	// binary.BigEndian.PutUint32(opt.size, uint32(ln))
+	// opt.WriteByte(0x3D)
+	// opt.WriteByte(opt.size[3])
+	// opt.Write(nam)
+	s, err := tlv_encode_option_with_buffer_v3(0x3D, nam, opt)
+	if err != nil {
+		return 0
+	}
+	return s
 }
 
 // func create_tlv_struct_feild_v1(f reflect.Value, tyf reflect.StructField, opt *Option) ([]byte, error) {
@@ -408,5 +485,34 @@ func create_tlv_struct_feild_v2(f reflect.Value, tyf reflect.StructField, opt *O
 		buf.Write(val)
 	}
 	return tlv_encode_option_with_buffer(0x3E, buf.Bytes(), opt)
+	// return rst[0:total], nil
+}
+
+func create_tlv_struct_feild_v3(f reflect.Value, tyf reflect.StructField, opt *Option) (int, error) {
+	label, err := get_tlv_struct_feild_name(tyf)
+	if err != nil {
+		return 0, err
+	}
+	stat := opt.Encoder().Len()
+	opt.WriteByte(0x3E | 0x80)
+	//length
+	opt.Write(opt.size)
+	l := 0
+	l += create_tlv_struct_feild_label_use_buffer_v3([]byte(label), opt)
+
+	if f.Kind() == reflect.Struct {
+		sl, err := create_tlv_struct_v3(f.Interface(), opt)
+		if err != nil {
+			return 0, err
+		}
+		l += sl
+	} else {
+		l += tlv_serialize_value_v3(f, opt)
+	}
+	binary.BigEndian.PutUint32(opt.size, uint32(l+stat))
+	maxLen := get_tlv_max_len_bytes(l+stat, opt)
+	copy(opt.Bytes()[stat+1:stat+5], maxLen)
+	return l + int(opt.MaxLength) + 1, nil
+	//return tlv_encode_option_with_buffer(0x3E, opt.Bytes(), opt)
 	// return rst[0:total], nil
 }

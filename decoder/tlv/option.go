@@ -18,7 +18,7 @@ type Option struct {
 	EmptyFrame []byte
 	size       []byte
 	// pool        *lpool.BytePool
-	encodeState *encodeState
+	encoder *encodeState
 }
 
 func NewOption(opts ...FrameOption) *Option {
@@ -31,6 +31,7 @@ func NewOption(opts ...FrameOption) *Option {
 			size:       make([]byte, 4),
 		}
 		default_option.EmptyFrame = make([]byte, default_option.MinLength+1)
+		default_option.encoder = newEncodeState()
 	})
 	opt := default_option
 	for _, o := range opts {
@@ -66,6 +67,7 @@ func newOptionV1(opts ...FrameOption) *Option {
 	if opt.LengthSize > opt.MaxLength {
 		opt.LengthSize = opt.MaxLength
 	}
+	opt.encoder = newEncodeState()
 	return opt
 }
 
@@ -92,4 +94,21 @@ func (opt *Option) GetEncoder() *encodeState {
 }
 func (opt *Option) PutEncoder(es *encodeState) {
 	encodeStatePool.Put(es)
+}
+
+func (opt *Option) WriteByte(tag byte) error {
+	opt.encoder.LengthSize++
+	return opt.encoder.WriteByte(tag)
+}
+func (opt *Option) Write(data []byte) (int, error) {
+	opt.encoder.LengthSize += len(data)
+	return opt.encoder.Write(data)
+}
+
+func (opt *Option) Bytes() []byte {
+	return opt.encoder.Bytes()
+}
+
+func (opt *Option) Encoder() *encodeState {
+	return opt.encoder
 }

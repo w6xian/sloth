@@ -91,36 +91,26 @@ func NewMockA() *A {
 
 func BenchmarkMarshal200(b *testing.B) {
 	a := NewMockA()
-	frame, err := Marshal(a)
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var a A
-		err = Unmarshal(frame, &a)
+		frame, err := Marshal(a)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = a
+		_ = frame
 	}
 	b.StopTimer()
 }
 
 func BenchmarkJson200(b *testing.B) {
 	a := NewMockA()
-	js, err := json.Marshal(a)
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var a A
-		err := json.Unmarshal(js, &a)
+		js, err := json.Marshal(a)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = a
+		_ = js
 	}
 	b.StopTimer()
 }
@@ -149,3 +139,6 @@ func BenchmarkJson200(b *testing.B) {
 //
 // BenchmarkMarshal200-6              92630             12734 ns/op            4128 B/op        100 allocs/op
 //
+// BenchmarkMarshal200-6             108876             10809 ns/op            4259 B/op        117 allocs/op
+// 用buffer优化后
+// BenchmarkMarshal200-6             119476              9922 ns/op            4258 B/op        117 allocs/op
