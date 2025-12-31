@@ -46,7 +46,7 @@ func NewOption(opts ...FrameOption) *Option {
 	return opt
 }
 
-func newOptionV1(opts ...FrameOption) *Option {
+func newOption(opts ...FrameOption) *Option {
 	tlv_option_option.Do(func() {
 		default_option = &Option{
 			CheckCRC:   false,

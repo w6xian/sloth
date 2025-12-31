@@ -1,6 +1,7 @@
 package tlv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -76,7 +77,8 @@ const (
 	TLV_TYPE_SLICE_COMPLEX64  = 0x26
 	TLV_TYPE_SLICE_COMPLEX128 = 0x27
 	// nil 类型
-	TLV_TYPE_NIL = 0x00
+	TLV_TYPE_NIL      = 0x28
+	TLV_TYPE_PROTOCOL = 0x00
 )
 
 const TLVX_HEADER_SIZE = 5
@@ -305,23 +307,14 @@ func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 	// 需要去掉高2位（64 32）有效tag只有6位 1-63
 	tag &= 0x3F
 	headerSize := 1 + lengthSize + byte(crc_len)
-	l := 0
-	switch lengthSize {
-	case 1:
-		l = int(b[1])
-	case 2:
-		u16 := []byte{0, 0}
-		copy(u16, b[1:3])
-		l = int(binary.BigEndian.Uint16(u16))
-	case 3, 4:
-		u32 := []byte{0, 0, 0, 0}
-		copy(u32[4-lengthSize:], b[1:5])
-		l = int(binary.BigEndian.Uint32(u32))
-	default:
-		return 0, 0, nil, ErrInvalidLengthSize
+	blen := len(b)
+	if blen < int(1+lengthSize) {
+		return 0, 0, nil, fmt.Errorf("tlv_decode_with_len value length is too long:tag:%d, %v", tag, blen)
 	}
-	if len(b) < int(int(headerSize)+l) {
-		return 0, 0, nil, fmt.Errorf("tlv_decode_with_len value length is too long:tag:%d, %v", tag, len(b))
+	l := bytes_to_int(b[1 : 1+lengthSize])
+
+	if blen < int(int(headerSize)+l) {
+		return 0, 0, nil, fmt.Errorf("tlv_decode_with_len value length is too long:tag:%d, %v", tag, blen)
 	}
 	dataBuf := b[headerSize : int(headerSize)+l] // b[6:6+l]
 	if crc_len > 0 {
@@ -331,4 +324,88 @@ func tlv_decode_with_len(b []byte, opt *Option) (byte, int, []byte, error) {
 		}
 	}
 	return tag, 1 + int(lengthSize) + l, dataBuf, nil
+}
+
+func protocol_pack(data []byte, opt *Option) []byte {
+	// protocol
+	plen := get_tlv_len(len(data), opt)
+	var buf bytes.Buffer
+	buf.WriteByte(TLV_TYPE_PROTOCOL)
+	// 高低位 0x00,前四位为高位，低四位为低位
+	x := opt.MaxLength & 0x0F
+	n := opt.MinLength & 0x0F
+	buf.WriteByte(x<<4 | n) // 0x41  表示max=4，min=1
+	b := byte(1)
+	// 最高位
+	if len(plen) == int(opt.MaxLength) {
+		b |= 0x80
+	}
+	buf.WriteByte(b)
+	buf.Write(plen)
+	buf.Write(data)
+	return buf.Bytes()
+}
+func protocol_unpack(v []byte, opts ...FrameOption) ([]byte, *Option, error) {
+	opt := newOption(opts...)
+	if v[0] == 0x00 {
+		x := v[1] >> 4 & 0x0F
+		n := v[1] & 0x0F
+		opt.MaxLength = byte(x)
+		opt.MinLength = byte(n)
+		// 保留1位
+		// 0000 0000
+		// 1000   表使用最大长度
+		l := opt.MinLength
+		if v[2]&0x80 > 0 {
+			l = opt.MaxLength
+		}
+		length := v[3 : 3+l]
+		length_int := bytes_to_int(length)
+		if length_int != len(v)-int(l+3) {
+			return nil, nil, fmt.Errorf("tlv length not match: %d", length_int)
+		}
+		v = v[3+l:]
+	}
+	return v, opt, nil
+}
+
+func JsonUnpack(v []byte, opts ...FrameOption) ([]byte, error) {
+	v, opt, err := protocol_unpack(v, opts...)
+	if err != nil {
+		return nil, err
+	}
+	t, _, v, err := Next(v, opt)
+	if err != nil {
+		return nil, err
+	}
+	if t != TLV_TYPE_JSON {
+		return nil, fmt.Errorf("tlv type not found: %d", t)
+	}
+	return v, nil
+}
+
+func JsonEnpack(v any, opts ...FrameOption) ([]byte, error) {
+	opt := newOption(opts...)
+	jsonData, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tlv_encode_option_with_buffer(TLV_TYPE_JSON, jsonData, opt)
+	if err != nil {
+		return nil, err
+	}
+	return protocol_pack(opt.Bytes(), opt), nil
+}
+
+func Marshal(v any, opts ...FrameOption) ([]byte, error) {
+	option := newOption(opts...)
+	_, err := create_tlv_struct_v3(v, option)
+	if err != nil {
+		return nil, err
+	}
+	return option.Bytes(), nil
+}
+func Unmarshal(v []byte, s any, opts ...FrameOption) error {
+	option := newOption(opts...)
+	return read_tlv_struct(v, s, option)
 }

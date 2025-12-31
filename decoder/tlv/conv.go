@@ -9,53 +9,172 @@ import (
 
 // BytesToInt converts a byte slice to a 64-bit integer.
 func bytes_to_int(data []byte) int {
-	return int(binary.BigEndian.Uint64(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return int(data[0])
+	case 2:
+		return int(binary.BigEndian.Uint16(data))
+	case 4:
+		return int(binary.BigEndian.Uint32(data))
+	case 8:
+		return int(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_int16 converts a byte slice to a 16-bit integer.
 func bytes_to_int16(data []byte) int16 {
-	r := binary.BigEndian.Uint16(data)
-	return int16(r)
+	l := len(data)
+	switch l {
+	case 1:
+		return int16(data[0])
+	case 2:
+		return int16(binary.BigEndian.Uint16(data))
+	case 4:
+		return int16(binary.BigEndian.Uint32(data))
+	case 8:
+		return int16(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_int32 converts a byte slice to a 32-bit integer.
 func bytes_to_int32(data []byte) int32 {
-	return int32(binary.BigEndian.Uint32(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return int32(int8(data[0]))
+	case 2:
+		return int32(binary.BigEndian.Uint16(data))
+	case 4:
+		return int32(binary.BigEndian.Uint32(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_int64 converts a byte slice to a 64-bit integer.
 func bytes_to_int64(data []byte) int64 {
-	return int64(binary.BigEndian.Uint64(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return int64(int8(data[0]))
+	case 2:
+		return int64(binary.BigEndian.Uint16(data))
+	case 4:
+		return int64(binary.BigEndian.Uint32(data))
+	case 8:
+		return int64(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_uint converts a byte slice to a 64-bit unsigned integer.
 func bytes_to_uint(data []byte) uint {
-	return uint(binary.BigEndian.Uint64(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return uint(data[0])
+	case 2:
+		return uint(binary.BigEndian.Uint16(data))
+	case 4:
+		return uint(binary.BigEndian.Uint32(data))
+	case 8:
+		return uint(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_uint16 converts a byte slice to a 16-bit unsigned integer.
 func bytes_to_uint16(data []byte) uint16 {
-	return uint16(binary.BigEndian.Uint16(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return uint16(data[0])
+	case 2:
+		return uint16(binary.BigEndian.Uint16(data))
+	case 4:
+		return uint16(binary.BigEndian.Uint32(data))
+	case 8:
+		return uint16(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_uint32 converts a byte slice to a 32-bit unsigned integer.
 func bytes_to_uint32(data []byte) uint32 {
-	return binary.BigEndian.Uint32(data)
+	l := len(data)
+	switch l {
+	case 1:
+		return uint32(data[0])
+	case 2:
+		return uint32(binary.BigEndian.Uint16(data))
+	case 4:
+		return uint32(binary.BigEndian.Uint32(data))
+	case 8:
+		return uint32(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_uint64 converts a byte slice to a 64-bit unsigned integer.
 func bytes_to_uint64(data []byte) uint64 {
-	return binary.BigEndian.Uint64(data)
+	l := len(data)
+	switch l {
+	case 1:
+		return uint64(data[0])
+	case 2:
+		return uint64(binary.BigEndian.Uint16(data))
+	case 4:
+		return uint64(binary.BigEndian.Uint32(data))
+	case 8:
+		return uint64(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_float32 converts a byte slice to a 32-bit floating-point number.
 func bytes_to_float32(data []byte) float32 {
-	return math.Float32frombits(binary.BigEndian.Uint32(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return math.Float32frombits(uint32(data[0]))
+	case 2:
+		return math.Float32frombits(uint32(binary.BigEndian.Uint16(data)))
+	case 4:
+		return math.Float32frombits(binary.BigEndian.Uint32(data))
+	case 8:
+		return math.Float32frombits(uint32(binary.BigEndian.Uint64(data)))
+	default:
+		return 0
+	}
 }
 
 // BytesToFloat64 converts a byte slice to a 64-bit floating-point number.
 func bytes_to_float64(data []byte) float64 {
-	return math.Float64frombits(binary.BigEndian.Uint64(data))
+	bits := 0
+	l := len(data)
+	switch l {
+	case 1:
+		bits = int(data[0])
+	case 2:
+		bits = int(binary.BigEndian.Uint16(data))
+	case 4:
+		bits = int(binary.BigEndian.Uint32(data))
+	case 8:
+		bits = int(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
+	return math.Float64frombits(uint64(bits))
 }
 
 // BytesToBool converts a byte slice to a boolean value.
@@ -90,15 +209,36 @@ func bytes_to_complex128(data []byte) complex128 {
 
 // bytes_to_uintptr converts a byte slice to a uintptr value.
 func bytes_to_uintptr(data []byte) uintptr {
-	return uintptr(binary.BigEndian.Uint64(data))
+	l := len(data)
+	switch l {
+	case 1:
+		return uintptr(data[0])
+	case 2:
+		return uintptr(binary.BigEndian.Uint16(data))
+	case 4:
+		return uintptr(binary.BigEndian.Uint32(data))
+	case 8:
+		return uintptr(binary.BigEndian.Uint64(data))
+	default:
+		return 0
+	}
 }
 
 // bytes_to_rune converts a byte slice to a rune value.
 func bytes_to_rune(data []byte) string {
-	if len(data) < 4 {
+	l := len(data)
+	switch l {
+	case 1:
+		return string(int32(data[0]))
+	case 2:
+		return string(int32(binary.BigEndian.Uint16(data)))
+	case 4:
+		return string(int32(binary.BigEndian.Uint32(data)))
+	case 8:
+		return string(int32(binary.BigEndian.Uint64(data)))
+	default:
 		return ""
 	}
-	return string(int32(binary.BigEndian.Uint32(data)))
 }
 
 // slice_byte_to_string converts a byte slice to a slice of byte values.

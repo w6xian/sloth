@@ -32,16 +32,16 @@ func FrameFromString(v string, opts ...FrameOption) TLVFrame {
 }
 
 func FrameFromJson(v any, opts ...FrameOption) TLVFrame {
-	option := NewOption(opts...)
+	option := newOption(opts...)
 	jsonData, err := json.Marshal(v)
 	if err != nil {
 		return []byte{}
 	}
-	r, err := tlv_encode_option_with_buffer(TLV_TYPE_JSON, jsonData, option)
+	_, err = tlv_encode_option_with_buffer_v3(TLV_TYPE_JSON, jsonData, option)
 	if err != nil {
 		return []byte{}
 	}
-	return r
+	return option.Bytes()
 }
 
 // Float64 从float64编码为tlv

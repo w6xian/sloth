@@ -10,19 +10,6 @@ import (
 	"strings"
 )
 
-func Marshal(v any, opts ...FrameOption) ([]byte, error) {
-	option := newOptionV1(opts...)
-	_, err := create_tlv_struct_v3(v, option)
-	if err != nil {
-		return nil, err
-	}
-	return option.Bytes(), nil
-}
-func Unmarshal(v []byte, s any, opts ...FrameOption) error {
-	option := newOptionV1(opts...)
-	return read_tlv_struct(v, s, option)
-}
-
 func FromStruct(t any, opts ...FrameOption) ([]byte, error) {
 	option := NewOption(opts...)
 	return create_tlv_struct(t, option)
@@ -254,7 +241,7 @@ func get_value_string(tag byte, data []byte, opt *Option) string {
 		// fmt.Println("TLV_TYPE_JSON:::", data)
 		return fmt.Sprintf("%s", data)
 	default:
-		fmt.Println("tlv type not found", tag, data)
+		// fmt.Println("tlv type not found", tag, data)
 		return reflect.ValueOf(data).String()
 	}
 }
