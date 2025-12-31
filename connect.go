@@ -16,7 +16,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/bucket"
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/array"
@@ -25,6 +24,7 @@ import (
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/options"
 	"github.com/w6xian/sloth/pprof"
+	"github.com/w6xian/tlv"
 )
 
 var instCount int64

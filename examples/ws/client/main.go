@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth"
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/pprof"
+	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
 )

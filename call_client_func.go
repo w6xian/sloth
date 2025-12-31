@@ -9,9 +9,9 @@ import (
 
 	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/decoder"
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/tlv"
 )
 
 var once sync.Once

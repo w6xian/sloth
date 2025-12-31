@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/w6xian/sloth/decoder/tlv"
+	"github.com/w6xian/tlv"
 )
 
 func DecodeString(frame []byte) string {
@@ -31,7 +31,7 @@ func Decode64ToTlv(frame []byte) (*tlv.TlV, error) {
 		fmt.Println("Error decoding:", err)
 		return nil, err
 	}
-	tlv, err := tlv.NewTLVFromFrame(decoded)
+	tlv, err := tlv.NewFromFrame(decoded)
 	if err != nil {
 		return nil, err
 	}

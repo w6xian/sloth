@@ -6,9 +6,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/w6xian/sloth/decoder/tlv"
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/tlv"
 )
 
 var svr_once sync.Once

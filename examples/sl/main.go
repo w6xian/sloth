@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/w6xian/sloth/decoder/tlv"
+	"github.com/w6xian/tlv"
 )
 
 type T struct {
@@ -93,7 +93,7 @@ func main() {
 	// }
 	// fmt.Println(string(js))
 
-	tlv.NewOption(tlv.LengthSize(1, 4))
+	// tlv.NewOption(tlv.LengthSize(1, 4))
 	fs, err := tlv.Marshal(t)
 	if err != nil {
 		fmt.Println(err)
