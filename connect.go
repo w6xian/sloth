@@ -206,7 +206,7 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	// 编码
 	args, err := c.Decoder(msgReq.Data)
 	if err != nil {
-		return nil, err
+		args = msgReq.Data
 	}
 	if svr != nil {
 		ctx = context.WithValue(ctx, BucketKey, svr)
