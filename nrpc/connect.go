@@ -40,7 +40,7 @@ type RpcCaller struct {
 type ICall interface {
 	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) error
-	GetAuthInfo() *AuthInfo
+	GetAuthInfo() (*AuthInfo, error)
 	SetAuthInfo(auth *AuthInfo) error
 }
 
@@ -52,7 +52,7 @@ type IWsReply interface {
 type IChannel interface {
 	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) error
-	GetAuthInfo() *AuthInfo
+	GetAuthInfo() (*AuthInfo, error)
 	SetAuthInfo(auth *AuthInfo) error
 }
 

@@ -43,9 +43,9 @@ func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *ServerRpc) GetAuthInfo() *nrpc.AuthInfo {
+func (c *ServerRpc) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	if c.Listen == nil {
-		return nil
+		return nil, errors.New("server not found")
 	}
 	return c.Listen.GetAuthInfo()
 }

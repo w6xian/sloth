@@ -281,7 +281,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 		//@call HandleCall 处理调用方法
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		// fmt.Println("1ws_server readPump messageType:", messageType, "msg:", string(msg))
+
 		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
 		// fmt.Println("2ws_server readPump messageType:", messageType, "msg:", string(m), err)
 		if err != nil {

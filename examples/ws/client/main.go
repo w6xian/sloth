@@ -137,7 +137,11 @@ func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-	fmt.Println("Test args:", ch.GetAuthInfo())
+	auth, err := ch.GetAuthInfo()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("Test args:", auth)
 
 	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }

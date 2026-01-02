@@ -128,12 +128,12 @@ func (c *WsChannelClient) ReplyError(id string, err []byte) error {
 }
 
 // login 登录
-func (ch *WsChannelClient) GetAuthInfo() *nrpc.AuthInfo {
+func (ch *WsChannelClient) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	return &nrpc.AuthInfo{
 		UserId: ch.UserId,
 		RoomId: ch.RoomId,
 		Token:  ch.Sign,
-	}
+	}, nil
 }
 
 func (ch *WsChannelClient) SetAuthInfo(auth *nrpc.AuthInfo) error {

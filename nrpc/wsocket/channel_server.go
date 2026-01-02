@@ -79,12 +79,21 @@ func (ch *WsChannelServer) Token(t ...string) string {
 }
 
 // login 登录
-func (ch *WsChannelServer) GetAuthInfo() *nrpc.AuthInfo {
+func (ch *WsChannelServer) GetAuthInfo() (*nrpc.AuthInfo, error) {
+	if ch._userId == 0 {
+		return nil, errors.New("user id is 0")
+	}
+	if ch._room == nil {
+		return nil, errors.New("room is nil")
+	}
+	if ch._sign == "" {
+		return nil, errors.New("sign is empty")
+	}
 	return &nrpc.AuthInfo{
 		UserId: ch._userId,
 		RoomId: ch._room.Id,
 		Token:  ch._sign,
-	}
+	}, nil
 }
 
 func (ch *WsChannelServer) SetAuthInfo(auth *nrpc.AuthInfo) error {

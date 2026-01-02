@@ -114,9 +114,9 @@ func (c *LocalClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *LocalClient) GetAuthInfo() *nrpc.AuthInfo {
+func (c *LocalClient) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	if c.client == nil {
-		return nil
+		return nil, errors.New("client not found")
 	}
 	return c.client.GetAuthInfo()
 }
