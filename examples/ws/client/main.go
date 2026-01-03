@@ -8,6 +8,7 @@ import (
 
 	"github.com/w6xian/sloth"
 	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/pprof"
@@ -139,6 +140,8 @@ func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
+	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
+
 	auth, err := ch.GetAuthInfo()
 	if err != nil {
 		return nil, err
