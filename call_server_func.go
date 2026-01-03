@@ -21,6 +21,7 @@ type ServerRpc struct {
 	Auth    string
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
+	Header  message.Header
 }
 
 func (c *ServerRpc) SetEncoder(encoder Encoder) {
@@ -55,6 +56,7 @@ func DefaultCleint(opts ...IRpcOption) *ServerRpc {
 		ServerObjc = &ServerRpc{
 			Encoder: tlv.DefaultEncoder,
 			Decoder: tlv.DefaultDecoder,
+			Header:  message.Header{},
 		}
 		for _, opt := range opts {
 			opt(ServerObjc)
@@ -83,7 +85,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		args = append(args, b)
 	}
 	// fmt.Println("Call args:", args)
-	resp, err := c.Listen.Call(ctx, mtd, args...)
+
+	resp, err := c.Listen.Call(ctx, c.Header, mtd, args...)
 	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err

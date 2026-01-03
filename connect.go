@@ -15,11 +15,11 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/array"
 	"github.com/w6xian/sloth/internal/utils/id"
+	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/sloth/options"
@@ -32,6 +32,7 @@ var instCount int64
 type ContextType string
 
 const (
+	HeaderKey  = ContextType("nrpc_header")
 	ChannelKey = ContextType("nrpc_channel")
 	BucketKey  = ContextType("nrpc_bucket")
 )
@@ -185,6 +186,12 @@ var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", 
 
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
 func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.RpcCaller) ([]byte, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			// fmt.Println("------------")
+			c.Log(logger.Error, "connect.CallFunc recover err : %v", err)
+		}
+	}()
 	parts := strings.Split(msgReq.Method, ".")
 	if len(parts) != 2 {
 		c.Log(logger.Info, "(%s) method format error", c.ServerId)
@@ -210,14 +217,21 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	}
 	if svr != nil {
 		ctx = context.WithValue(ctx, BucketKey, svr)
-		if ch, cok := msgReq.Channel.(bucket.IChannel); cok {
+		if ch, cok := msgReq.Channel.(*wsocket.WsChannelServer); cok {
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	} else {
-		if ch, cok := msgReq.Channel.(nrpc.IChannel); cok {
+		if ch, cok := msgReq.Channel.(*wsocket.WsChannelClient); cok {
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	}
+
+	header := message.Header{}
+	if len(msgReq.Header) > 0 {
+		header = msgReq.Header
+	}
+	ctx = context.WithValue(ctx, HeaderKey, message.Header(header))
+
 	funcArgs := []reflect.Value{
 		serviceFns.V,
 		reflect.ValueOf(ctx),

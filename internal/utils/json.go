@@ -31,6 +31,14 @@ func (j JsonValue) BytesArray(col string) [][]byte {
 	return b
 }
 
+func (j JsonValue) MapString(col string) map[string]string {
+	var m = map[string]string{}
+	if j[col] != nil {
+		json.Unmarshal(*j[col], &m)
+	}
+	return m
+}
+
 func (j JsonValue) Int64(col string) int64 {
 	var i int64
 	if j[col] != nil {

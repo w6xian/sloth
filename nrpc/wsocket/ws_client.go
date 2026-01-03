@@ -153,13 +153,13 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	}
 }
 
-func (c *LocalClient) Call(ctx context.Context, mtd string, data ...[]byte) ([]byte, error) {
+func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd string, data ...[]byte) ([]byte, error) {
 	if c.client == nil {
 		c.log(logger.Error, "client not found")
 		return nil, errors.New("client not found")
 	}
-	// fmt.Println("Call LocalClient-11-:", mtd, data)
-	resp, err := c.client.Call(ctx, mtd, data...)
+
+	resp, err := c.client.Call(ctx, header, mtd, data...)
 	if err != nil {
 		return nil, err
 	}
@@ -342,6 +342,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 					Id:       idstr,
 					Protocol: protocol,
 					Action:   action,
+					Header:   connReq.MapString("header"),
 					Method:   connReq.String("method"),
 					Args:     connReq.BytesArray("args"),
 				}
@@ -394,7 +395,7 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	defer func() {
 		if err := recover(); err != nil {
 			// fmt.Println("------------")
-			c.log(logger.Error, "HandleMessage recover err : %v", err)
+			c.log(logger.Error, "ws_client.HandleMessage recover err : %v", err)
 		}
 	}()
 	if msgReq.Action == actions.ACTION_CALL {

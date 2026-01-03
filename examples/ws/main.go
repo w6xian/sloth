@@ -8,6 +8,7 @@ import (
 	"github.com/w6xian/sloth"
 	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/sloth/nrpc/wsocket"
 	"github.com/w6xian/tlv"
@@ -46,6 +47,7 @@ func main() {
 
 	for {
 		time.Sleep(5 * time.Second)
+		server.Header.Set("token", "123456")
 		data, err := server.Call(context.Background(), 2, "shop.Test", []byte("hello"))
 		if err != nil {
 			fmt.Println("Call error:", err)
@@ -119,6 +121,7 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	// fmt.Println("Decode64ToTlv success:", c.String())
 	// fmt.Println("Test args:", string(data))
 	fmt.Println("Test args:", ctx.Value(sloth.ChannelKey).(bucket.IChannel))
+	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
 	fmt.Println("Test args:", ab)
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)
@@ -142,6 +145,8 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}
+
+	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
 	//根据data登录 解析出userId,roomId,token
 	auth := nrpc.AuthInfo{
 		UserId: 2,

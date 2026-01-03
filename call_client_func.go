@@ -21,6 +21,7 @@ type ClientRpc struct {
 	Serve   IServer
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
+	Header  message.Header
 }
 
 // LinkClientFunc 链接客户端  请用：DefaultServer 代替
@@ -34,6 +35,7 @@ func DefaultServer(opts ...IRpcOption) *ClientRpc {
 		ClientObjc = &ClientRpc{
 			Encoder: tlv.DefaultEncoder,
 			Decoder: tlv.DefaultDecoder,
+			Header:  message.Header{},
 		}
 		for _, opt := range opts {
 			opt(ClientObjc)
@@ -84,7 +86,7 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 		args = append(args, b)
 	}
 
-	resp, err := ch.Call(ctx, mtd, args...)
+	resp, err := ch.Call(ctx, c.Header, mtd, args...)
 	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err

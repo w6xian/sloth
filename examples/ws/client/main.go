@@ -39,6 +39,8 @@ func main() {
 			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
 			// args := "HelloService.Test 302 [34 97 98 99 34]"
 			if client.UserId == 0 {
+				client.Header.Set("APP_ID", "1")
+				client.Header.Set("USER_ID", "1")
 				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
 				if err != nil {
 					fmt.Println("Call error:", err)
@@ -133,7 +135,7 @@ type HelloService struct {
 
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
-	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
+	ch := ctx.Value(sloth.ChannelKey).(*wsocket.WsChannelClient)
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}

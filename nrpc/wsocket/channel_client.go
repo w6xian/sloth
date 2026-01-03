@@ -147,12 +147,13 @@ func (ch *WsChannelClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // Call 客户端 调用远程方法
-func (ch *WsChannelClient) Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error) {
+func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
 	msg := message.NewWsJsonCallObject(mtd, args...)
+	msg.Header = header
 	// 发送调用请求
 	ch.log(logger.Debug, "Call WsClient------: %s", msg)
 	select {

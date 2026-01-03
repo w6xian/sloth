@@ -312,6 +312,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 					Id:       idstr,
 					Protocol: protocol,
 					Action:   action,
+					Header:   connReq.MapString("header"),
 					Method:   connReq.String("method"),
 					Args:     connReq.BytesArray("args"),
 				}
@@ -371,7 +372,7 @@ func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	defer func() {
 		if err := recover(); err != nil {
 			// fmt.Println("-----------2-")
-			log.Println("HandleMessage recover err :", err)
+			log.Println("ws_server.HandleMessage recover err :", err)
 		}
 	}()
 	// @call HandleCall 处理调用方法

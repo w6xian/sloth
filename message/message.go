@@ -10,13 +10,14 @@ import (
 )
 
 type JsonCallObject struct {
-	Id     string   `json:"id"`              // user id
-	Action int      `json:"action"`          // operation for request
-	Type   int      `json:"type"`            // message type 1 textMessage or 2 binaryMessage1
-	Method string   `json:"method"`          // service method name
-	Data   []byte   `json:"data,omitempty"`  // binary body bytes
-	Error  string   `json:"error,omitempty"` // error message
-	Args   [][]byte `json:"args,omitempty"`  // args
+	Id     string            `json:"id"`               // user id
+	Action int               `json:"action"`           // operation for request
+	Type   int               `json:"type"`             // message type 1 textMessage or 2 binaryMessage1
+	Header map[string]string `json:"header,omitempty"` // header
+	Method string            `json:"method"`           // service method name
+	Data   []byte            `json:"data,omitempty"`   // binary body bytes
+	Error  string            `json:"error,omitempty"`  // error message
+	Args   [][]byte          `json:"args,omitempty"`   // args
 }
 
 func NewWsJsonCallObject(method string, data ...[]byte) *JsonCallObject {
@@ -63,8 +64,9 @@ func (j *JsonCallObject) ToBytes() []byte {
 
 type JsonBackObject struct {
 	Context context.Context
-	Id      string `json:"id"` // user id
-	Type    int    `json:"-"`  // message type 1 textMessage or 2 binaryMessage1
+	Id      string            `json:"id"`               // user id
+	Type    int               `json:"-"`                // message type 1 textMessage or 2 binaryMessage1
+	Header  map[string]string `json:"header,omitempty"` // header
 	// action
 	Action int64 `json:"action"`
 	//data binary body bytes
