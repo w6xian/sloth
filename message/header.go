@@ -10,6 +10,9 @@ import (
 type Header map[string]string
 
 func (h Header) Get(key string) string {
+	if _, ok := h[key]; !ok {
+		return ""
+	}
 	return h[key]
 }
 
