@@ -86,7 +86,39 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 		args = append(args, b)
 	}
 
-	resp, err := ch.Call(ctx, c.Header, mtd, args...)
+	resp, err := ch.Call(ctx, c.Header.Clone(), mtd, args...)
+	// fmt.Println("Call resp::::::", resp, err)
+	if err != nil {
+		return nil, err
+	}
+	// fmt.Println("Call resp:", resp)
+	// 解码
+	resp, err = c.Decoder(resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, userId int64, mtd string, arg ...any) ([]byte, error) {
+	if c.Serve == nil {
+		return nil, errors.New("server not found")
+	}
+	b := c.Serve.Bucket(userId)
+	ch := b.Channel(userId)
+	if ch == nil {
+		return nil, errors.New("channel not found")
+	}
+	args := [][]byte{}
+	for _, v := range arg {
+		b, err := c.Encoder(v)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, b)
+	}
+
+	resp, err := ch.Call(ctx, header, mtd, args...)
 	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err

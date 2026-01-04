@@ -192,7 +192,7 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 }
 
 // 服务器调用客户端方法
-func (ch *WsChannelServer) Call(ctx context.Context, header map[string]string, mtd string, args ...[]byte) ([]byte, error) {
+func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ch.log(logger.Debug, "Call mtd:%s, args:%v", mtd, args)

@@ -86,7 +86,35 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 	}
 	// fmt.Println("Call args:", args)
 
-	resp, err := c.Listen.Call(ctx, c.Header, mtd, args...)
+	resp, err := c.Listen.Call(ctx, c.Header.Clone(), mtd, args...)
+	// fmt.Println("Call resp:", resp, err)
+	if err != nil {
+		return nil, err
+	}
+	// 解码
+	resp, err = c.Decoder(resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, mtd string, arg ...any) ([]byte, error) {
+	if c.Listen == nil {
+		return nil, errors.New("server not found")
+	}
+	// fmt.Println("Call arg:", arg)
+	args := [][]byte{}
+	for _, v := range arg {
+		b, err := c.Encoder(v)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, b)
+	}
+	// fmt.Println("Call args:", args)
+
+	resp, err := c.Listen.Call(ctx, header, mtd, args...)
 	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err

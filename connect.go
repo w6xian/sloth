@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	"github.com/w6xian/sloth/bucket"
 	"github.com/w6xian/sloth/internal/logger"
 	"github.com/w6xian/sloth/internal/utils"
 	"github.com/w6xian/sloth/internal/utils/array"
@@ -217,11 +218,11 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	}
 	if svr != nil {
 		ctx = context.WithValue(ctx, BucketKey, svr)
-		if ch, cok := msgReq.Channel.(*wsocket.WsChannelServer); cok {
+		if ch, cok := msgReq.Channel.(bucket.IChannel); cok {
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	} else {
-		if ch, cok := msgReq.Channel.(*wsocket.WsChannelClient); cok {
+		if ch, cok := msgReq.Channel.(nrpc.IChannel); cok {
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	}

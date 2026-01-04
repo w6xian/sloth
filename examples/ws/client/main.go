@@ -57,7 +57,10 @@ func main() {
 				client.SetAuthInfo(auth)
 			}
 
-			data, err := client.Call(context.Background(), "pprof.Info", []byte("abc"),
+			data, err := client.CallWithHeader(context.Background(), message.Header{
+				"APP_ID":  "header_app_id",
+				"USER_ID": "1",
+			}, "pprof.Info", []byte("abc"),
 				int(utils.RandInt64(1, 0xFFFF)),
 				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
 				"w6xian_str",
@@ -136,7 +139,7 @@ type HelloService struct {
 
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
-	ch := ctx.Value(sloth.ChannelKey).(*wsocket.WsChannelClient)
+	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}

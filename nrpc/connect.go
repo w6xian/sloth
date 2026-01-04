@@ -43,7 +43,6 @@ type ICall interface {
 	Push(ctx context.Context, msg *message.Msg) error
 	GetAuthInfo() (*AuthInfo, error)
 	SetAuthInfo(auth *AuthInfo) error
-	// GetHeader() func(header ...map[string]string) map[string]string
 }
 
 type IWsReply interface {
@@ -52,7 +51,7 @@ type IWsReply interface {
 }
 
 type IChannel interface {
-	Call(ctx context.Context, mtd string, args ...[]byte) ([]byte, error)
+	Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) error
 	GetAuthInfo() (*AuthInfo, error)
 	SetAuthInfo(auth *AuthInfo) error
