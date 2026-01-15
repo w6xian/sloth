@@ -78,18 +78,30 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	)
 	b.cLock.Lock()
 	defer b.cLock.Unlock()
-	if ch0, ch_ok := b.chs[userId]; ch_ok {
-		ch0.Room().DeleteChannel(ch0)
-		ch0.Close()
-		// 关闭后，删除桶中的连接
-		delete(b.chs, userId)
+
+	if ch0, ch_ok := b.chs[ch.UserId()]; ch_ok {
+		// 只是更新 token
+		if ch0.UserId() == userId && ch0.Room().Id == roomId {
+			ch0.Token(token)
+			return
+		}
+
+		// 原来有房间，且不是当前房间，先退出房间
+		if ch0.Room().Id != roomId {
+			ch0.Room().DeleteChannel(ch0)
+		}
+		// userId 改变，需要更新桶中的连接
+		if ch0.UserId() != userId && ch0.UserId() > 0 {
+			// 关闭后，删除桶中的连接
+			ch0.Close()
+			delete(b.chs, ch0.UserId())
+		}
 	}
 	// 原来有房间，先退出房间
 	if ch.Room() != nil {
-		if ch.Room().Id == roomId {
-			return
+		if ch.Room().Id != roomId {
+			ch.Room().DeleteChannel(ch)
 		}
-		ch.Room().DeleteChannel(ch)
 	}
 	// fmt.Println("Put userId:", userId, "roomId:", roomId)
 	if roomId != NoRoom {
@@ -106,7 +118,6 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	ch.UserId(userId)
 	ch.Token(token)
 	b.chs[userId] = ch
-	// fmt.Println("Put room:", room)
 	if room != nil {
 		err = room.Put(ch)
 	}
