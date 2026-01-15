@@ -202,6 +202,9 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	for {
 		select {
 		case msg, ok := <-ch.send:
+			if ch.conn == nil {
+				return
+			}
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
@@ -212,6 +215,9 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				return
 			}
 		case msg, ok := <-ch.rpcCaller:
+			if ch.conn == nil {
+				return
+			}
 			// @call  调用服务器方法
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
@@ -226,6 +232,9 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 			}
 			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
 		case msg, ok := <-ch.rpcBacker:
+			if ch.conn == nil {
+				return
+			}
 			// @reply  服务器返回调用结果
 			//write data dead time , like http timeout , default 10s
 			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))

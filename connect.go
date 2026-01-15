@@ -190,7 +190,7 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	defer func() {
 		if err := recover(); err != nil {
 			// fmt.Println("------------")
-			c.Log(logger.Error, "connect.CallFunc recover err : %v", err)
+			c.Log(logger.Error, "connect.CallFunc %s recover err : %v", msgReq.Method, err)
 		}
 	}()
 	parts := strings.Split(msgReq.Method, ".")

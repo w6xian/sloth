@@ -193,6 +193,9 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	for {
 		select {
 		case msg, ok := <-ch.broadcast:
+			if ch.Conn == nil {
+				return
+			}
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
@@ -203,6 +206,9 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				return
 			}
 		case msg, ok := <-ch.rpcCaller:
+			if ch.Conn == nil {
+				return
+			}
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
@@ -213,6 +219,9 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				return
 			}
 		case msg, ok := <-ch.rpcBacker:
+			if ch.Conn == nil {
+				return
+			}
 			//write data dead time , like http timeout , default 10s
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
@@ -224,6 +233,9 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				return
 			}
 		case <-ticker.C:
+			if ch.Conn == nil {
+				return
+			}
 			//heartbeat，if ping error will exit and close current websocket conn
 			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
