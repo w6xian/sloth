@@ -60,6 +60,19 @@ func New() *PProfInfo {
 }
 
 func (h *PProfInfo) Info(ctx context.Context) (*PProfInfo, error) {
+	if h._server == nil {
+		return h, nil
+	}
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	h.Mem = &Mem{
+		Alloc:      int64(m.Alloc),
+		TotalAlloc: int64(m.TotalAlloc),
+		Sys:        int64(m.Sys),
+		HeapAlloc:  int64(m.HeapAlloc),
+		HeapSys:    int64(m.HeapSys),
+		NumGC:      int64(m.NumGC),
+	}
 	return h, nil
 }
 

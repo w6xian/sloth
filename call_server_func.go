@@ -51,7 +51,7 @@ func (c *ServerRpc) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	return c.Listen.GetAuthInfo()
 }
 
-func DefaultCleint(opts ...IRpcOption) *ServerRpc {
+func DefaultClient(opts ...IRpcOption) *ServerRpc {
 	svr_once.Do(func() {
 		ServerObjc = &ServerRpc{
 			Encoder: tlv.DefaultEncoder,
@@ -66,7 +66,7 @@ func DefaultCleint(opts ...IRpcOption) *ServerRpc {
 }
 
 func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
-	return DefaultCleint(opts...)
+	return DefaultClient(opts...)
 }
 
 // @call server

@@ -17,28 +17,26 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// main entry point for the WebSocket client
 func main() {
 
-	client := sloth.DefaultCleint()
+	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
 	newConnect.Register("shop", &HelloService{}, "")
-	go newConnect.Dial("tcp", "localhost:8990")
+
+	// Start WebSocket Client in a goroutine
+	go newConnect.StartWebsocketClient(
+		wsocket.WithClientHandle(&Handler{server: client}),
+		wsocket.WithClientUriPath("/ws"),
+		wsocket.WithClientServerUri("localhost:8990"),
+	)
+
+	// Main loop for making RPC calls
 	func() {
 		for {
 			time.Sleep(time.Second)
-			// if server.UserId == 0 {
-			// 	data, err := server.Call(context.Background(), "v1.Test", "2")
-			// 	if err != nil {
-			// 		fmt.Println("Call error:", err)
-			// 		continue
-			// 	}
-			// 	server.UserId = 2
-			// 	server.RoomId = 1
-			//server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
-			// 	fmt.Println("Call success:", string(data))
-			// }
-			// args := tlv.FrameFromString("HelloService.Test 302 [34 97 98 99 34]")
-			// args := "HelloService.Test 302 [34 97 98 99 34]"
+
+			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
 				client.Header.Set("APP_ID", "1")
 				client.Header.Set("USER_ID", "1")
@@ -57,6 +55,7 @@ func main() {
 				client.SetAuthInfo(auth)
 			}
 
+			// Example RPC call with header and various arguments
 			data, err := client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
 				"USER_ID": "1",
@@ -81,36 +80,32 @@ func main() {
 			fmt.Println("Call success:", info)
 		}
 	}()
-	// newConnect.StartWebsocketClient(
-	// 	wsocket.WithClientHandle(&Handler{server: client}),
-	// 	wsocket.WithClientUriPath("/ws"),
-	// 	// wsocket.WithClientServerUri("localhost:8990"),
-	// 	// ws addr: 0.0.0.0:8966
-	// 	wsocket.WithClientServerUri("localhost:8990"),
-	// )
 
 }
 
+// IotSignReq represents IoT signing request
 type IotSignReq struct {
 	Code  string `json:"code"`
 	Token string `json:"token"`
 }
 
+// HelloReq represents hello request
 type HelloReq struct {
 	Name string `json:"name"`
 }
 
+// Handler handles client-side WebSocket events
 type Handler struct {
 	server *sloth.ServerRpc
 }
 
-// OnClose implements wsocket.IClientHandleMessage.
+// OnClose is called when connection is closed
 func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
 	fmt.Println("OnClose:", ch.UserId)
 	return nil
 }
 
-// OnData implements wsocket.IClientHandleMessage.
+// OnData handles received messages
 func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
@@ -119,24 +114,27 @@ func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 	return nil
 }
 
-// OnError implements wsocket.IClientHandleMessage.
+// OnError handles errors
 func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, err error) error {
 	fmt.Println("OnError:", err.Error())
 	return nil
 }
 
-// onOpen implements wsocket.IClientHandleMessage.
+// OnOpen is called when connection is opened
 func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
 	fmt.Println("OnOpen:", ch.UserId, h.server)
-	ch.UserId = 2
-	ch.RoomId = 1
-	h.server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
+	// Example of sending an initial message or setting state
+	// ch.UserId = 2
+	// ch.RoomId = 1
+	// h.server.Send(context.Background(), map[string]string{"user_id": "2", "room_id": "1"})
 	return nil
 }
 
+// HelloService implements client-side service methods
 type HelloService struct {
 }
 
+// Test is a sample client-side method
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
 	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
@@ -154,6 +152,7 @@ func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 
+// Hello struct
 type Hello struct {
 	Name string `json:"name"`
 }
