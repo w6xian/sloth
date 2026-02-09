@@ -282,14 +282,19 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 					handler.OnError(ctx, s, ch, err)
 				}
 				return
+			} else {
+				if handler != nil {
+					handler.OnClose(ctx, s, ch)
+				}
 			}
-		}
-		if msg == nil || messageType == -1 {
-			if handler != nil {
-				handler.OnClose(ctx, s, ch)
-			}
+			s.log(logger.Error, "server readPump，ch.conn.ReadMessage return")
 			return
 		}
+		if len(msg) == 0 || messageType == -1 {
+			s.log(logger.Info, "server readPump，message is nil or messageType is -1")
+			continue
+		}
+
 		//@call HandleCall 处理调用方法
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数

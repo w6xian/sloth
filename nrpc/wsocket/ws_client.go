@@ -308,19 +308,22 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		// 来自服务器的消息
 		messageType, msg, err := ch.conn.ReadMessage()
 		if err != nil {
+			c.log(logger.Error, err.Error())
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				if handler != nil {
 					handler.OnError(ctx, c, ch, err)
 				}
-				return
+			} else {
+				if handler != nil {
+					handler.OnClose(ctx, c, ch)
+				}
 			}
-		}
-		// fmt.Println("Call LocalClient-44-:", messageType, msg)
-		if msg == nil || messageType == -1 {
-			if handler != nil {
-				handler.OnClose(ctx, c, ch)
-			}
+			c.log(logger.Error, "readPump，ch.conn.ReadMessage return")
 			return
+		}
+		if len(msg) == 0 || messageType == -1 {
+			c.log(logger.Info, "readPump，message is nil or messageType is -1")
+			continue
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
