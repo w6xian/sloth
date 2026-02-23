@@ -130,6 +130,10 @@ func (c *Connect) Register(name string, rcvr any, metadata string) error {
 	return nil
 }
 
+func (c *Connect) GetServiceFuncs(name string) map[string]FuncStruct {
+	return c.serviceMap[name].A
+}
+
 func (c *Connect) Listen(network, address string, options ...wsocket.ServerOption) {
 	ln, err := net.Listen(network, address)
 	if err != nil {
@@ -391,8 +395,12 @@ func (w *Connect) Log(lvl logger.LogLevel, line string, args ...any) {
 	logger.Output(2, fmt.Sprintf("%-4s %s", lvl, fmt.Sprintf(line, args...)))
 }
 
-func suitableMethods(typ reflect.Type) map[string]reflect.Method {
+func suitableMethods(typ reflect.Type) (map[string]reflect.Method, map[string]FuncStruct) {
 	methods := make(map[string]reflect.Method)
+	// 方法 及定义的参数
+	iface := make(map[string]FuncStruct)
+
+	// 遍历所有方法
 	for m := 0; m < typ.NumMethod(); m++ {
 		m := typ.Method(m)
 		// 这里可以加一些方法需要什么样的参数，比如第一个参数必须是context.Context
@@ -432,12 +440,29 @@ func suitableMethods(typ reflect.Type) map[string]reflect.Method {
 			continue
 		}
 		methods[m.Name] = m
+		// 方法的参数
+		args := make([]ArgStruct, 0)
+		for i := 2; i < m.Type.NumIn(); i++ {
+			args = append(args, ArgStruct{
+				Name: fmt.Sprintf("arg%d", i-2),
+				Type: m.Type.In(i).String(),
+			})
+		}
+		s := strings.SplitN(m.Type.String(), ",", 2)
+		api := fmt.Sprintf("func %s(", m.Name)
+		s[0] = api
+		iface[m.Name] = FuncStruct{
+			Define: fmt.Sprintf("%s", strings.Join(s, "")),
+			Args:   args,
+			Desc:   "",
+		}
 	}
 
 	for _, m := range methods {
 		log.Printf("[success]method %s is registered", m.Name)
 	}
-	return methods
+
+	return methods, iface
 }
 
 func register(rcvr any) *ServiceFuncs {
@@ -454,7 +479,9 @@ func register(rcvr any) *ServiceFuncs {
 		service.N = sname
 	}
 	// Install the methods
-	service.M = suitableMethods(getType)
+	m, a := suitableMethods(getType)
+	service.M = m
+	service.A = a
 	return service
 }
 
@@ -462,4 +489,17 @@ type ServiceFuncs struct {
 	N string                    // name of service
 	V reflect.Value             // receiver of methods for the service
 	M map[string]reflect.Method // registered methods
+	A map[string]FuncStruct     // arguments of methods
+}
+
+type FuncStruct struct {
+	Define string      `json:"define"`
+	Args   []ArgStruct `json:"args"`
+	Desc   string      `json:"desc"`
+}
+
+type ArgStruct struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Desc string `json:"desc"`
 }

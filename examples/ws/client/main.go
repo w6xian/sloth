@@ -23,6 +23,7 @@ func main() {
 	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
 	newConnect.Register("shop", &HelloService{}, "")
+	// Get service methods
 
 	// Start WebSocket Client in a goroutine
 	go newConnect.StartWebsocketClient(
