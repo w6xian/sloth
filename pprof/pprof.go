@@ -2,6 +2,7 @@ package pprof
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 
@@ -24,6 +25,7 @@ type PProfInfo struct {
 	DiskSize int64      `json:"disk_size"`
 	Position string     `json:"position"`
 	_sync    sync.Mutex `json:"-"`
+	Service  IService   `json:"-"`
 	_server  IPProf     `json:"-"`
 }
 
@@ -50,13 +52,28 @@ type Room struct {
 var pprofInfo *PProfInfo
 var pprofOnce sync.Once
 
-func New() *PProfInfo {
+type IService interface {
+	GetServiceList(ctx context.Context) (map[string][]string, error)
+}
+
+func New(service ...IService) *PProfInfo {
 	pprofOnce.Do(func() {
 		pprofInfo = &PProfInfo{
-			_sync: sync.Mutex{},
+			Service: service[0],
+			_sync:   sync.Mutex{},
 		}
 	})
+	if pprofInfo.Service == nil && len(service) > 0 {
+		pprofInfo.Service = service[0]
+	}
 	return pprofInfo
+}
+
+func (h *PProfInfo) Services(ctx context.Context) (map[string][]string, error) {
+	if pprofInfo.Service == nil {
+		return nil, fmt.Errorf("service not found")
+	}
+	return pprofInfo.Service.GetServiceList(ctx)
 }
 
 func (h *PProfInfo) Info(ctx context.Context) (*PProfInfo, error) {

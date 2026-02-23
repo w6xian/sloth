@@ -108,7 +108,7 @@ func newConnect(opts ...ConnOption) *Connect {
 }
 
 func (c *Connect) regist_pprof() error {
-	prof := pprof.New()
+	prof := pprof.New(c)
 	funcs := register(prof)
 	c.serviceMap["pprof"] = funcs
 	return nil
@@ -128,6 +128,18 @@ func (c *Connect) Register(name string, rcvr any, metadata string) error {
 	funcs := register(rcvr)
 	c.serviceMap[name] = funcs
 	return nil
+}
+
+func (c *Connect) GetServiceList(ctx context.Context) (map[string][]string, error) {
+	rst := make(map[string][]string)
+	for svr, funcs := range c.serviceMap {
+		fs := []string{}
+		for _, f := range funcs.A {
+			fs = append(fs, f.Define)
+		}
+		rst[svr] = fs
+	}
+	return rst, nil
 }
 
 func (c *Connect) GetServiceFuncs(name string) map[string]FuncStruct {
@@ -152,7 +164,7 @@ func (c *Connect) ListenOption(options ...wsocket.ServerOption) error {
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsServer := wsocket.NewWsServer(c, options...)
 	c.client.Serve = wsServer
-	pprof.New().UsePProf(wsServer)
+	pprof.New(c).UsePProf(wsServer)
 	wsServer.ListenAndServe(context.Background())
 	return nil
 }
@@ -449,12 +461,11 @@ func suitableMethods(typ reflect.Type) (map[string]reflect.Method, map[string]Fu
 			})
 		}
 		s := strings.SplitN(m.Type.String(), ",", 2)
-		api := fmt.Sprintf("func %s(", m.Name)
+		api := fmt.Sprintf("%s(", m.Name)
 		s[0] = api
 		iface[m.Name] = FuncStruct{
+			Name:   m.Name,
 			Define: fmt.Sprintf("%s", strings.Join(s, "")),
-			Args:   args,
-			Desc:   "",
 		}
 	}
 
@@ -485,17 +496,19 @@ func register(rcvr any) *ServiceFuncs {
 	return service
 }
 
+type Functions []string
+type ServiceApi map[string]FuncStruct
+
 type ServiceFuncs struct {
 	N string                    // name of service
 	V reflect.Value             // receiver of methods for the service
 	M map[string]reflect.Method // registered methods
-	A map[string]FuncStruct     // arguments of methods
+	A ServiceApi                // arguments of methods
 }
 
 type FuncStruct struct {
-	Define string      `json:"define"`
-	Args   []ArgStruct `json:"args"`
-	Desc   string      `json:"desc"`
+	Name   string `json:"name"`
+	Define string `json:"define"`
 }
 
 type ArgStruct struct {

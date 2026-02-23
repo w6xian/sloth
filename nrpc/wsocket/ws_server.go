@@ -86,7 +86,7 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	for _, opt := range options {
 		opt(s)
 	}
-	pprof.New().Buckets = int64(len(bs))
+	pprof.New(nil).Buckets = int64(len(bs))
 	return s
 }
 func (s *WsServer) Bucket(userId int64) *bucket.Bucket {
@@ -178,8 +178,8 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 		}
 	}()
 	// 记录连接数
-	pprof.New().NewConeect()
-	defer pprof.New().CloseConeect()
+	pprof.New(nil).NewConeect()
+	defer pprof.New(nil).CloseConeect()
 	//PingPeriod default eq 54s
 	ticker := time.NewTicker(9 * time.Second)
 	defer func() {

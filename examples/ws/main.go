@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,6 +32,13 @@ func main() {
 
 	// Register services
 	newConnect.Register("v1", &HelloService{}, "")
+
+	api, err := newConnect.GetServiceList(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	data, _ := json.Marshal(api)
+	fmt.Println(string(data))
 
 	// Set up WebSocket listener options
 	newConnect.ListenOption(
