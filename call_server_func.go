@@ -4,15 +4,11 @@ import (
 	"context"
 	"errors"
 	"log"
-	"sync"
 
 	"github.com/w6xian/sloth/message"
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/tlv"
 )
-
-var svr_once sync.Once
-var ServerObjc *ServerRpc
 
 type ServerRpc struct {
 	Listen  nrpc.ICall
@@ -52,17 +48,16 @@ func (c *ServerRpc) GetAuthInfo() (*nrpc.AuthInfo, error) {
 }
 
 func DefaultClient(opts ...IRpcOption) *ServerRpc {
-	svr_once.Do(func() {
-		ServerObjc = &ServerRpc{
-			Encoder: tlv.DefaultEncoder,
-			Decoder: tlv.DefaultDecoder,
-			Header:  message.Header{},
-		}
-		for _, opt := range opts {
-			opt(ServerObjc)
-		}
-	})
-	return ServerObjc
+	svr := &ServerRpc{
+		Encoder: tlv.DefaultEncoder,
+		Decoder: tlv.DefaultDecoder,
+		Header:  message.Header{},
+	}
+	for _, opt := range opts {
+		opt(svr)
+	}
+
+	return svr
 }
 
 func LinkServerFunc(opts ...IRpcOption) *ServerRpc {

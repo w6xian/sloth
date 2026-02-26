@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/w6xian/sloth/bucket"
@@ -13,9 +12,6 @@ import (
 	"github.com/w6xian/sloth/nrpc"
 	"github.com/w6xian/tlv"
 )
-
-var once sync.Once
-var ClientObjc *ClientRpc
 
 type ClientRpc struct {
 	Serve   IServer
@@ -31,17 +27,17 @@ func LinkClientFunc(opts ...IRpcOption) *ClientRpc {
 }
 
 func DefaultServer(opts ...IRpcOption) *ClientRpc {
-	once.Do(func() {
-		ClientObjc = &ClientRpc{
-			Encoder: tlv.DefaultEncoder,
-			Decoder: tlv.DefaultDecoder,
-			Header:  message.Header{},
-		}
-		for _, opt := range opts {
-			opt(ClientObjc)
-		}
-	})
-	return ClientObjc
+
+	cli := &ClientRpc{
+		Encoder: tlv.DefaultEncoder,
+		Decoder: tlv.DefaultDecoder,
+		Header:  message.Header{},
+	}
+	for _, opt := range opts {
+		opt(cli)
+	}
+
+	return cli
 }
 
 func (c *ClientRpc) SetEncoder(encoder Encoder) {
