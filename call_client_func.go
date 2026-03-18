@@ -62,6 +62,13 @@ func GetBucket(ctx context.Context) (nrpc.IBucket, error) {
 	}
 	return bucket, nil
 }
+func GetHeader(ctx context.Context) (message.Header, error) {
+	header, ok := ctx.Value(HeaderKey).(message.Header)
+	if !ok {
+		return message.Header{}, fmt.Errorf("header not found")
+	}
+	return header, nil
+}
 
 // @call client
 func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...any) ([]byte, error) {
