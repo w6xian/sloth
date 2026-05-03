@@ -1,0 +1,61 @@
+<html>
+
+<head>
+    <title>WS Client</title>
+</head>
+
+<body>
+    <h1>WS Client</h1>
+    <script src="./sock_rpc.js?11221"></script>
+    <script src="./slice.js?112"></script>
+    <script>
+
+      
+        const addr = `ws://localhost:8990/ws`
+        rpc = new SockRpc({
+            addr: addr,
+            onMessage: (evt) => {
+                console.log('onMessage', evt)
+            },
+            onError: (evt) => {
+                console.log('onError', evt)
+            }
+        });
+        rpc.OnOpen(evt => {
+            console.log('onOpen', evt)
+            const timestamp = Date.now()
+            const auth = '123456'
+            const authMsg = {
+                auth_token: `auth:${auth}`,
+                room_id: 1,
+                user_id: 2,
+                server_id: 'local',
+                action: 0xFE,
+                type: "h5",
+            }
+            rpc.Send(authMsg)
+            setInterval(() => {
+                const timestamp = Date.now()
+                rpc.Call("v1.Test", {
+                    a: 1,
+                    b: 2,
+                }, data => {
+                    console.log('call success', Base64.decode(data))
+                }, err => {
+                    console.log('call error', err)
+                })
+            }, 2000)
+        })
+        rpc.Bind('shop', {
+            Test: (evt) => {
+                const tlv = parseTlvMessage(evt)
+                console.log('server say hello', tlv.String())
+                return 'helo' + (new Date().getTime())
+            }
+        })
+        rpc.Connect()
+    </script>
+
+</body>
+
+</html>
