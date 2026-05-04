@@ -20,18 +20,22 @@ import (
 
 // main entry point for the WebSocket server
 func main() {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	ln, err := net.Listen("tcp", "localhost:8990")
 	if err != nil {
 		panic(err)
 	}
-	r := mux.NewRouter()
 
+	r := mux.NewRouter()
 	// Create default RPC server
 	server := sloth.DefaultServer()
 	newConnect := sloth.ServerConn(server)
-
 	// Register services
 	newConnect.Register("v1", &HelloService{}, "")
+	newConnect.Listen(ctx, "ws", "localhost:8990")
 
 	api, err := newConnect.GetServiceList(context.Background())
 	if err != nil {
@@ -45,6 +49,7 @@ func main() {
 		wsocket.WithRouter(r),
 		wsocket.WithServerHandle(&Handler{}),
 	)
+	newConnect.Server()
 
 	http.Handle("/", r)
 	fmt.Println("WebSocket server listening on localhost:8990")
@@ -160,7 +165,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	// Register session in bucket
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
 	fmt.Println("Sign args:", string(data))
-
+	fmt.Println(tlv.Json(auth))
 	return tlv.Json(auth), nil
 }
 

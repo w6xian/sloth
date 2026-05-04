@@ -152,10 +152,13 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
+	// fmt.Println("--------------channel_client.go")
+	// fmt.Println("--------------channel_client.go", args)
 	msg := message.NewWsJsonCallObject(mtd, args...)
 	msg.Header = header
 	// 发送调用请求
 	ch.log(logger.Debug, "Call WsClient------: %s", msg)
+
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
@@ -174,12 +177,13 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 			// fmt.Println("client call ticker.C:", ticker.C)
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
-			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
+			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok, back.Data)
 			if back.Id == msg.Id && ok {
-				// fmt.Println("client call back.Error:", back.Id, msg.Id, back.Error)
 				if back.Error != "" {
+					// fmt.Println("client call back.Error:", back.Id, msg.Id, back.Error)
 					return []byte(""), errors.New(back.Error)
 				}
+				// fmt.Println(back.Data)
 				return back.Data, nil
 			}
 			return []byte{}, fmt.Errorf("unknown message type")

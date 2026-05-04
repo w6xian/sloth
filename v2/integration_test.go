@@ -67,7 +67,7 @@ func TestIntegration(t *testing.T) {
 
 	// 在goroutine中启动客户端
 	go func() {
-		newConnect.Dial("tcp", "localhost:8990")
+		newConnect.Dial(context.Background(), "tcp", "localhost:8990")
 	}()
 
 	// 等待连接建立

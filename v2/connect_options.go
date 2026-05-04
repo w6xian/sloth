@@ -128,3 +128,9 @@ func UseDecoder(decoder Decoder) IRpcOption {
 		ch.SetDecoder(decoder)
 	}
 }
+
+func Listen(network, address string) ConnOption {
+	return func(ch *Connect) {
+
+	}
+}

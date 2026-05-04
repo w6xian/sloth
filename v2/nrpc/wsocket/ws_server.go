@@ -16,6 +16,7 @@ import (
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/sloth/v2/pprof"
 	"github.com/w6xian/tlv"
 
@@ -42,6 +43,7 @@ type WsServer struct {
 	WriteBufferSize int
 	BroadcastSize   int
 	SliceSize       int64
+	middlewares     []middleware.Middleware
 }
 
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
@@ -89,6 +91,12 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 	pprof.New(nil).Buckets = int64(len(bs))
 	return s
 }
+
+// Use 注册服务端中间件，可多次调用，按注册顺序执行。
+func (s *WsServer) Use(middlewares ...middleware.Middleware) {
+	s.middlewares = append(s.middlewares, middlewares...)
+}
+
 func (s *WsServer) Bucket(userId int64) *bucket.Bucket {
 	userIdStr := fmt.Sprintf("%d", userId)
 	idx := tools.CityHash32([]byte(userIdStr), uint32(len(userIdStr))) % s.bucketIdx
@@ -313,6 +321,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 			m = tlvFrame.Value()
 		}
 		// var connReq *nrpc.RpcCaller
+		// fmt.Println(string(m))
 		var connReq utils.JsonValue
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			// fmt.Println("----------", connReq.Int64("action"))
@@ -333,6 +342,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 					Method:   connReq.String("method"),
 					Args:     connReq.BytesArray("args"),
 				}
+				// 调试Args
+				// fmt.Println("--------args:", args.Args)
 				b := connReq.Bytes("data")
 				if protocol == 1 {
 					args.Data = []byte(connReq.String("data"))
@@ -378,34 +389,40 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 	}
 }
 
-// HandleCall 处理来自服务器的消息
-// 有两种情况：
-// 1. 服务器主动推送消息，需要调用本地方法处理
-// 2. 服务器调用本地方法，需要返回结果
+// HandleCall 处理来自客户端的 RPC 调用
 func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	s.serviceMapMu.RLock()
 	defer s.serviceMapMu.RUnlock()
 
 	defer func() {
 		if err := recover(); err != nil {
-			// fmt.Println("-----------2-")
-			log.Println("ws_server.HandleMessage recover err :", err)
+			log.Println("ws_server.HandleCall recover err :", err)
 		}
 	}()
-	// @call HandleCall 处理调用方法
-	if msgReq.Action == actions.ACTION_CALL {
-		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data))
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		rst, err := s.Connect.CallFunc(ctx, s, msgReq)
-		// fmt.Println("ws_server HandleCall messageType:", msgReq.Action, "msg:", string(msgReq.Data), "rst:", string(rst), "err:", err)
-		if err != nil {
-			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
-			return
+	// 使用中间件链包装业务调用
+	final := func(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
+		msg := &nrpc.RpcCaller{
+			Id:      msgReq.Id,
+			Channel: msgReq.Channel,
+			Header:  header,
+			Method:  mtd,
+			Args:    args,
+			Data:    msgReq.Data,
 		}
-		// fmt.Println("ws_server HandleCall ReplySuccess")
-		msgReq.Channel.ReplySuccess(msgReq.Id, rst)
-		return
+		// fmt.Println("ws_server.HandleCall msg:", msg)
+		// fmt.Println("ws_server.HandleCall msg:", msg.Args)
+		rst, err := s.Connect.CallFunc(ctx, s, msg)
+		if err != nil {
+			return nil, err
+		}
+		msg.Channel.ReplySuccess(msg.Id, rst)
+		return rst, nil
+	}
+	handler := middleware.Chain(s.middlewares, final)
+
+	// 执行中间件链
+	if _, err := handler(ctx, msgReq.Header, msgReq.Method, msgReq.Args...); err != nil {
+		msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
 	}
 }
 

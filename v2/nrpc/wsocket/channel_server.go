@@ -193,6 +193,8 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 
 // 服务器调用客户端方法
 func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
+
+	fmt.Println("--------------channel_server.go")
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 	ch.log(logger.Debug, "Call mtd:%s, args:%v", mtd, args)
@@ -200,7 +202,7 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 	defer ticker.Stop()
 	msg := message.NewWsJsonCallObject(mtd, args...)
 	msg.Header = header
-
+	fmt.Println("Call msg:", msg)
 	// 发送调用请求
 	select {
 	case <-ticker.C:

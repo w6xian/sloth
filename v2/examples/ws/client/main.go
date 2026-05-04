@@ -19,18 +19,20 @@ import (
 
 // main entry point for the WebSocket client
 func main() {
-
+	runtime := context.Background()
+	ctx, cancel := context.WithCancel(runtime)
+	defer cancel()
 	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
 	newConnect.Register("shop", &HelloService{}, "")
 	// Get service methods
 
 	// Start WebSocket Client in a goroutine
-	go newConnect.StartWebsocketClient(
+
+	go newConnect.Dial(ctx, "ws", "localhost:8990",
 		wsocket.WithClientHandle(&Handler{server: client}),
 		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri("localhost:8990"),
-	)
+		wsocket.WithClientServerUri("localhost:8990"))
 
 	// Main loop for making RPC calls
 	func() {
@@ -42,18 +44,21 @@ func main() {
 				client.Header.Set("APP_ID", "1")
 				client.Header.Set("USER_ID", "1")
 				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
+				fmt.Println("------------")
+				fmt.Println("Sign result", data, err)
+				fmt.Println("------------")
 				if err != nil {
-					fmt.Println("Call error:", err)
+					fmt.Println("v1.Sign Call error:", err)
 					continue
 				}
 				auth := &nrpc.AuthInfo{}
 				err = tlv.Json2Struct(data, auth)
 				if err != nil {
-					fmt.Println("Deserialize error:", err)
 					continue
 				}
-				fmt.Println("Sign success:", auth)
+				fmt.Println(auth)
 				client.SetAuthInfo(auth)
+				fmt.Println("v1.Sign Call success:")
 			}
 
 			// Example RPC call with header and various arguments
@@ -69,7 +74,7 @@ func main() {
 				&[]string{"a", "b", "c"},
 			)
 			if err != nil {
-				fmt.Println("Call error:", err)
+				fmt.Println("pprof.Info Call error:", err)
 				continue
 			}
 			info := &pprof.PProfInfo{}
@@ -78,7 +83,7 @@ func main() {
 				fmt.Println("Deserialize error:", err)
 				continue
 			}
-			fmt.Println("Call success:", info)
+			fmt.Println("pprof.Info Call success:", info)
 		}
 	}()
 

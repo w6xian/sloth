@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -61,10 +62,17 @@ type Connect struct {
 	logger   []logger.Logger
 	logLvl   logger.LogLevel
 	logGuard sync.RWMutex
+	// Transport 抽象，支持多协议
+	transport nrpc.Transport
 }
 
 func (c *Connect) Options() *options.Options {
 	return c.Option
+}
+
+// SetTransport 设置 Transport 抽象层，支持多协议（TCP、WebSocket、QUIC等）
+func (c *Connect) SetTransport(transport nrpc.Transport) {
+	c.transport = transport
 }
 
 func ServerConn(client *ClientRpc, opts ...ConnOption) *Connect {
@@ -146,16 +154,39 @@ func (c *Connect) GetServiceFuncs(name string) map[string]FuncStruct {
 	return c.serviceMap[name].A
 }
 
-func (c *Connect) Listen(network, address string, options ...wsocket.ServerOption) {
-	ln, err := net.Listen(network, address)
-	if err != nil {
-		panic(err)
+func (c *Connect) Listen(ctx context.Context, network, address string, options ...wsocket.ServerOption) {
+	// 如果设置了 Transport，使用 Transport 抽象
+	if c.transport != nil {
+		ctx := context.Background()
+		listener, err := c.transport.Listen(ctx, address)
+		if err != nil {
+			panic(err)
+		}
+		// TODO: 保存 listener 引用，用于后续关闭
+		_ = listener
+		return
 	}
-	r := mux.NewRouter()
-	options = append(options, wsocket.WithRouter(r))
-	c.ListenOption(options...)
-	http.Handle("/", r)
-	http.Serve(ln, nil)
+
+	// 工厂模式，根据不同的协议，创建不同的服务器监听器
+	// 支持协议: http, ws, wss (WebSocket), tcp (TODO)
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		// TODO: 实现 TCP 服务器监听器
+		c.Log(logger.Error, "TCP server not implemented yet")
+		return
+	default:
+		// 默认使用 HTTP/WebSocket
+		c.Log(logger.Info, "unknown network type: %s, using HTTP/WebSocket", network)
+		ln, err := net.Listen("tcp", address)
+		if err != nil {
+			panic(err)
+		}
+		r := mux.NewRouter()
+		options = append(options, wsocket.WithRouter(r))
+		c.ListenOption(options...)
+		http.Handle("/", r)
+		http.Serve(ln, nil)
+	}
 }
 
 // path是uri中的路径，默认是"/ws"
@@ -182,17 +213,48 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	wsClient.ListenAndServe(context.Background())
 }
 
-func (c *Connect) Dial(network, address string, options ...wsocket.ClientOption) {
-	opts := []wsocket.ClientOption{
-		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri(address),
+func (c *Connect) Dial(ctx context.Context, network, address string, options ...wsocket.ClientOption) {
+	// 如果设置了 Transport，使用 Transport 抽象
+	if c.transport != nil {
+		ctx := context.Background()
+		icall, err := c.transport.Dial(ctx, address)
+		if err != nil {
+			panic(err)
+		}
+		c.server.Listen = icall
+		return
 	}
-	opts = append(opts, options...)
-	runtime.GOMAXPROCS(c.cpuNum)
-	wsClient := wsocket.NewLocalClient(c, opts...)
-	c.server.Listen = wsClient
-	wsClient.ListenAndServe(context.Background())
 
+	if c.server.Listen != nil {
+		return
+	}
+	// 工厂模式，根据不同的协议，创建不同的客户端
+	// 支持协议: ws, wss, websocket (WebSocket), tcp (TODO)
+
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		// TODO: 实现 TCP 客户端
+		c.Log(logger.Error, "TCP client not implemented yet")
+		return
+	default:
+		opts := []wsocket.ClientOption{
+			wsocket.WithClientUriPath("/ws"),
+			wsocket.WithClientServerUri(address),
+		}
+		opts = append(opts, options...)
+		// 默认使用 WebSocket
+		c.Log(logger.Info, "unknown network type: %s, using WebSocket", network)
+		wsClient := wsocket.NewLocalClient(c, opts...)
+		c.server.Listen = wsClient
+		wsClient.ListenAndServe(context.Background())
+	}
+	runtime.GOMAXPROCS(c.cpuNum)
+
+}
+
+func (c *Connect) Serve() error {
+
+	return nil
 }
 
 func (c *Connect) SetAuthInfo(auth *nrpc.AuthInfo) error {
@@ -207,6 +269,7 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 		if err := recover(); err != nil {
 			// fmt.Println("------------")
 			c.Log(logger.Error, "connect.CallFunc %s recover err : %v", msgReq.Method, err)
+			c.Log(logger.Error, "connect.CallFunc %s recover stack : %s", msgReq.Method, string(debug.Stack()))
 		}
 	}()
 	parts := strings.Split(msgReq.Method, ".")
@@ -281,7 +344,9 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 			}
 		}
 	}
-
+	// fmt.Println("-----------------------")
+	// fmt.Println("funcArgs:", funcArgs)
+	// fmt.Println("-----------------------")
 	ret := mtd.Func.Call(funcArgs)
 	if len(ret) != 2 {
 		c.Log(logger.Info, "(%s) call func error", c.ServerId)
@@ -293,6 +358,9 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	}
 	// 调用成功，返回结果
 	data := ret[0].Interface()
+	// fmt.Println("---------result--------")
+	// fmt.Println(data)
+	// fmt.Println("-----------------------")
 	// textmessage 协议，1 no tlv
 	if msgReq.Protocol == wsocket.TextMessage {
 		// 调用成功，返回结果
@@ -304,6 +372,10 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 	}
 	// 调用成功，返回结果
 	resp, err := c.Encoder(data)
+	// fmt.Println("---------result-- resp------")
+	// fmt.Println(resp)
+	// fmt.Println(err)
+	// fmt.Println("-----------------------")
 	if err != nil {
 		return nil, err
 	}

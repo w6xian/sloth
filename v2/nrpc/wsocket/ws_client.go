@@ -17,6 +17,7 @@ import (
 	"github.com/w6xian/sloth/v2/internal/utils/id"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
@@ -41,6 +42,8 @@ type LocalClient struct {
 	WriteBufferSize int
 	BroadcastSize   int
 	KeepAlive       bool
+
+	middlewares []middleware.Middleware
 }
 
 func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient {
@@ -64,10 +67,16 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient
 	s.KeepAlive = opt.KeepAlive
 
 	s.handler = nil
+	s.middlewares = nil
 	for _, opt := range options {
 		opt(s)
 	}
 	return s
+}
+
+// Use 注册客户端中间件，可多次调用，按注册顺序执行。
+func (c *LocalClient) Use(middlewares ...middleware.Middleware) {
+	c.middlewares = append(c.middlewares, middlewares...)
 }
 func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
 	if c.Connect == nil {
@@ -154,16 +163,27 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 }
 
 func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd string, data ...[]byte) ([]byte, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			c.log(logger.Error, "Call recover err : %v", err)
+		}
+	}()
 	if c.client == nil {
 		c.log(logger.Error, "client not found")
 		return nil, errors.New("client not found")
 	}
 
-	resp, err := c.client.Call(ctx, header, mtd, data...)
+	// 使用中间件链包装调用
+	final := func(ctx context.Context, hdr message.Header, method string, args ...[]byte) ([]byte, error) {
+		return c.client.Call(ctx, hdr, method, args...)
+	}
+
+	handler := middleware.Chain(c.middlewares, final)
+	rst, err := handler(ctx, header, mtd, data...)
 	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+	return rst, nil
 }
 
 func (c *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
@@ -379,6 +399,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 					continue
 				}
 				b := connReq.Bytes("data")
+				// fmt.Println("server-reback---------")
+				// fmt.Println(b)
 				if protocol == 1 {
 					b = []byte(connReq.String("data"))
 				}
