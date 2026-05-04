@@ -27,6 +27,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// sync.Pool for JsonValue reuse
+var jsonValuePool = sync.Pool{
+	New: func() any {
+		return &utils.JsonValue{}
+	},
+}
+
+func getJsonValue() *utils.JsonValue {
+	return jsonValuePool.Get().(*utils.JsonValue)
+}
+
+func putJsonValue(v *utils.JsonValue) {
+	if v != nil {
+		*v = utils.JsonValue{}
+		jsonValuePool.Put(v)
+	}
+}
+
 type WsServer struct {
 	Buckets         []*bucket.Bucket
 	bucketIdx       uint32
@@ -303,6 +321,11 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler op
 		ch.Conn.SetReadDeadline(time.Now().Add(s.PongWait))
 		return nil
 	})
+
+	// 使用 sync.Pool 复用 JsonValue，减少 GC 压力
+	connReq := getJsonValue()
+	defer putJsonValue(connReq)
+
 	// OnOpen
 	if handler != nil {
 		go handler.OnOpen(ctx, s, ch)
@@ -348,8 +371,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler op
 		}
 		// var connReq *nrpc.RpcCaller
 		// fmt.Println(string(m))
-		var connReq utils.JsonValue
-		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
+		if reqErr := json.Unmarshal(m, connReq); reqErr == nil {
 			// fmt.Println("----------", connReq.Int64("action"))
 			action := int(connReq.Int64("action"))
 			protocol := int(connReq.Int64("protocol"))
