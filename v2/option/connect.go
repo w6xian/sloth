@@ -1,6 +1,10 @@
-package options
+package option
 
-import "time"
+import (
+	"time"
+
+	"github.com/gorilla/mux"
+)
 
 type Options struct {
 	// ReadWait is the duration for which the server allows a client to read a message.
@@ -51,4 +55,31 @@ func NewOptions() *Options {
 		SliceSize:     512,
 		KeepAlive:     true,
 	}
+}
+
+type IConnectOption interface {
+	SetUriPath(path string) error
+	SetRouter(router *mux.Router) error
+	SetServerHandleMessage(handler IServerHandleMessage) error
+}
+
+type ConnectOption func(s IConnectOption)
+
+func WithUriPath(path string) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetUriPath(path)
+	}
+}
+
+func WithRouter(router *mux.Router) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetRouter(router)
+	}
+}
+
+func WithServerHandleMessage(handler IServerHandleMessage) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetServerHandleMessage(handler)
+	}
+
 }

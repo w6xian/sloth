@@ -6,13 +6,13 @@ import (
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/options"
+	"github.com/w6xian/sloth/v2/option"
 )
 
 type ICallRpc interface {
 	Log(level logger.LogLevel, line string, args ...any)
 	CallFunc(ctx context.Context, s IBucket, msgReq *RpcCaller) ([]byte, error)
-	Options() *options.Options
+	Options() *option.Options
 }
 
 type IBucket interface {

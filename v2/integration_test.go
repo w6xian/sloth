@@ -51,7 +51,7 @@ func TestIntegration(t *testing.T) {
 
 	// 在goroutine中启动服务器
 	go func() {
-		err := s.ListenOption()
+		err := s.Listen(context.Background(), "tcp", "localhost:8990")
 		if err != nil {
 			t.Logf("ListenOption returned error: %v", err)
 		}

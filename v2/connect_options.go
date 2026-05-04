@@ -1,6 +1,8 @@
 package sloth
 
-import "time"
+import (
+	"time"
+)
 
 // connect options
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/option"
 )
 
 // WsListener 是 WsServer 的 nrpc.Listener 适配器
@@ -65,7 +66,7 @@ func (l *WsListener) Addr() string {
 // WsTransportAdapter 是 WebSocket 的 Transport 适配器
 // 实现 nrpc.Transport 接口
 type WsTransportAdapter struct {
-	serverOptions []ServerOption
+	serverOptions []option.ConnectOption
 	clientOptions []ClientOption
 	server        *WsServer
 	client        *LocalClient
@@ -77,7 +78,7 @@ func NewWsTransport() *WsTransportAdapter {
 }
 
 // WithServerOption 设置服务端选项
-func (w *WsTransportAdapter) WithServerOption(opts ...ServerOption) *WsTransportAdapter {
+func (w *WsTransportAdapter) WithServerOption(opts ...option.ConnectOption) *WsTransportAdapter {
 	w.serverOptions = append(w.serverOptions, opts...)
 	return w
 }
@@ -91,7 +92,7 @@ func (w *WsTransportAdapter) WithClientOption(opts ...ClientOption) *WsTransport
 // Listen 实现 nrpc.Transport 接口
 // 启动 WebSocket 服务端，返回 Listener
 func (w *WsTransportAdapter) Listen(ctx context.Context, addr string) (nrpc.Listener, error) {
-	opts := append(w.serverOptions, WithUriPath("/ws"))
+	opts := append(w.serverOptions, option.WithUriPath("/ws"))
 	wsServer := NewWsServer(nil, opts...)
 
 	// 解析地址

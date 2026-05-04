@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/w6xian/sloth/v2/nrpc"
-	"github.com/w6xian/sloth/v2/options"
+	"github.com/w6xian/sloth/v2/option"
 )
 
 // TcpTransport 实现 nrpc.Transport 接口，提供 TCP 协议的
@@ -26,14 +26,14 @@ import (
 //	rsp, err := client.Call(ctx, header, "MethodName", arg)
 type TcpTransport struct {
 	connect nrpc.ICallRpc
-	opt     *options.Options
+	opt     *option.Options
 }
 
 // NewTcpTransport 创建 TCP Transport 实例。
 //
 //   - connect：业务层实现的 ICallRpc（处理 RPC 调用）
 //   - opt：框架选项（Bucket 大小、Room 大小等）
-func NewTcpTransport(connect nrpc.ICallRpc, opt *options.Options) *TcpTransport {
+func NewTcpTransport(connect nrpc.ICallRpc, opt *option.Options) *TcpTransport {
 	return &TcpTransport{
 		connect: connect,
 		opt:     opt,

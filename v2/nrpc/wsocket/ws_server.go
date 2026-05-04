@@ -17,6 +17,7 @@ import (
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
+	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
 	"github.com/w6xian/tlv"
 
@@ -32,7 +33,7 @@ type WsServer struct {
 	serviceMapMu    sync.RWMutex
 	Connect         nrpc.ICallRpc
 	uriPath         string
-	handler         IServerHandleMessage
+	handler         option.IServerHandleMessage
 	router          *mux.Router
 	WriteWait       time.Duration
 	ReadWait        time.Duration
@@ -46,6 +47,22 @@ type WsServer struct {
 	middlewares     []middleware.Middleware
 }
 
+// 实现 options.ConnectOption
+func (s *WsServer) SetRouter(router *mux.Router) error {
+	s.router = router
+	return nil
+}
+
+func (s *WsServer) SetUriPath(path string) error {
+	s.uriPath = path
+	return nil
+}
+
+func (s *WsServer) SetServerHandleMessage(handler option.IServerHandleMessage) error {
+	s.handler = handler
+	return nil
+}
+
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
 	if s.Connect == nil {
 		fmt.Println("WsServer Connect is nil")
@@ -54,7 +71,7 @@ func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
 	s.Connect.Log(level, "[WsServer]"+line, args...)
 }
 
-func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
+func NewWsServer(server nrpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 	bsNum := 1
 	bsNum = max(bsNum, runtime.NumCPU())
 	//init Connect layer rpc server, logic client will call this
@@ -85,7 +102,7 @@ func NewWsServer(server nrpc.ICallRpc, options ...ServerOption) *WsServer {
 		BroadcastSize:   opt.BroadcastSize,
 		SliceSize:       opt.SliceSize,
 	}
-	for _, opt := range options {
+	for _, opt := range opts {
 		opt(s)
 	}
 	pprof.New(nil).Buckets = int64(len(bs))
@@ -255,7 +272,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	}
 }
 
-func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IServerHandleMessage) {
+func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler option.IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "readPump recover err : %v", err)

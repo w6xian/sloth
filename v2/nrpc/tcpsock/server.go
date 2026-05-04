@@ -12,15 +12,14 @@ import (
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
-	"github.com/w6xian/sloth/v2/nrpc/wsocket"
-	"github.com/w6xian/sloth/v2/options"
+	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
 )
 
 // TcpServer 实现 nrpc.Listener 接口。
 type TcpServer struct {
 	ln  net.Listener
-	opt *options.Options
+	opt *option.Options
 
 	// Bucket 体系（与 WsServer 一致）
 	Buckets   []*bucket.Bucket
@@ -31,13 +30,13 @@ type TcpServer struct {
 	// 中间件链（通过 Use 注册）
 	middlewares []middleware.Middleware
 
-	handler wsocket.IServerHandleMessage
+	handler option.IServerHandleMessage
 
 	closeOnce sync.Once
 	closeChan chan struct{}
 }
 
-func NewTcpServer(connect nrpc.ICallRpc, opt *options.Options) *TcpServer {
+func NewTcpServer(connect nrpc.ICallRpc, opt *option.Options) *TcpServer {
 	bsNum := max(1, runtime.NumCPU())
 	bs := make([]*bucket.Bucket, bsNum)
 	for i := 0; i < bsNum; i++ {
@@ -50,11 +49,11 @@ func NewTcpServer(connect nrpc.ICallRpc, opt *options.Options) *TcpServer {
 	}
 	s := &TcpServer{
 		opt:         opt,
-		Buckets:      bs,
-		bucketIdx:    uint32(len(bs)),
-		Connect:      connect,
-		middlewares:  []middleware.Middleware{},
-		closeChan:    make(chan struct{}),
+		Buckets:     bs,
+		bucketIdx:   uint32(len(bs)),
+		Connect:     connect,
+		middlewares: []middleware.Middleware{},
+		closeChan:   make(chan struct{}),
 	}
 	pprof.New(nil).Buckets = int64(len(bs))
 	return s
