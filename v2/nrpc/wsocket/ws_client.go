@@ -46,6 +46,32 @@ type LocalClient struct {
 	KeepAlive       bool
 
 	middlewares []middleware.Middleware
+
+	// RpcCaller 对象池，减少 GC 压力
+	rpcCallerPool sync.Pool
+}
+
+// getRpcCaller 从池中获取 RpcCaller 对象
+func (c *LocalClient) getRpcCaller() *nrpc.RpcCaller {
+	req := c.rpcCallerPool.Get()
+	if req == nil {
+		return &nrpc.RpcCaller{}
+	}
+	return req.(*nrpc.RpcCaller)
+}
+
+// putRpcCaller 归还 RpcCaller 对象到池中
+func (c *LocalClient) putRpcCaller(req *nrpc.RpcCaller) {
+	// 重置字段
+	req.Id = ""
+	req.Protocol = 0
+	req.Action = 0
+	req.Header = nil
+	req.Method = ""
+	req.Data = nil
+	req.Args = nil
+	req.Channel = nil
+	c.rpcCallerPool.Put(req)
 }
 
 // 实现 options.ConnectOption
@@ -64,7 +90,6 @@ func (c *LocalClient) SetAddress(address string) error {
 func (s *LocalClient) SetServerHandleMessage(handler option.IServerHandleMessage) error {
 	// 空方法
 	panic("SetClientHandleMessage is not implemented")
-	return nil
 }
 func (s *LocalClient) SetClientHandleMessage(handler option.IClientHandleMessage) error {
 	s.handler = handler
@@ -78,6 +103,13 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...option.ConnectOption) *Loc
 	s.address = "127.0.0.1:8080"
 
 	s.serviceMapMu = sync.RWMutex{}
+
+	// 初始化 RpcCaller 对象池
+	s.rpcCallerPool = sync.Pool{
+		New: func() any {
+			return &nrpc.RpcCaller{}
+		},
+	}
 
 	opt := s.Connect.Options()
 	s.WriteWait = opt.WriteWait
@@ -385,31 +417,38 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			m = tlvFrame.Value()
 		}
 		// fmt.Println("Call LocalClient-44-:", m)
-		// var connReq *nrpc.RpcCaller
 		var connReq utils.JsonValue
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			action := int(connReq.Int64("action"))
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
+
+			// 提取 data 字段（避免重复访问）
+			var data []byte
+			if protocol == 1 {
+				// TextMessage 协议：data 是字符串
+				data = []byte(connReq.String("data"))
+			} else {
+				// BinaryMessage 协议：data 是字节数组
+				data = connReq.Bytes("data")
+			}
+
 			if action == actions.ACTION_CALL {
 				if ch.rpc_io < 0 {
 					ch.rpc_io = 0
 				}
-				args := &nrpc.RpcCaller{
-					Id:       idstr,
-					Protocol: protocol,
-					Action:   action,
-					Header:   connReq.MapString("header"),
-					Method:   connReq.String("method"),
-					Args:     connReq.BytesArray("args"),
-				}
-				b := connReq.Bytes("data")
-				if protocol == 1 {
-					args.Data = []byte(connReq.String("data"))
-				}
-				args.Data = b
+				// 使用对象池获取 RpcCaller，减少 GC 压力
+				args := c.getRpcCaller()
+				args.Id = idstr
+				args.Protocol = protocol
+				args.Action = action
+				args.Header = connReq.MapString("header")
+				args.Method = connReq.String("method")
+				args.Data = data
+				args.Args = connReq.BytesArray("args")
 				args.Channel = ch
 				c.HandleCall(ctx, args)
+				// 注意：HandleCall 不负责归还对象，对象由调用方在处理完成后归还
 				continue
 			} else if action == actions.ACTION_REPLY {
 				ch.rpc_io--
@@ -417,19 +456,14 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 					ch.rpc_io = 0
 					continue
 				}
-				if connReq.String("error") != "" {
+				errStr := connReq.String("error")
+				if errStr != "" {
 					// 处理服务器返回的错误
-					backObj := message.NewWsJsonBackError(idstr, []byte(connReq.String("error")))
+					backObj := message.NewWsJsonBackError(idstr, []byte(errStr))
 					ch.rpcBacker <- backObj
 					continue
 				}
-				b := connReq.Bytes("data")
-				// fmt.Println("server-reback---------")
-				// fmt.Println(b)
-				if protocol == 1 {
-					b = []byte(connReq.String("data"))
-				}
-				backObj := message.NewWsJsonBackSuccess(idstr, b)
+				backObj := message.NewWsJsonBackSuccess(idstr, data)
 				ch.rpcBacker <- backObj
 				continue
 			}
@@ -456,6 +490,8 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 			// fmt.Println("------------")
 			c.log(logger.Error, "ws_client.HandleMessage recover err : %v", err)
 		}
+		// 处理完成后归还对象池
+		c.putRpcCaller(msgReq)
 	}()
 	if msgReq.Action == actions.ACTION_CALL {
 		rst, err := c.Connect.CallFunc(ctx, nil, msgReq)
