@@ -57,9 +57,18 @@ func (s *WsServer) SetUriPath(path string) error {
 	s.uriPath = path
 	return nil
 }
+func (s *WsServer) SetAddress(address string) error {
+	panic("SetAddress is not implemented")
+	return nil
+}
 
 func (s *WsServer) SetServerHandleMessage(handler option.IServerHandleMessage) error {
 	s.handler = handler
+	return nil
+}
+func (s *WsServer) SetClientHandleMessage(handler option.IClientHandleMessage) error {
+	// 空方法
+	panic("SetClientHandleMessage is not implemented")
 	return nil
 }
 

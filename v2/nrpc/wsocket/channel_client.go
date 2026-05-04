@@ -146,6 +146,14 @@ func (ch *WsChannelClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
 	return nil
 }
 
+// types.IConnInfo
+func (ch *WsChannelClient) GetUserId() int64 {
+	return ch.UserId
+}
+func (ch *WsChannelClient) GetRoomId() int64 {
+	return ch.RoomId
+}
+
 // Call 客户端 调用远程方法
 func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()

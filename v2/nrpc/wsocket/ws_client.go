@@ -18,18 +18,20 @@ import (
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
+	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/tlv"
 
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
 type LocalClient struct {
 	serviceMapMu sync.RWMutex
 	uriPath      string
-	serverUri    string
+	address      string
 
 	Connect nrpc.ICallRpc
-	handler IClientHandleMessage
+	handler option.IClientHandleMessage
 	client  nrpc.ICall
 
 	WriteWait       time.Duration
@@ -46,11 +48,34 @@ type LocalClient struct {
 	middlewares []middleware.Middleware
 }
 
-func NewLocalClient(connect nrpc.ICallRpc, options ...ClientOption) *LocalClient {
+// 实现 options.ConnectOption
+func (c *LocalClient) SetRouter(router *mux.Router) error {
+	return nil
+}
+func (c *LocalClient) SetUriPath(path string) error {
+	c.uriPath = path
+	return nil
+}
+func (c *LocalClient) SetAddress(address string) error {
+	c.address = address
+	return nil
+}
+
+func (s *LocalClient) SetServerHandleMessage(handler option.IServerHandleMessage) error {
+	// 空方法
+	panic("SetClientHandleMessage is not implemented")
+	return nil
+}
+func (s *LocalClient) SetClientHandleMessage(handler option.IClientHandleMessage) error {
+	s.handler = handler
+	return nil
+}
+
+func NewLocalClient(connect nrpc.ICallRpc, options ...option.ConnectOption) *LocalClient {
 	s := new(LocalClient)
 	s.Connect = connect
 	s.uriPath = "/ws"
-	s.serverUri = "127.0.0.1:8080"
+	s.address = "127.0.0.1:8080"
 
 	s.serviceMapMu = sync.RWMutex{}
 
@@ -92,7 +117,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			c.log(logger.Error, "ListenAndServe recover err : %v", err)
 		}
 	}()
-	addr := fmt.Sprintf("ws://%s%s", c.serverUri, c.uriPath)
+	addr := fmt.Sprintf("ws://%s%s", c.address, c.uriPath)
 	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
@@ -284,7 +309,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}
 }
 
-func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler option.IClientHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "readPump recover err : %v", err)

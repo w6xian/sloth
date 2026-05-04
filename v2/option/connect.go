@@ -60,7 +60,9 @@ func NewOptions() *Options {
 type IConnectOption interface {
 	SetUriPath(path string) error
 	SetRouter(router *mux.Router) error
+	SetAddress(address string) error
 	SetServerHandleMessage(handler IServerHandleMessage) error
+	SetClientHandleMessage(handler IClientHandleMessage) error
 }
 
 type ConnectOption func(s IConnectOption)
@@ -68,6 +70,12 @@ type ConnectOption func(s IConnectOption)
 func WithUriPath(path string) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetUriPath(path)
+	}
+}
+
+func WithAddress(path string) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetAddress(path)
 	}
 }
 
@@ -80,6 +88,13 @@ func WithRouter(router *mux.Router) ConnectOption {
 func WithServerHandleMessage(handler IServerHandleMessage) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetServerHandleMessage(handler)
+	}
+
+}
+
+func WithClientHandleMessage(handler IClientHandleMessage) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetClientHandleMessage(handler)
 	}
 
 }

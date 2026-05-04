@@ -10,8 +10,9 @@ import (
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
-	"github.com/w6xian/sloth/v2/nrpc/wsocket"
+	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
+	"github.com/w6xian/sloth/v2/types"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
@@ -30,9 +31,9 @@ func main() {
 	// Start WebSocket Client in a goroutine
 
 	go newConnect.Dial(ctx, "ws", "localhost:8990",
-		wsocket.WithClientHandle(&Handler{server: client}),
-		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri("localhost:8990"))
+		option.WithClientHandleMessage(&Handler{server: client}),
+		option.WithUriPath("/ws"),
+		option.WithAddress("localhost:8990"))
 
 	// Main loop for making RPC calls
 	func() {
@@ -106,13 +107,13 @@ type Handler struct {
 }
 
 // OnClose is called when connection is closed
-func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
-	fmt.Println("OnClose:", ch.UserId)
+func (h *Handler) OnClose(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error {
+	fmt.Println("OnClose:", ch.GetUserId())
 	return nil
 }
 
 // OnData handles received messages
-func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}
@@ -121,14 +122,14 @@ func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 }
 
 // OnError handles errors
-func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, err error) error {
+func (h *Handler) OnError(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, err error) error {
 	fmt.Println("OnError:", err.Error())
 	return nil
 }
 
 // OnOpen is called when connection is opened
-func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
-	fmt.Println("OnOpen:", ch.UserId, h.server)
+func (h *Handler) OnOpen(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error {
+	fmt.Println("OnOpen:", ch.GetUserId(), h.server)
 	// Example of sending an initial message or setting state
 	// ch.UserId = 2
 	// ch.RoomId = 1

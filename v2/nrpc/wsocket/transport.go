@@ -67,7 +67,7 @@ func (l *WsListener) Addr() string {
 // 实现 nrpc.Transport 接口
 type WsTransportAdapter struct {
 	serverOptions []option.ConnectOption
-	clientOptions []ClientOption
+	clientOptions []option.ConnectOption
 	server        *WsServer
 	client        *LocalClient
 }
@@ -84,7 +84,7 @@ func (w *WsTransportAdapter) WithServerOption(opts ...option.ConnectOption) *WsT
 }
 
 // WithClientOption 设置客户端选项
-func (w *WsTransportAdapter) WithClientOption(opts ...ClientOption) *WsTransportAdapter {
+func (w *WsTransportAdapter) WithClientOption(opts ...option.ConnectOption) *WsTransportAdapter {
 	w.clientOptions = append(w.clientOptions, opts...)
 	return w
 }
@@ -114,7 +114,7 @@ func (w *WsTransportAdapter) Listen(ctx context.Context, addr string) (nrpc.List
 // Dial 实现 nrpc.Transport 接口
 // 连接 WebSocket 服务端，返回 ICall
 func (w *WsTransportAdapter) Dial(ctx context.Context, addr string) (nrpc.ICall, error) {
-	opts := append(w.clientOptions, WithClientServerUri(addr))
+	opts := append(w.clientOptions, option.WithAddress(addr))
 	wsClient := NewLocalClient(nil, opts...)
 
 	// 启动客户端连接

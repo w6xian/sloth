@@ -354,7 +354,7 @@ func (c *Connect) StartWebsocketServer(options ...option.ConnectOption) error {
 	return c.wsListenOption(options...)
 }
 
-func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
+func (c *Connect) StartWebsocketClient(options ...option.ConnectOption) {
 	//set the maximum number of CPUs that can be executing
 	runtime.GOMAXPROCS(c.cpuNum)
 	wsClient := wsocket.NewLocalClient(c, options...)
@@ -362,7 +362,7 @@ func (c *Connect) StartWebsocketClient(options ...wsocket.ClientOption) {
 	wsClient.ListenAndServe(context.Background())
 }
 
-func (c *Connect) Dial(ctx context.Context, network, address string, options ...wsocket.ClientOption) {
+func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) {
 	// 如果设置了 Transport，使用 Transport 抽象
 	if c.transport != nil {
 		ctx := context.Background()
@@ -384,9 +384,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 	switch network {
 	case "ws", "wss", "websocket":
 		// WebSocket 客户端
-		opts := []wsocket.ClientOption{
-			wsocket.WithClientUriPath("/ws"),
-			wsocket.WithClientServerUri(address),
+		opts := []option.ConnectOption{
+			option.WithUriPath("/ws"),
+			option.WithAddress(address),
 		}
 		opts = append(opts, options...)
 		wsClient := wsocket.NewLocalClient(c, opts...)
@@ -407,9 +407,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 	default:
 		// 默认使用 WebSocket
 		c.Log(logger.Info, "unknown network type: %s, using WebSocket", network)
-		opts := []wsocket.ClientOption{
-			wsocket.WithClientUriPath("/ws"),
-			wsocket.WithClientServerUri(address),
+		opts := []option.ConnectOption{
+			option.WithUriPath("/ws"),
+			option.WithAddress(address),
 		}
 		opts = append(opts, options...)
 		wsClient := wsocket.NewLocalClient(c, opts...)
