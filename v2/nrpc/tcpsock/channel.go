@@ -14,6 +14,8 @@ import (
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // TcpChannelServer 实现 nrpc.AuthChannel 接口，
@@ -42,7 +44,7 @@ type TcpChannelServer struct {
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
 
-	Connect nrpc.ICallRpc
+	Connect trpc.ICallRpc
 
 	rpc_io int
 
@@ -50,7 +52,7 @@ type TcpChannelServer struct {
 	closeChan chan struct{}
 }
 
-func NewTcpChannelServer(connect nrpc.ICallRpc, conn net.Conn, server *TcpServer) *TcpChannelServer {
+func NewTcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *TcpServer) *TcpChannelServer {
 	ch := &TcpChannelServer{
 		server:    server,
 		conn:      conn,
@@ -139,7 +141,7 @@ func (ch *TcpChannelServer) Call(ctx context.Context, header message.Header, mtd
 
 // ── AuthChannel 接口实现 ──────────────────────────────────────────────────
 
-func (ch *TcpChannelServer) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (ch *TcpChannelServer) GetAuthInfo() (*auth.AuthInfo, error) {
 	if ch._userId == 0 {
 		return nil, errors.New("user id is 0")
 	}
@@ -149,14 +151,14 @@ func (ch *TcpChannelServer) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	if ch._sign == "" {
 		return nil, errors.New("token is empty")
 	}
-	return &nrpc.AuthInfo{
+	return &auth.AuthInfo{
 		UserId: ch._userId,
 		RoomId: ch._room.Id,
 		Token:  ch._sign,
 	}, nil
 }
 
-func (ch *TcpChannelServer) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (ch *TcpChannelServer) SetAuthInfo(auth *auth.AuthInfo) error {
 	return errors.New("server does not support SetAuthInfo")
 }
 
@@ -270,7 +272,7 @@ func (ch *TcpChannelServer) writeLoop(ctx context.Context) {
 
 // handleCall 处理客户端发来的 RPC Call 帧，通过中间件链执行。
 func (ch *TcpChannelServer) handleCall(payload []byte) {
-	var caller nrpc.RpcCaller
+	var caller trpc.RpcCaller
 	if err := json.Unmarshal(payload, &caller); err != nil {
 		ch.log(logger.Error, "handleCall unmarshal err: %v", err)
 		return
@@ -279,7 +281,7 @@ func (ch *TcpChannelServer) handleCall(payload []byte) {
 
 	// 构建最终处理函数（调用业务层）
 	final := func(ctx context.Context, header message.Header, mtd string, argBytes ...[]byte) ([]byte, error) {
-		msg := &nrpc.RpcCaller{
+		msg := &trpc.RpcCaller{
 			Id:      caller.Id,
 			Channel: ch,
 			Header:  header,

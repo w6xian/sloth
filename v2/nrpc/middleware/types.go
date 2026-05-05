@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types/auth"
 )
 
 // ── 通用类型定义 ──────────────────────────────────────────
@@ -19,4 +19,4 @@ type Middleware func(HandlerFunc) HandlerFunc
 type LogFunc func(format string, args ...any)
 
 // AuthValidator 自定义鉴权函数类型。
-type AuthValidator func(ai *nrpc.AuthInfo) error
+type AuthValidator func(ai *auth.AuthInfo) error

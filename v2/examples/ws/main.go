@@ -9,14 +9,15 @@ import (
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/tlv"
 )
 
 // main entry point for the WebSocket server
 func main() {
+	// Create a context with a cancel function
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -25,7 +26,8 @@ func main() {
 	drpc := sloth.ServerConn(server)
 	// Register services
 	drpc.Register("v1", &HelloService{}, "")
-	drpc.Listen(ctx, "ws", "localhost:8990", option.WithServerHandleMessage(&Handler{}))
+	drpc.Listen(ctx, "ws", "localhost:8990",
+		option.WithServerHandleMessage(&Handler{}))
 	if err := drpc.Serve(); err != nil {
 		panic(err)
 	}
@@ -122,7 +124,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	}
 
 	// Get bucket server from context
-	svr, ok := ctx.Value(sloth.BucketKey).(nrpc.IBucket)
+	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}
@@ -130,7 +132,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
 
 	// Simulate auth info extraction
-	auth := nrpc.AuthInfo{
+	auth := auth.AuthInfo{
 		UserId: 2,
 		RoomId: 1,
 		Token:  "token_123", // Added fake token

@@ -26,6 +26,9 @@ import (
 	"github.com/w6xian/sloth/v2/nrpc/wsocket"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
+	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 )
 
@@ -219,7 +222,6 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 			Listener: ln,
 			Options:  opts,
 		})
-		http.Handle("/", r)
 		c.Log(logger.Info, "registered WebSocket listener on %s", address)
 		return nil
 	case "tcp", "tcp4", "tcp6":
@@ -270,7 +272,9 @@ func (c *Connect) Serve() error {
 	// 初始化 WebSocket 服务器
 	for _, l := range c.listeners {
 		if l.Network == "ws" || l.Network == "wss" || l.Network == "websocket" {
-			c.wsListenOption(l.Options...)
+			if err := c.initWsServerInstance(l.Options...); err != nil {
+				return err
+			}
 			break
 		}
 	}
@@ -337,31 +341,6 @@ func (c *Connect) Close() error {
 	return nil
 }
 
-// path是uri中的路径，默认是"/ws"
-func (c *Connect) wsListenOption(options ...option.ConnectOption) error {
-	//set the maximum number of CPUs that can be executing
-	fmt.Println("wsListenOption")
-	runtime.GOMAXPROCS(c.cpuNum)
-	wsServer := wsocket.NewWsServer(c, options...)
-	c.client.Serve = wsServer
-	pprof.New(c).UsePProf(wsServer)
-	wsServer.ListenAndServe(context.Background())
-	return nil
-}
-
-// path是uri中的路径，默认是"/ws"
-func (c *Connect) StartWebsocketServer(options ...option.ConnectOption) error {
-	return c.wsListenOption(options...)
-}
-
-func (c *Connect) StartWebsocketClient(options ...option.ConnectOption) {
-	//set the maximum number of CPUs that can be executing
-	runtime.GOMAXPROCS(c.cpuNum)
-	wsClient := wsocket.NewLocalClient(c, options...)
-	c.server.Listen = wsClient
-	wsClient.ListenAndServe(context.Background())
-}
-
 func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) {
 	// 如果设置了 Transport，使用 Transport 抽象
 	if c.transport != nil {
@@ -389,9 +368,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			option.WithAddress(address),
 		}
 		opts = append(opts, options...)
-		wsClient := wsocket.NewLocalClient(c, opts...)
-		c.server.Listen = wsClient
-		wsClient.ListenAndServe(context.Background())
+		if err := c.initWsClientInstance(opts...); err != nil {
+			panic(err)
+		}
 	case "tcp", "tcp4", "tcp6":
 		// TODO: 实现 TCP 客户端
 		c.Log(logger.Error, "TCP client not implemented yet")
@@ -412,21 +391,21 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			option.WithAddress(address),
 		}
 		opts = append(opts, options...)
-		wsClient := wsocket.NewLocalClient(c, opts...)
-		c.server.Listen = wsClient
-		wsClient.ListenAndServe(context.Background())
+		if err := c.initWsClientInstance(opts...); err != nil {
+			panic(err)
+		}
 	}
 
 }
 
-func (c *Connect) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
 	return c.server.Listen.SetAuthInfo(auth)
 }
 
 var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
 
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
-func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.RpcCaller) ([]byte, error) {
+func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			// fmt.Println("------------")
@@ -463,7 +442,7 @@ func (c *Connect) CallFunc(ctx context.Context, svr nrpc.IBucket, msgReq *nrpc.R
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	} else {
-		if ch, cok := msgReq.Channel.(nrpc.IChannel); cok {
+		if ch, cok := msgReq.Channel.(trpc.IChannel); cok {
 			ctx = context.WithValue(ctx, ChannelKey, ch)
 		}
 	}

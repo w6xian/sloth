@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/w6xian/sloth/v2/bucket"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // Transport 各协议实现此接口，统一服务端 Listen 和客户端 Dial。
@@ -12,7 +14,7 @@ type Transport interface {
 	// Listen 启动服务端监听，返回 Listener。
 	Listen(ctx context.Context, addr string) (Listener, error)
 	// Dial 连接远端服务端，返回 ICall（用于 Call/Push）。
-	Dial(ctx context.Context, addr string) (ICall, error)
+	Dial(ctx context.Context, addr string) (trpc.ICall, error)
 }
 
 // Listener 服务端监听器接口。
@@ -39,8 +41,8 @@ type Listener interface {
 //	GetAuthInfo() / SetAuthInfo()  （身份认证）
 type AuthChannel interface {
 	bucket.IChannel
-	GetAuthInfo() (*AuthInfo, error)
-	SetAuthInfo(auth *AuthInfo) error
+	GetAuthInfo() (*auth.AuthInfo, error)
+	SetAuthInfo(auth *auth.AuthInfo) error
 }
 
 // ── 统一 TLV 帧类型（所有协议共用）─────────────────────────────

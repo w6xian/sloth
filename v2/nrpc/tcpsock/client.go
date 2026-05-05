@@ -11,6 +11,8 @@ import (
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // TcpConn 实现 nrpc.RawConn 接口，封装 TCP 连接。
@@ -64,8 +66,8 @@ type ReplyMessage struct {
 
 // TcpClient 实现 nrpc.ICall 接口，基于 TcpConn。
 type TcpClient struct {
-	*TcpConn                       // 嵌入 TcpConn，实现 nrpc.RawConn
-	Connect nrpc.ICallRpc
+	*TcpConn // 嵌入 TcpConn，实现 nrpc.RawConn
+	Connect  trpc.ICallRpc
 
 	// 等待中的 RPC 调用
 	pendingCalls sync.Map
@@ -77,11 +79,11 @@ type TcpClient struct {
 
 	// 认证信息
 	authMu   sync.RWMutex
-	authInfo *nrpc.AuthInfo
+	authInfo *auth.AuthInfo
 }
 
 // NewTcpClient 创建 TCP 客户端
-func NewTcpClient(connect nrpc.ICallRpc) *TcpClient {
+func NewTcpClient(connect trpc.ICallRpc) *TcpClient {
 	return &TcpClient{
 		Connect:   connect,
 		closeChan: make(chan struct{}),
@@ -114,7 +116,7 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	c.callIdMu.Unlock()
 
 	// 构造 RpcCaller
-	callMsg := &nrpc.RpcCaller{
+	callMsg := &trpc.RpcCaller{
 		Id:       id,
 		Protocol: 1, // JSON 协议
 		Action:   1, // ACTION_CALL
@@ -159,14 +161,14 @@ func (c *TcpClient) Push(ctx context.Context, msg *message.Msg) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *TcpClient) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (c *TcpClient) GetAuthInfo() (*auth.AuthInfo, error) {
 	c.authMu.RLock()
 	defer c.authMu.RUnlock()
 	return c.authInfo, nil
 }
 
 // SetAuthInfo 设置认证信息
-func (c *TcpClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (c *TcpClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
 	c.authInfo = auth

@@ -6,11 +6,13 @@ import (
 
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // 测试IChannel实现
 type TestChannel struct {
-	auth *AuthInfo
+	auth *auth.AuthInfo
 }
 
 func (c *TestChannel) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
@@ -21,11 +23,11 @@ func (c *TestChannel) Push(ctx context.Context, msg *message.Msg) error {
 	return nil
 }
 
-func (c *TestChannel) GetAuthInfo() (*AuthInfo, error) {
+func (c *TestChannel) GetAuthInfo() (*auth.AuthInfo, error) {
 	return c.auth, nil
 }
 
-func (c *TestChannel) SetAuthInfo(auth *AuthInfo) error {
+func (c *TestChannel) SetAuthInfo(auth *auth.AuthInfo) error {
 	c.auth = auth
 	return nil
 }
@@ -61,7 +63,7 @@ func (b *TestBucket) Broadcast(ctx context.Context, msg *message.Msg) error {
 
 // 测试RpcCaller
 func TestRpcCaller(t *testing.T) {
-	caller := &RpcCaller{
+	caller := &trpc.RpcCaller{
 		Method:   "test.Hello",
 		Data:     []byte("test data"),
 		Args:     [][]byte{[]byte("arg1"), []byte("arg2")},
@@ -87,7 +89,7 @@ func TestRpcCaller(t *testing.T) {
 
 // 测试AuthInfo
 func TestAuthInfo(t *testing.T) {
-	auth := &AuthInfo{
+	auth := &auth.AuthInfo{
 		UserId: 1,
 		RoomId: 100,
 		Token:  "test-token",

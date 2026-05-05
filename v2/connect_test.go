@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/wsocket"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // 测试服务结构体
@@ -89,7 +89,7 @@ func TestCallFunc(t *testing.T) {
 	}
 
 	// 创建RPC调用请求
-	rpcCaller := &nrpc.RpcCaller{
+	rpcCaller := &trpc.RpcCaller{
 		Method:   "test.Hello",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,
@@ -138,7 +138,7 @@ func TestCallFuncError(t *testing.T) {
 	}
 
 	// 测试不存在的方法
-	rpcCaller := &nrpc.RpcCaller{
+	rpcCaller := &trpc.RpcCaller{
 		Method:   "test.NonExistent",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,

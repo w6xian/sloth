@@ -11,7 +11,8 @@ import (
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -28,7 +29,7 @@ type WsChannelServer struct {
 	_sign     string
 	Conn      *websocket.Conn
 	connTcp   *net.TCPConn
-	Connect   nrpc.ICallRpc
+	Connect   trpc.ICallRpc
 
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
@@ -79,7 +80,7 @@ func (ch *WsChannelServer) Token(t ...string) string {
 }
 
 // login 登录
-func (ch *WsChannelServer) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (ch *WsChannelServer) GetAuthInfo() (*auth.AuthInfo, error) {
 	if ch._userId == 0 {
 		return nil, errors.New("user id is 0")
 	}
@@ -89,14 +90,14 @@ func (ch *WsChannelServer) GetAuthInfo() (*nrpc.AuthInfo, error) {
 	if ch._sign == "" {
 		return nil, errors.New("sign is empty")
 	}
-	return &nrpc.AuthInfo{
+	return &auth.AuthInfo{
 		UserId: ch._userId,
 		RoomId: ch._room.Id,
 		Token:  ch._sign,
 	}, nil
 }
 
-func (ch *WsChannelServer) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (ch *WsChannelServer) SetAuthInfo(auth *auth.AuthInfo) error {
 	return errors.New("server not support set auth info")
 }
 
@@ -125,7 +126,7 @@ func (s *WsChannelServer) log(level logger.LogLevel, line string, args ...any) {
 	s.Connect.Log(level, "[WsChannelServer]"+line, args...)
 }
 
-func NewWsChannelServer(connect nrpc.ICallRpc, opts ...ChannelServerOption) (c *WsChannelServer) {
+func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *WsChannelServer) {
 	c = new(WsChannelServer)
 	c.Lock = sync.Mutex{}
 	c.broadcast = make(chan *message.Msg, 10)

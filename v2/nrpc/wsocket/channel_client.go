@@ -10,7 +10,8 @@ import (
 
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -21,7 +22,7 @@ type WsChannelClient struct {
 	send      chan *message.Msg
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
-	Connect   nrpc.ICallRpc
+	Connect   trpc.ICallRpc
 
 	// 客户端的用户ID
 	UserId int64
@@ -41,7 +42,7 @@ type WsChannelClient struct {
 	rpc_io int
 }
 
-func NewWsChannelClient(connect nrpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
+func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
 	c = new(WsChannelClient)
 	c.Lock = sync.Mutex{}
 	c.send = make(chan *message.Msg, 5)
@@ -128,15 +129,15 @@ func (c *WsChannelClient) ReplyError(id string, err []byte) error {
 }
 
 // login 登录
-func (ch *WsChannelClient) GetAuthInfo() (*nrpc.AuthInfo, error) {
-	return &nrpc.AuthInfo{
+func (ch *WsChannelClient) GetAuthInfo() (*auth.AuthInfo, error) {
+	return &auth.AuthInfo{
 		UserId: ch.UserId,
 		RoomId: ch.RoomId,
 		Token:  ch.Sign,
 	}, nil
 }
 
-func (ch *WsChannelClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (ch *WsChannelClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}

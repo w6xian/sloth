@@ -14,6 +14,8 @@ import (
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
+	"github.com/w6xian/sloth/v2/types/handler"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // TcpServer 实现 nrpc.Listener 接口。
@@ -25,18 +27,18 @@ type TcpServer struct {
 	Buckets   []*bucket.Bucket
 	bucketIdx uint32
 
-	Connect nrpc.ICallRpc
+	Connect trpc.ICallRpc
 
 	// 中间件链（通过 Use 注册）
 	middlewares []middleware.Middleware
 
-	handler option.IServerHandleMessage
+	handler handler.IServerHandleMessage
 
 	closeOnce sync.Once
 	closeChan chan struct{}
 }
 
-func NewTcpServer(connect nrpc.ICallRpc, opt *option.Options) *TcpServer {
+func NewTcpServer(connect trpc.ICallRpc, opt *option.Options) *TcpServer {
 	bsNum := max(1, runtime.NumCPU())
 	bs := make([]*bucket.Bucket, bsNum)
 	for i := 0; i < bsNum; i++ {

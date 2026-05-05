@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // ReplyMessage 服务端回复结构
@@ -20,11 +22,11 @@ type ReplyMessage struct {
 // unifiedClient 统一的客户端实现，基于 RawConn
 type unifiedClient struct {
 	conn     RawConn
-	connType string // "tcp" / "ws" / ...
+	connType string   // "tcp" / "ws" / ...
 	pending  sync.Map // id -> chan *ReplyMessage
 	callId   int64
 	callIdMu sync.Mutex
-	authInfo *AuthInfo
+	authInfo *auth.AuthInfo
 	authMu   sync.RWMutex
 }
 
@@ -67,7 +69,7 @@ func (c *unifiedClient) Call(ctx context.Context, header message.Header, mtd str
 	c.callIdMu.Unlock()
 
 	// 构造 RpcCaller
-	callMsg := &RpcCaller{
+	callMsg := &trpc.RpcCaller{
 		Id:       id,
 		Protocol: 1, // JSON 协议
 		Action:   1, // ACTION_CALL
@@ -113,14 +115,14 @@ func (c *unifiedClient) Push(ctx context.Context, msg *message.Msg) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *unifiedClient) GetAuthInfo() (*AuthInfo, error) {
+func (c *unifiedClient) GetAuthInfo() (*auth.AuthInfo, error) {
 	c.authMu.RLock()
 	defer c.authMu.RUnlock()
 	return c.authInfo, nil
 }
 
 // SetAuthInfo 设置认证信息
-func (c *unifiedClient) SetAuthInfo(auth *AuthInfo) error {
+func (c *unifiedClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
 	c.authInfo = auth

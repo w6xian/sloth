@@ -9,10 +9,11 @@ import (
 	"github.com/w6xian/sloth/v2"
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
 	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
@@ -52,7 +53,7 @@ func main() {
 					fmt.Println("v1.Sign Call error:", err)
 					continue
 				}
-				auth := &nrpc.AuthInfo{}
+				auth := &auth.AuthInfo{}
 				err = tlv.Json2Struct(data, auth)
 				if err != nil {
 					continue
@@ -144,7 +145,7 @@ type HelloService struct {
 // Test is a sample client-side method
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
-	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
+	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}

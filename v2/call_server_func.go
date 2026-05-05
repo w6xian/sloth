@@ -6,12 +6,13 @@ import (
 	"log"
 
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 )
 
 type ServerRpc struct {
-	Listen  nrpc.ICall
+	Listen  trpc.ICall
 	RoomId  int64
 	UserId  int64
 	Auth    string
@@ -27,7 +28,7 @@ func (c *ServerRpc) SetEncoder(encoder Encoder) {
 func (c *ServerRpc) SetDecoder(decoder Decoder) {
 	c.Decoder = decoder
 }
-func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (c *ServerRpc) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}
@@ -40,7 +41,7 @@ func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *ServerRpc) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (c *ServerRpc) GetAuthInfo() (*auth.AuthInfo, error) {
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}

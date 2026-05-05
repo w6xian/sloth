@@ -16,9 +16,11 @@ import (
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/internal/utils/id"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/sloth/v2/option"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/handler"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/mux"
@@ -30,9 +32,9 @@ type LocalClient struct {
 	uriPath      string
 	address      string
 
-	Connect nrpc.ICallRpc
-	handler option.IClientHandleMessage
-	client  nrpc.ICall
+	Connect trpc.ICallRpc
+	handler handler.IClientHandleMessage
+	client  trpc.ICall
 
 	WriteWait       time.Duration
 	ReadWait        time.Duration
@@ -52,16 +54,16 @@ type LocalClient struct {
 }
 
 // getRpcCaller 从池中获取 RpcCaller 对象
-func (c *LocalClient) getRpcCaller() *nrpc.RpcCaller {
+func (c *LocalClient) getRpcCaller() *trpc.RpcCaller {
 	req := c.rpcCallerPool.Get()
 	if req == nil {
-		return &nrpc.RpcCaller{}
+		return &trpc.RpcCaller{}
 	}
-	return req.(*nrpc.RpcCaller)
+	return req.(*trpc.RpcCaller)
 }
 
 // putRpcCaller 归还 RpcCaller 对象到池中
-func (c *LocalClient) putRpcCaller(req *nrpc.RpcCaller) {
+func (c *LocalClient) putRpcCaller(req *trpc.RpcCaller) {
 	// 重置字段
 	req.Id = ""
 	req.Protocol = 0
@@ -87,16 +89,16 @@ func (c *LocalClient) SetAddress(address string) error {
 	return nil
 }
 
-func (s *LocalClient) SetServerHandleMessage(handler option.IServerHandleMessage) error {
+func (s *LocalClient) SetServerHandleMessage(handler handler.IServerHandleMessage) error {
 	// 空方法
 	panic("SetClientHandleMessage is not implemented")
 }
-func (s *LocalClient) SetClientHandleMessage(handler option.IClientHandleMessage) error {
+func (s *LocalClient) SetClientHandleMessage(handler handler.IClientHandleMessage) error {
 	s.handler = handler
 	return nil
 }
 
-func NewLocalClient(connect nrpc.ICallRpc, options ...option.ConnectOption) *LocalClient {
+func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *LocalClient {
 	s := new(LocalClient)
 	s.Connect = connect
 	s.uriPath = "/ws"
@@ -107,7 +109,7 @@ func NewLocalClient(connect nrpc.ICallRpc, options ...option.ConnectOption) *Loc
 	// 初始化 RpcCaller 对象池
 	s.rpcCallerPool = sync.Pool{
 		New: func() any {
-			return &nrpc.RpcCaller{}
+			return &trpc.RpcCaller{}
 		},
 	}
 
@@ -169,7 +171,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 	return nil
 }
 
-func (c *LocalClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (c *LocalClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}
@@ -180,7 +182,7 @@ func (c *LocalClient) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *LocalClient) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (c *LocalClient) GetAuthInfo() (*auth.AuthInfo, error) {
 	if c.client == nil {
 		return nil, errors.New("client not found")
 	}
@@ -341,7 +343,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}
 }
 
-func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler option.IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler handler.IClientHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "readPump recover err : %v", err)
@@ -482,13 +484,13 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 // 有两种情况：
 // 1. 服务器主动推送消息，需要调用本地方法处理
 // 2. 服务器调用本地方法，需要返回结果
-func (c *LocalClient) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
+func (c *LocalClient) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
 	c.serviceMapMu.RLock()
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
 		if err := recover(); err != nil {
 			// fmt.Println("------------")
-			c.log(logger.Error, "ws_client.HandleMessage recover err : %v", err)
+			c.log(logger.Error, "ws_client.HandleCall recover err : %v", err)
 		}
 		// 处理完成后归还对象池
 		c.putRpcCaller(msgReq)

@@ -9,12 +9,12 @@ import (
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/decoder"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/types"
 	"github.com/w6xian/tlv"
 )
 
 type ClientRpc struct {
-	Serve   IServer
+	Serve   types.IServer
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
@@ -55,8 +55,8 @@ func GetChannel(ctx context.Context) (bucket.IChannel, error) {
 	}
 	return ch, nil
 }
-func GetBucket(ctx context.Context) (nrpc.IBucket, error) {
-	bucket, ok := ctx.Value(BucketKey).(nrpc.IBucket)
+func GetBucket(ctx context.Context) (types.IBucket, error) {
+	bucket, ok := ctx.Value(BucketKey).(types.IBucket)
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}

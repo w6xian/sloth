@@ -8,6 +8,7 @@ import (
 
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/option"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // WsListener 是 WsServer 的 nrpc.Listener 适配器
@@ -113,7 +114,7 @@ func (w *WsTransportAdapter) Listen(ctx context.Context, addr string) (nrpc.List
 
 // Dial 实现 nrpc.Transport 接口
 // 连接 WebSocket 服务端，返回 ICall
-func (w *WsTransportAdapter) Dial(ctx context.Context, addr string) (nrpc.ICall, error) {
+func (w *WsTransportAdapter) Dial(ctx context.Context, addr string) (trpc.ICall, error) {
 	opts := append(w.clientOptions, option.WithAddress(addr))
 	wsClient := NewLocalClient(nil, opts...)
 

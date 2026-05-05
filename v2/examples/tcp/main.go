@@ -9,9 +9,10 @@ import (
 	"github.com/w6xian/sloth/v2"
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/sloth/v2/nrpc/tcpsock"
+	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
 )
 
 // main 演示 TCP 服务端和客户端的使用
@@ -72,7 +73,7 @@ func client() {
 	defer tcpClient.Close()
 
 	// 设置认证信息
-	tcpClient.SetAuthInfo(&nrpc.AuthInfo{
+	tcpClient.SetAuthInfo(&auth.AuthInfo{
 		UserId: 1,
 		RoomId: 1,
 		Token:  "test-token",
@@ -156,7 +157,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("channel not found")
 	}
 
-	svr, ok := ctx.Value(sloth.BucketKey).(nrpc.IBucket)
+	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}
@@ -164,7 +165,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	fmt.Println("  Sign data:", string(data))
 
 	// 注册到 bucket
-	auth := nrpc.AuthInfo{
+	auth := auth.AuthInfo{
 		UserId: 2,
 		RoomId: 1,
 		Token:  "token_123",

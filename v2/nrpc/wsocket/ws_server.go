@@ -15,10 +15,11 @@ import (
 	"github.com/w6xian/sloth/v2/internal/tools"
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/nrpc/middleware"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
+	"github.com/w6xian/sloth/v2/types/handler"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"log"
@@ -49,9 +50,9 @@ type WsServer struct {
 	Buckets         []*bucket.Bucket
 	bucketIdx       uint32
 	serviceMapMu    sync.RWMutex
-	Connect         nrpc.ICallRpc
+	Connect         trpc.ICallRpc
 	uriPath         string
-	handler         option.IServerHandleMessage
+	handler         handler.IServerHandleMessage
 	router          *mux.Router
 	WriteWait       time.Duration
 	ReadWait        time.Duration
@@ -80,11 +81,11 @@ func (s *WsServer) SetAddress(address string) error {
 	return nil
 }
 
-func (s *WsServer) SetServerHandleMessage(handler option.IServerHandleMessage) error {
+func (s *WsServer) SetServerHandleMessage(handler handler.IServerHandleMessage) error {
 	s.handler = handler
 	return nil
 }
-func (s *WsServer) SetClientHandleMessage(handler option.IClientHandleMessage) error {
+func (s *WsServer) SetClientHandleMessage(handler handler.IClientHandleMessage) error {
 	// 空方法
 	panic("SetClientHandleMessage is not implemented")
 	return nil
@@ -98,7 +99,7 @@ func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
 	s.Connect.Log(level, "[WsServer]"+line, args...)
 }
 
-func NewWsServer(server nrpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
+func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 	bsNum := 1
 	bsNum = max(bsNum, runtime.NumCPU())
 	//init Connect layer rpc server, logic client will call this
@@ -299,7 +300,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	}
 }
 
-func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler option.IServerHandleMessage) {
+func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler handler.IServerHandleMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "readPump recover err : %v", err)
@@ -382,7 +383,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler op
 					ch.rpc_io = 0
 				}
 				// 调用方法
-				args := &nrpc.RpcCaller{
+				args := &trpc.RpcCaller{
 					Id:       idstr,
 					Protocol: protocol,
 					Action:   action,
@@ -438,7 +439,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler op
 }
 
 // HandleCall 处理来自客户端的 RPC 调用
-func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
+func (s *WsServer) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
 	s.serviceMapMu.RLock()
 	defer s.serviceMapMu.RUnlock()
 
@@ -449,7 +450,7 @@ func (s *WsServer) HandleCall(ctx context.Context, msgReq *nrpc.RpcCaller) {
 	}()
 	// 使用中间件链包装业务调用
 	final := func(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
-		msg := &nrpc.RpcCaller{
+		msg := &trpc.RpcCaller{
 			Id:      msgReq.Id,
 			Channel: msgReq.Channel,
 			Header:  header,

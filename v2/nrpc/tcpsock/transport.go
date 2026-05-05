@@ -5,6 +5,7 @@ import (
 
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/option"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // TcpTransport 实现 nrpc.Transport 接口，提供 TCP 协议的
@@ -25,7 +26,7 @@ import (
 //	client, _ := transport.Dial(ctx, "127.0.0.1:8080")
 //	rsp, err := client.Call(ctx, header, "MethodName", arg)
 type TcpTransport struct {
-	connect nrpc.ICallRpc
+	connect trpc.ICallRpc
 	opt     *option.Options
 }
 
@@ -33,7 +34,7 @@ type TcpTransport struct {
 //
 //   - connect：业务层实现的 ICallRpc（处理 RPC 调用）
 //   - opt：框架选项（Bucket 大小、Room 大小等）
-func NewTcpTransport(connect nrpc.ICallRpc, opt *option.Options) *TcpTransport {
+func NewTcpTransport(connect trpc.ICallRpc, opt *option.Options) *TcpTransport {
 	return &TcpTransport{
 		connect: connect,
 		opt:     opt,
@@ -52,7 +53,7 @@ func (t *TcpTransport) Listen(ctx context.Context, addr string) (nrpc.Listener, 
 }
 
 // Dial 连接远端 TCP 服务端，返回 ICall（可用于 Call/Push）。
-func (t *TcpTransport) Dial(ctx context.Context, addr string) (nrpc.ICall, error) {
+func (t *TcpTransport) Dial(ctx context.Context, addr string) (trpc.ICall, error) {
 	client := NewTcpClient(t.connect)
 	_, err := client.Dial(ctx, addr)
 	return client, err
