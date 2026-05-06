@@ -110,6 +110,18 @@ func (j JsonValue) MapSS(col string) map[string]string {
 	return m
 }
 
+func (j JsonValue) MapStringInto(col string, dst map[string]string) {
+	if dst == nil {
+		return
+	}
+	for k := range dst {
+		delete(dst, k)
+	}
+	if j[col] != nil {
+		json.Unmarshal(*j[col], &dst)
+	}
+}
+
 func MapToStruct(s any, v any) error {
 	if s == nil {
 		return nil

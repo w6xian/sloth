@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v2/actions"
@@ -68,7 +69,10 @@ func (c *LocalClient) putRpcCaller(req *trpc.RpcCaller) {
 	req.Id = ""
 	req.Protocol = 0
 	req.Action = 0
-	req.Header = nil
+	if req.Header != nil {
+		message.PutHeader(message.Header(req.Header))
+		req.Header = nil
+	}
 	req.Method = ""
 	req.Data = nil
 	req.Args = nil
@@ -443,15 +447,17 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			}
 
 			if action == actions.ACTION_CALL {
-				if ch.rpc_io < 0 {
-					ch.rpc_io = 0
+				if atomic.LoadInt64(&ch.rpc_io) < 0 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 				}
 				// 使用对象池获取 RpcCaller，减少 GC 压力
 				args := c.getRpcCaller()
 				args.Id = idstr
 				args.Protocol = protocol
 				args.Action = action
-				args.Header = connReq.MapString("header")
+				hdr := message.GetHeader()
+				connReq.MapStringInto("header", hdr)
+				args.Header = hdr
 				args.Method = connReq.String("method")
 				args.Data = data
 				args.Args = connReq.BytesArray("args")
@@ -460,9 +466,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				// 注意：HandleCall 不负责归还对象，对象由调用方在处理完成后归还
 				continue
 			} else if action == actions.ACTION_REPLY {
-				ch.rpc_io--
-				if ch.rpc_io < -50 {
-					ch.rpc_io = 0
+				if atomic.AddInt64(&ch.rpc_io, -1) < -50 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 					continue
 				}
 				errStr := connReq.String("error")

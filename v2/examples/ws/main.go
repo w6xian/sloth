@@ -28,10 +28,23 @@ func main() {
 	drpc.Register("v1", &HelloService{}, "")
 	drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithServerHandleMessage(&Handler{}))
+	go func() {
+		for {
+			time.Sleep(time.Millisecond * 2000)
+			rst, err := server.Call(ctx, 2, "shop.Test", tlv.Json(&AB{A: 1, B: 2}))
+			if err != nil {
+				fmt.Println("Call error:", err)
+				continue
+			}
+			fmt.Println("Call result:", string(rst))
+		}
+	}()
+
 	if err := drpc.Serve(); err != nil {
 		panic(err)
 	}
 	fmt.Println("WebSocket server listening on localhost:8990")
+
 }
 
 // Hello represents a simple message structure
@@ -62,17 +75,19 @@ func (h *Handler) OnOpen(ctx context.Context, s types.IBucket, ch bucket.IChanne
 }
 
 // OnData is called when data is received from a WebSocket connection
-func (h *Handler) OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, msg []byte) error {
 	// Simple authentication/bucketing logic
-	fmt.Println("OnData:1", string(message))
+	fmt.Println("OnData:1", string(msg))
 	if ch.UserId() == 0 {
 		userId := int64(2)
 		roomId := int64(1)
 		// Assign user to a bucket (room)
 		b := s.Bucket(userId)
 		err := b.Put(userId, roomId, "token", ch)
-
-		return err
+		if err != nil {
+			fmt.Println("Put error:", err)
+			return err
+		}
 	}
 	return nil
 }

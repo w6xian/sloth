@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v2/actions"
@@ -379,15 +380,17 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 			idstr := connReq.String("id")
 			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
-				if ch.rpc_io < 0 {
-					ch.rpc_io = 0
+				if atomic.LoadInt64(&ch.rpc_io) < 0 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 				}
 				// 调用方法
+				hdr := message.GetHeader()
+				connReq.MapStringInto("header", hdr)
 				args := &trpc.RpcCaller{
 					Id:       idstr,
 					Protocol: protocol,
 					Action:   action,
-					Header:   connReq.MapString("header"),
+					Header:   hdr,
 					Method:   connReq.String("method"),
 					Args:     connReq.BytesArray("args"),
 				}
@@ -403,12 +406,13 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 				// 调用 connect.CallFunc 方法
 				hctx := context.Background()
 				s.HandleCall(hctx, args)
+				message.PutHeader(message.Header(args.Header))
+				args.Header = nil
 				continue
 			} else if action == actions.ACTION_REPLY {
-				ch.rpc_io--
 				// 防止被恶意阻塞，这里也有个问题，同一个方法，不能一直返回
-				if ch.rpc_io < -100 {
-					ch.rpc_io = 0
+				if atomic.AddInt64(&ch.rpc_io, -1) < -100 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 					continue
 				}
 				errStr := connReq.String("error")

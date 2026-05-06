@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v2/actions"
@@ -46,7 +47,7 @@ type WsChannelServer struct {
 	// error handler
 	errHandler func(err error)
 	// rpc_io 记录当前连接的rpc调用次数
-	rpc_io int
+	rpc_io int64
 
 	callObjPool sync.Pool
 	backObjPool sync.Pool
@@ -154,7 +155,7 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	for _, opt := range opts {
 		opt(c)
 	}
-	c.rpc_io = 0
+	atomic.StoreInt64(&c.rpc_io, 0)
 	c.callObjPool = sync.Pool{
 		New: func() any {
 			return &message.JsonCallObject{}
@@ -311,6 +312,7 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- payload:
+		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:

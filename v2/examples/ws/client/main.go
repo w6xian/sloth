@@ -40,7 +40,7 @@ func main() {
 	// Main loop for making RPC calls
 	func() {
 		for {
-			time.Sleep(time.Second)
+			time.Sleep(time.Millisecond * 100)
 
 			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
