@@ -293,7 +293,11 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 			if err := slicesTextSend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
 				return
 			}
-		case msg, ok := <-ch.rpcCaller:
+		case payload, ok := <-ch.rpcCaller:
+			/*
+			 * @call  调用服务器方法
+			 * @param payload 调用参数
+			 */
 			if ch.conn == nil {
 				return
 			}
@@ -304,13 +308,16 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			// fmt.Println("Call LocalClient-22-:", msg)
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
 				c.log(logger.Error, "slicesTextSend err = %v", err.Error())
 				return
 			}
 			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
-		case msg, ok := <-ch.rpcBacker:
+		case payload, ok := <-ch.rpcBacker:
+			/*
+			 * @reply  服务器返回调用结果
+			 * @param payload 调用结果
+			 */
 			if ch.conn == nil {
 				return
 			}
@@ -322,7 +329,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				return
 			}
 
-			if err := slicesTextSend(getSliceName(), ch.conn, utils.Serialize(msg), sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
 				return
 			}
 			// fmt.Println("rpcBacker message:", message)
@@ -460,13 +467,34 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				}
 				errStr := connReq.String("error")
 				if errStr != "" {
-					// 处理服务器返回的错误
-					backObj := message.NewWsJsonBackError(idstr, []byte(errStr))
-					ch.rpcBacker <- backObj
+					backObj := ch.getBackObj()
+					backObj.Id = idstr
+					backObj.Action = actions.ACTION_REPLY
+					backObj.Type = message.TextMessage
+					backObj.Data = nil
+					backObj.Error = errStr
+					payload := utils.Serialize(backObj)
+					ch.putBackObj(backObj)
+					select {
+					case ch.rpcResult <- payload:
+					case <-ctx.Done():
+						return
+					}
 					continue
 				}
-				backObj := message.NewWsJsonBackSuccess(idstr, data)
-				ch.rpcBacker <- backObj
+				backObj := ch.getBackObj()
+				backObj.Id = idstr
+				backObj.Action = actions.ACTION_REPLY
+				backObj.Type = message.TextMessage
+				backObj.Data = data
+				backObj.Error = ""
+				payload := utils.Serialize(backObj)
+				ch.putBackObj(backObj)
+				select {
+				case ch.rpcResult <- payload:
+				case <-ctx.Done():
+					return
+				}
 				continue
 			}
 		} else {

@@ -80,12 +80,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		}
 		args = append(args, b)
 	}
-	// fmt.Println("Call args:", args)
-	// fmt.Println("Call header:", c.Header)
-	// fmt.Println("Call mtd:", mtd)
-	// fmt.Println("Call ctx:", c.Listen)
+	// 调用服务器方法,这里对应的是 channel_client.go 中的Call方法
 	resp, err := c.Listen.Call(ctx, c.Header.Clone(), mtd, args...)
-	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err
 	}

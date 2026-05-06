@@ -8,8 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/w6xian/sloth/v2/actions"
 	"github.com/w6xian/sloth/v2/bucket"
+	"github.com/w6xian/sloth/v2/decoder"
 	"github.com/w6xian/sloth/v2/internal/logger"
+	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/sloth/v2/types/trpc"
@@ -30,9 +33,9 @@ type WsChannelServer struct {
 	Conn      *websocket.Conn
 	connTcp   *net.TCPConn
 	Connect   trpc.ICallRpc
-
-	rpcCaller chan *message.JsonCallObject
-	rpcBacker chan *message.JsonBackObject
+	rpcCaller chan []byte
+	rpcBacker chan []byte
+	rpcResult chan []byte
 
 	pongTimeout    time.Duration
 	writeWait      time.Duration
@@ -44,6 +47,9 @@ type WsChannelServer struct {
 	errHandler func(err error)
 	// rpc_io 记录当前连接的rpc调用次数
 	rpc_io int
+
+	callObjPool sync.Pool
+	backObjPool sync.Pool
 }
 
 func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
@@ -130,8 +136,9 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	c = new(WsChannelServer)
 	c.Lock = sync.Mutex{}
 	c.broadcast = make(chan *message.Msg, 10)
-	c.rpcCaller = make(chan *message.JsonCallObject, 10)
-	c.rpcBacker = make(chan *message.JsonBackObject, 10)
+	c.rpcCaller = make(chan []byte, 10)
+	c.rpcBacker = make(chan []byte, 10)
+	c.rpcResult = make(chan []byte, 10)
 	c.Next(nil)
 	c.Prev(nil)
 	c.pongTimeout = 54 * time.Second
@@ -148,6 +155,16 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 		opt(c)
 	}
 	c.rpc_io = 0
+	c.callObjPool = sync.Pool{
+		New: func() any {
+			return &message.JsonCallObject{}
+		},
+	}
+	c.backObjPool = sync.Pool{
+		New: func() any {
+			return &message.JsonBackObject{}
+		},
+	}
 	return
 }
 
@@ -165,16 +182,72 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 	return
 }
 
+func (c *WsChannelServer) getCallObj() *message.JsonCallObject {
+	req := c.callObjPool.Get()
+	if req == nil {
+		return &message.JsonCallObject{}
+	}
+	return req.(*message.JsonCallObject)
+}
+
+func (c *WsChannelServer) putCallObj(req *message.JsonCallObject) {
+	if req == nil {
+		return
+	}
+	req.Id = ""
+	req.Action = 0
+	req.Type = 0
+	req.Header = nil
+	req.Method = ""
+	req.Data = nil
+	req.Error = ""
+	req.Args = nil
+	c.callObjPool.Put(req)
+}
+
+func (c *WsChannelServer) getBackObj() *message.JsonBackObject {
+	req := c.backObjPool.Get()
+	if req == nil {
+		return &message.JsonBackObject{}
+	}
+	return req.(*message.JsonBackObject)
+}
+
+func (c *WsChannelServer) putBackObj(req *message.JsonBackObject) {
+	if req == nil {
+		return
+	}
+	req.Context = nil
+	req.Id = ""
+	req.Type = 0
+	req.Header = nil
+	req.Action = 0
+	req.Data = nil
+	req.Error = ""
+	req.Args = nil
+	c.backObjPool.Put(req)
+}
+
 // @call ReplySuccess 回复调用成功
 func (c *WsChannelServer) ReplySuccess(id string, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
 
-	// fmt.Println("ReplySuccess id:", id, data)
-	msg := message.NewWsJsonBackSuccess(id, data)
+	msg := c.getBackObj()
+	msg.Id = id
+	msg.Action = actions.ACTION_REPLY
+	msg.Type = message.TextMessage
+	msg.Data = data
+	msg.Error = ""
+	msg.Header = nil
+	msg.Args = nil
+
+	payload := utils.Serialize(msg)
+	c.putBackObj(msg)
+
 	select {
-	case c.rpcBacker <- msg:
+	case c.rpcBacker <- payload:
 	default:
 	}
 	return nil
@@ -183,10 +256,25 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	// fmt.Println("ReplyError id:", id, err)
-	msg := message.NewWsJsonBackError(id, err)
+
+	msg := c.getBackObj()
+	msg.Id = id
+	msg.Action = actions.ACTION_REPLY
+	msg.Type = message.TextMessage
+	msg.Data = nil
+	if err != nil {
+		msg.Error = string(err)
+	} else {
+		msg.Error = ""
+	}
+	msg.Header = nil
+	msg.Args = nil
+
+	payload := utils.Serialize(msg)
+	c.putBackObj(msg)
+
 	select {
-	case c.rpcBacker <- msg:
+	case c.rpcBacker <- payload:
 	default:
 	}
 	return nil
@@ -201,14 +289,28 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 	ch.log(logger.Debug, "Call mtd:%s, args:%v", mtd, args)
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-	msg := message.NewWsJsonCallObject(mtd, args...)
+
+	msg := ch.getCallObj()
+	msg.Id = fmt.Sprintf("%d", decoder.NextId())
+	msg.Action = actions.ACTION_CALL
+	msg.Type = message.TextMessage
 	msg.Header = header
-	fmt.Println("Call msg:", msg)
+	msg.Method = mtd
+	if len(args) > 0 {
+		msg.Data = args[0]
+	}
+	if len(args) > 1 {
+		msg.Args = args[1:]
+	}
+	payload := utils.Serialize(msg)
+	callId := msg.Id
+	ch.putCallObj(msg)
+
 	// 发送调用请求
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
-	case ch.rpcCaller <- msg:
+	case ch.rpcCaller <- payload:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
@@ -221,14 +323,27 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 			return []byte{}, ctx.Err()
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
-		case back, ok := <-ch.rpcBacker:
-			// fmt.Println("Call back------:", back, ok, back.Id, msg.Id)
-			if back.Id == msg.Id && ok {
-				if back.Error != "" {
-					return []byte{}, errors.New(back.Error)
-				}
-				return back.Data, nil
+		case raw, ok := <-ch.rpcResult:
+			if !ok {
+				return []byte{}, fmt.Errorf("rpc result closed")
 			}
+			back := ch.getBackObj()
+			if err := utils.Deserialize(raw, back); err != nil {
+				ch.putBackObj(back)
+				return []byte{}, err
+			}
+			if back.Id != callId {
+				ch.putBackObj(back)
+				continue
+			}
+			if back.Error != "" {
+				errStr := back.Error
+				ch.putBackObj(back)
+				return []byte{}, errors.New(errStr)
+			}
+			data := back.Data
+			ch.putBackObj(back)
+			return data, nil
 		}
 	}
 }

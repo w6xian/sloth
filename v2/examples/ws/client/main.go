@@ -24,6 +24,7 @@ func main() {
 	runtime := context.Background()
 	ctx, cancel := context.WithCancel(runtime)
 	defer cancel()
+
 	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
 	newConnect.Register("shop", &HelloService{}, "")
