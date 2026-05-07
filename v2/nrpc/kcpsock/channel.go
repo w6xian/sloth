@@ -1,4 +1,4 @@
-package tcpsock
+package kcpsock
 
 import (
 	"context"
@@ -19,12 +19,12 @@ import (
 )
 
 // TcpChannelServer 实现 nrpc.AuthChannel 接口，
-// 是服务端对单个 TCP 客户端连接的抽象。
-type TcpChannelServer struct {
+// 是服务端对单个 KCP 客户端连接的抽象。
+type KcpChannelServer struct {
 	Lock sync.Mutex
 
 	// 所属 server 引用（用于获取中间件链、调用 CallFunc）
-	server *TcpServer
+	server *KcpServer
 
 	// bucket 链表指针
 	_next bucket.IChannel
@@ -34,7 +34,7 @@ type TcpChannelServer struct {
 	_userId int64
 	_sign   string
 
-	// TCP 连接
+	// KCP 连接
 	conn net.Conn
 
 	// 服务端 Push 消息队列（writeLoop 消费）
@@ -52,8 +52,8 @@ type TcpChannelServer struct {
 	closeChan chan struct{}
 }
 
-func NewTcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *TcpServer) *TcpChannelServer {
-	ch := &TcpChannelServer{
+func NewKcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *KcpServer) *KcpChannelServer {
+	ch := &KcpChannelServer{
 		server:    server,
 		conn:      conn,
 		Connect:   connect,
@@ -70,35 +70,35 @@ func NewTcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *TcpServer
 
 // ── bucket.IChannel 接口实现 ──────────────────────────────────────────────
 
-func (ch *TcpChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
+func (ch *KcpChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
 	if len(n) > 0 {
 		ch._next = n[0]
 	}
 	return ch._next
 }
 
-func (ch *TcpChannelServer) Prev(p ...bucket.IChannel) bucket.IChannel {
+func (ch *KcpChannelServer) Prev(p ...bucket.IChannel) bucket.IChannel {
 	if len(p) > 0 {
 		ch._prev = p[0]
 	}
 	return ch._prev
 }
 
-func (ch *TcpChannelServer) Room(r ...*bucket.Room) *bucket.Room {
+func (ch *KcpChannelServer) Room(r ...*bucket.Room) *bucket.Room {
 	if len(r) > 0 {
 		ch._room = r[0]
 	}
 	return ch._room
 }
 
-func (ch *TcpChannelServer) UserId(u ...int64) int64 {
+func (ch *KcpChannelServer) UserId(u ...int64) int64 {
 	if len(u) > 0 {
 		ch._userId = u[0]
 	}
 	return ch._userId
 }
 
-func (ch *TcpChannelServer) Token(t ...string) string {
+func (ch *KcpChannelServer) Token(t ...string) string {
 	if len(t) > 0 {
 		ch._sign = t[0]
 	}
@@ -106,7 +106,7 @@ func (ch *TcpChannelServer) Token(t ...string) string {
 }
 
 // Push 向客户端推送一条消息（服务端 → 客户端）。
-func (ch *TcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err error) {
+func (ch *KcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err error) {
 	select {
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
@@ -117,7 +117,7 @@ func (ch *TcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err err
 }
 
 // ReplySuccess 向客户端发送 RPC 调用成功回复。
-func (ch *TcpChannelServer) ReplySuccess(id string, data []byte) error {
+func (ch *KcpChannelServer) ReplySuccess(id string, data []byte) error {
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackSuccess(id, data):
 	default:
@@ -126,7 +126,7 @@ func (ch *TcpChannelServer) ReplySuccess(id string, data []byte) error {
 }
 
 // ReplyError 向客户端发送 RPC 调用失败回复。
-func (ch *TcpChannelServer) ReplyError(id string, errBytes []byte) error {
+func (ch *KcpChannelServer) ReplyError(id string, errBytes []byte) error {
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackError(id, errBytes):
 	default:
@@ -135,13 +135,13 @@ func (ch *TcpChannelServer) ReplyError(id string, errBytes []byte) error {
 }
 
 // Call 服务端主动调用客户端方法（反向 RPC），暂未实现。
-func (ch *TcpChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
-	return nil, errors.New("TcpChannelServer.Call not implemented")
+func (ch *KcpChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
+	return nil, errors.New("KcpChannelServer.Call not implemented")
 }
 
 // ── AuthChannel 接口实现 ──────────────────────────────────────────────────
 
-func (ch *TcpChannelServer) GetAuthInfo() (*auth.AuthInfo, error) {
+func (ch *KcpChannelServer) GetAuthInfo() (*auth.AuthInfo, error) {
 	if ch._userId == 0 {
 		return nil, errors.New("user id is 0")
 	}
@@ -158,12 +158,12 @@ func (ch *TcpChannelServer) GetAuthInfo() (*auth.AuthInfo, error) {
 	}, nil
 }
 
-func (ch *TcpChannelServer) SetAuthInfo(auth *auth.AuthInfo) error {
+func (ch *KcpChannelServer) SetAuthInfo(auth *auth.AuthInfo) error {
 	return errors.New("server does not support SetAuthInfo")
 }
 
-// Close 关闭 TCP 连接并释放资源。
-func (ch *TcpChannelServer) Close() error {
+// Close 关闭 KCP 连接并释放资源。
+func (ch *KcpChannelServer) Close() error {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 
@@ -182,23 +182,23 @@ func (ch *TcpChannelServer) Close() error {
 
 // ── 内部方法 ─────────────────────────────────────────────────────────────
 
-func (ch *TcpChannelServer) log(level logger.LogLevel, line string, args ...any) {
+func (ch *KcpChannelServer) log(level logger.LogLevel, line string, args ...any) {
 	if ch.Connect == nil {
-		fmt.Println("TcpChannelServer Connect is nil")
+		fmt.Println("KcpChannelServer Connect is nil")
 		return
 	}
-	ch.Connect.Log(level, "[TcpChannel]"+line, args...)
+	ch.Connect.Log(level, "[KcpChannel]"+line, args...)
 }
 
 // Serve 启动 readLoop + writeLoop，阻塞直到连接关闭。
-func (ch *TcpChannelServer) Serve(ctx context.Context) {
+func (ch *KcpChannelServer) Serve(ctx context.Context) {
 	go ch.readLoop(ctx)
 	go ch.writeLoop(ctx)
 	<-ch.closeChan
 }
 
 // readLoop 读取客户端发来的 TLV 帧并处理。
-func (ch *TcpChannelServer) readLoop(ctx context.Context) {
+func (ch *KcpChannelServer) readLoop(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			ch.log(logger.Error, "readLoop panic: %v", r)
@@ -232,8 +232,8 @@ func (ch *TcpChannelServer) readLoop(ctx context.Context) {
 	}
 }
 
-// writeLoop 将 Push/Reply 消息写入 TCP 连接。
-func (ch *TcpChannelServer) writeLoop(ctx context.Context) {
+// writeLoop 将 Push/Reply 消息写入 KCP 连接。
+func (ch *KcpChannelServer) writeLoop(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			ch.log(logger.Error, "writeLoop panic: %v", r)
@@ -271,7 +271,7 @@ func (ch *TcpChannelServer) writeLoop(ctx context.Context) {
 }
 
 // handleCall 处理客户端发来的 RPC Call 帧，通过中间件链执行。
-func (ch *TcpChannelServer) handleCall(payload []byte) {
+func (ch *KcpChannelServer) handleCall(payload []byte) {
 	var caller trpc.RpcCaller
 	if err := json.Unmarshal(payload, &caller); err != nil {
 		ch.log(logger.Error, "handleCall unmarshal err: %v", err)
@@ -292,14 +292,14 @@ func (ch *TcpChannelServer) handleCall(payload []byte) {
 			}
 		}
 		msg := &trpc.RpcCaller{
-			Id:      caller.Id,
+			Id:       caller.Id,
 			Protocol: caller.Protocol,
 			Action:   caller.Action,
-			Channel: ch,
-			Header:  header,
-			Method:  mtd,
-			Data:    data,
-			Args:    moreArgs,
+			Channel:  ch,
+			Header:   header,
+			Method:   mtd,
+			Data:     data,
+			Args:     moreArgs,
 		}
 		rst, err := ch.server.Connect.CallFunc(ctx, ch.server, msg)
 		if err != nil {

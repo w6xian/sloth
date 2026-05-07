@@ -9,7 +9,6 @@ import (
 	"github.com/w6xian/sloth/v2"
 	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
 	"github.com/w6xian/sloth/v2/types"
 	"github.com/w6xian/sloth/v2/types/auth"
@@ -32,15 +31,12 @@ func main() {
 
 	// Start WebSocket Client in a goroutine
 
-	go newConnect.Dial(ctx, "ws", "localhost:8990",
-		option.WithClientHandleMessage(&Handler{server: client}),
-		option.WithUriPath("/ws"),
-		option.WithAddress("localhost:8990"))
+	go newConnect.Dial(ctx, "kcp", "localhost:8992")
 
 	// Main loop for making RPC calls
 	func() {
 		for {
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(time.Millisecond * 5000)
 
 			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
@@ -158,7 +154,7 @@ func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	}
 	fmt.Println("Test args:", auth)
 
-	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
+	return utils.Serialize(map[string]string{"req": "local test", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 
 // Hello struct

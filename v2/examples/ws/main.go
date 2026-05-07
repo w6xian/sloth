@@ -28,6 +28,8 @@ func main() {
 	drpc.Register("v1", &HelloService{}, "")
 	drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithServerHandleMessage(&Handler{}))
+	drpc.Listen(ctx, "tcp", "localhost:8991")
+	drpc.Listen(ctx, "kcp", "localhost:8992")
 	go func() {
 		for {
 			time.Sleep(time.Millisecond * 2000)

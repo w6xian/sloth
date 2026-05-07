@@ -23,6 +23,8 @@ import (
 	"github.com/w6xian/sloth/v2/internal/utils/id"
 	"github.com/w6xian/sloth/v2/message"
 	"github.com/w6xian/sloth/v2/nrpc"
+	"github.com/w6xian/sloth/v2/nrpc/kcpsock"
+	"github.com/w6xian/sloth/v2/nrpc/tcpsock"
 	"github.com/w6xian/sloth/v2/nrpc/wsocket"
 	"github.com/w6xian/sloth/v2/option"
 	"github.com/w6xian/sloth/v2/pprof"
@@ -237,6 +239,18 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		})
 		c.Log(logger.Info, "registered TCP listener on %s", address)
 		return nil
+	case "kcp":
+		srv := kcpsock.NewKcpServer(c, c.Options())
+		if _, err := srv.Listen(ctx, address); err != nil {
+			return err
+		}
+		c.listeners = append(c.listeners, ProtocolListener{
+			Network:   network,
+			Address:   address,
+			Transport: srv,
+		})
+		c.Log(logger.Info, "registered KCP listener on %s", address)
+		return nil
 	case "quic":
 		// TODO: 实现 QUIC 服务器监听器
 		c.Log(logger.Error, "QUIC server not implemented yet")
@@ -255,18 +269,6 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 func (c *Connect) Serve() error {
 	if len(c.listeners) == 0 {
 		return errors.New("no listeners registered, call Listen() first")
-	}
-
-	// 确保至少注册了一个 WebSocket 服务器
-	hasWebSocket := false
-	for _, l := range c.listeners {
-		if l.Network == "ws" || l.Network == "wss" || l.Network == "websocket" {
-			hasWebSocket = true
-			break
-		}
-	}
-	if !hasWebSocket {
-		return errors.New("no WebSocket listener registered, at least one WebSocket listener is required")
 	}
 
 	// 初始化 WebSocket 服务器
@@ -296,9 +298,28 @@ func (c *Connect) Serve() error {
 					errChan <- err
 				}
 			case "tcp", "tcp4", "tcp6":
-				// TODO: TCP 服务
-				c.Log(logger.Info, "starting TCP server on %s (not implemented)", listener.Address)
-				<-make(chan struct{}) // 阻塞直到关闭
+				c.Log(logger.Info, "starting TCP server on %s", listener.Address)
+				tcpServer := tcpsock.NewTcpServer(c, c.Options())
+				tcpServer.UseListener(listener.Listener)
+				if c.client != nil && c.client.Serve == nil {
+					c.client.Serve = tcpServer
+				}
+				if err := tcpServer.Serve(context.Background()); err != nil {
+					errChan <- err
+				}
+			case "kcp":
+				c.Log(logger.Info, "starting KCP server on %s", listener.Address)
+				srv, ok := listener.Transport.(*kcpsock.KcpServer)
+				if !ok || srv == nil {
+					errChan <- fmt.Errorf("kcp listener not initialized")
+					return
+				}
+				if c.client != nil && c.client.Serve == nil {
+					c.client.Serve = srv
+				}
+				if err := srv.Serve(context.Background()); err != nil {
+					errChan <- err
+				}
 			}
 		}(l)
 	}
@@ -332,6 +353,11 @@ func (c *Connect) Close() error {
 	for _, l := range c.listeners {
 		if l.Listener != nil {
 			if err := l.Listener.Close(); err != nil {
+				c.Log(logger.Error, "close listener %s error: %v", l.Address, err)
+			}
+		}
+		if l.Transport != nil {
+			if err := l.Transport.Close(); err != nil {
 				c.Log(logger.Error, "close listener %s error: %v", l.Address, err)
 			}
 		}
@@ -372,8 +398,20 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			panic(err)
 		}
 	case "tcp", "tcp4", "tcp6":
-		// TODO: 实现 TCP 客户端
-		c.Log(logger.Error, "TCP client not implemented yet")
+		tcpClient := tcpsock.NewTcpClient(c)
+		if _, err := tcpClient.Dial(ctx, address); err != nil {
+			c.Log(logger.Error, "TCP dial error: %v", err)
+			return
+		}
+		c.server.Listen = tcpClient
+		return
+	case "kcp":
+		kcpClient := kcpsock.NewKcpClient(c)
+		if _, err := kcpClient.Dial(ctx, address); err != nil {
+			c.Log(logger.Error, "KCP dial error: %v", err)
+			return
+		}
+		c.server.Listen = kcpClient
 		return
 	case "quic":
 		// TODO: 实现 QUIC 客户端

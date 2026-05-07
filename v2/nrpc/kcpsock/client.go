@@ -1,7 +1,8 @@
-package tcpsock
+package kcpsock
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,6 +14,8 @@ import (
 	"github.com/w6xian/sloth/v2/nrpc"
 	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/xtaci/kcp-go/v5"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // TcpConn 实现 nrpc.RawConn 接口，封装 TCP 连接。
@@ -64,8 +67,8 @@ type ReplyMessage struct {
 	Error string `json:"error,omitempty"`
 }
 
-// TcpClient 实现 nrpc.ICall 接口，基于 TcpConn。
-type TcpClient struct {
+// KcpClient 实现 nrpc.ICall 接口，基于 TcpConn。
+type KcpClient struct {
 	*TcpConn // 嵌入 TcpConn，实现 nrpc.RawConn
 	Connect  trpc.ICallRpc
 
@@ -84,9 +87,9 @@ type TcpClient struct {
 	authInfo *auth.AuthInfo
 }
 
-// NewTcpClient 创建 TCP 客户端
-func NewTcpClient(connect trpc.ICallRpc) *TcpClient {
-	c := &TcpClient{
+// NewKcpClient 创建 KCP 客户端
+func NewKcpClient(connect trpc.ICallRpc) *KcpClient {
+	c := &KcpClient{
 		Connect:   connect,
 		closeChan: make(chan struct{}),
 	}
@@ -98,7 +101,7 @@ func NewTcpClient(connect trpc.ICallRpc) *TcpClient {
 	return c
 }
 
-func (c *TcpClient) getRpcCaller() *trpc.RpcCaller {
+func (c *KcpClient) getRpcCaller() *trpc.RpcCaller {
 	req := c.rpcCallerPool.Get()
 	if req == nil {
 		return &trpc.RpcCaller{}
@@ -106,7 +109,7 @@ func (c *TcpClient) getRpcCaller() *trpc.RpcCaller {
 	return req.(*trpc.RpcCaller)
 }
 
-func (c *TcpClient) putRpcCaller(req *trpc.RpcCaller) {
+func (c *KcpClient) putRpcCaller(req *trpc.RpcCaller) {
 	if req == nil {
 		return
 	}
@@ -122,11 +125,18 @@ func (c *TcpClient) putRpcCaller(req *trpc.RpcCaller) {
 	c.rpcCallerPool.Put(req)
 }
 
-// Dial 连接远端 TCP 服务端，返回 nrpc.RawConn
-func (c *TcpClient) Dial(ctx context.Context, addr string) (nrpc.RawConn, error) {
-	conn, err := net.Dial("tcp", addr)
+// Dial 连接远端 KCP 服务端，返回 nrpc.RawConn
+func (c *KcpClient) Dial(ctx context.Context, addr string) (nrpc.RawConn, error) {
+
+	// TODO: 支持 KCP 连接参数
+	key := pbkdf2.Key([]byte("demo pass"), []byte("demo salt"), 1024, 32, sha1.New)
+	block, err := kcp.NewAESBlockCrypt(key)
 	if err != nil {
-		return nil, fmt.Errorf("tcp dial %s err: %w", addr, err)
+		return nil, fmt.Errorf("new aes block crypt err: %w", err)
+	}
+	conn, err := kcp.DialWithOptions(addr, block, 10, 3)
+	if err != nil {
+		return nil, fmt.Errorf("kcp dial %s err: %w", addr, err)
 	}
 	c.TcpConn = NewTcpConn(conn)
 	go c.readLoop()
@@ -136,7 +146,7 @@ func (c *TcpClient) Dial(ctx context.Context, addr string) (nrpc.RawConn, error)
 // ── nrpc.ICall 接口实现 ───────────────────────────────────────────
 
 // Call 发起 RPC 调用
-func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
+func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	if c.conn == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -144,7 +154,7 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	// 生成唯一 call id
 	c.callIdMu.Lock()
 	c.callId++
-	id := fmt.Sprintf("tcp-%d", c.callId)
+	id := fmt.Sprintf("kcp-%d", c.callId)
 	c.callIdMu.Unlock()
 
 	// 构造 RpcCaller
@@ -191,7 +201,7 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 }
 
 // Push 向服务端推送消息
-func (c *TcpClient) Push(ctx context.Context, msg *message.Msg) error {
+func (c *KcpClient) Push(ctx context.Context, msg *message.Msg) error {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal push err: %w", err)
@@ -200,14 +210,14 @@ func (c *TcpClient) Push(ctx context.Context, msg *message.Msg) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *TcpClient) GetAuthInfo() (*auth.AuthInfo, error) {
+func (c *KcpClient) GetAuthInfo() (*auth.AuthInfo, error) {
 	c.authMu.RLock()
 	defer c.authMu.RUnlock()
 	return c.authInfo, nil
 }
 
 // SetAuthInfo 设置认证信息
-func (c *TcpClient) SetAuthInfo(auth *auth.AuthInfo) error {
+func (c *KcpClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
 	c.authInfo = auth
@@ -215,7 +225,7 @@ func (c *TcpClient) SetAuthInfo(auth *auth.AuthInfo) error {
 }
 
 // Close 关闭客户端
-func (c *TcpClient) Close() error {
+func (c *KcpClient) Close() error {
 	c.closeOnce.Do(func() {
 		if c.closeChan != nil {
 			close(c.closeChan)
@@ -226,16 +236,16 @@ func (c *TcpClient) Close() error {
 
 // ── 内部方法 ─────────────────────────────────────────────────────
 
-func (c *TcpClient) log(level logger.LogLevel, line string, args ...any) {
+func (c *KcpClient) log(level logger.LogLevel, line string, args ...any) {
 	if c.Connect == nil {
-		fmt.Println("TcpClient Connect is nil")
+		fmt.Println("KcpClient Connect is nil")
 		return
 	}
-	c.Connect.Log(level, "[TcpClient]"+line, args...)
+	c.Connect.Log(level, "[KcpClient]"+line, args...)
 }
 
 // readLoop 读取服务端帧
-func (c *TcpClient) readLoop() {
+func (c *KcpClient) readLoop() {
 	defer func() {
 		if r := recover(); r != nil {
 			c.log(logger.Error, "readLoop panic: %v", r)
@@ -270,7 +280,7 @@ func (c *TcpClient) readLoop() {
 }
 
 // handleReply 处理回复
-func (c *TcpClient) handleReply(payload []byte) {
+func (c *KcpClient) handleReply(payload []byte) {
 	var reply ReplyMessage
 	if err := json.Unmarshal(payload, &reply); err != nil {
 		c.log(logger.Error, "handleReply unmarshal err: %v", err)
