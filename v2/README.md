@@ -1,118 +1,94 @@
-# Sloth
+# Sloth v2
 
-Sloth is a high-performance, lightweight RPC framework written in Go. It is designed to provide seamless real-time communication capabilities using WebSocket and TCP, making it ideal for modern distributed systems and real-time applications.
+Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传统 RPC 一样调用远端方法，也可以像 IM/网关一样按 Room 做广播/推送。
 
-## Background
+目前项目内已落地的传输层：
 
-In the era of real-time web applications, the need for efficient, bidirectional communication is paramount. Sloth bridges the gap between traditional RPC (Remote Procedure Call) and modern real-time messaging by offering a unified interface for both. Whether you are building a chat application, a live dashboard, or a microservices architecture, Sloth simplifies the complexity of network communication.
+- WebSocket：`ws / wss`（适合浏览器、跨语言）
+- TCP：`tcp / tcp4 / tcp6`
+- KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境）
 
-## Features
+> `quic / grpc` 仍是占位符（未实现真正的 QUIC / gRPC 协议栈）。
 
-- **Dual Protocol Support**: Seamlessly switch between WebSocket and TCP transports.
-- **Real-Time RPC**: Call remote methods with low latency.
-- **Message Transmission**: Efficient message broadcasting and point-to-point messaging.
-- **Service Registration**: Easy-to-use API for registering and discovering services.
-- **Extensible**: Middleware and interceptor support for authentication, logging, and more.
-- **Cross-Platform**: Works with any client that supports standard WebSocket or TCP connections.
+## 特性
 
-## Usage
+- 多协议统一入口：同一套 `Listen / Serve / Dial / Call` API
+- 反射式服务注册：`Register("v1", &Svc{}, "")`，通过 `v1.Method` 直接调用
+- Header / Auth：header 透传、登录后可设置 `AuthInfo`
+- Bucket / Room：面向海量连接的分桶与房间广播
+- 中间件链：`middleware.Log / middleware.Recovery` 等
+- 诊断：内置 `pprof.Info` 服务方法，返回内存/连接/room 等信息（含 `next_gc`）
 
-### Installation
+## 安装
 
 ```bash
-go get github.com/w6xian/sloth
+go get github.com/w6xian/sloth/v2
 ```
 
-### Server Example
+## 快速开始
 
-Create a WebSocket RPC server:
+### 启动服务端（WS + TCP + KCP）
+
+示例见 [examples/ws/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/main.go)：
 
 ```go
-package main
+ctx := context.Background()
 
-import (
-	"fmt"
-	"net"
-	"net/http"
+server := sloth.DefaultServer()
+conn := sloth.ServerConn(server)
 
-	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/nrpc/wsocket"
-)
+_ = conn.Register("v1", &HelloService{}, "")
 
-func main() {
-	ln, err := net.Listen("tcp", "localhost:8990")
-	if err != nil {
-		panic(err)
-	}
-	r := mux.NewRouter()
-	
-	server := sloth.DefaultServer()
-	newConnect := sloth.ServerConn(server)
-	newConnect.Register("v1", &HelloService{}, "")
-	
-	newConnect.ListenOption(
-		wsocket.WithRouter(r),
-		wsocket.WithServerHandle(&Handler{}),
-	)
-	
-	http.Handle("/", r)
-	http.Serve(ln, nil)
+_ = conn.Listen(ctx, "ws",  "localhost:8990", option.WithServerHandleMessage(&Handler{}))
+_ = conn.Listen(ctx, "tcp", "localhost:8991")
+_ = conn.Listen(ctx, "kcp", "localhost:8992")
+
+if err := conn.Serve(); err != nil {
+	panic(err)
 }
 ```
 
-### Client Example
+### 启动客户端并调用
 
-Connect to the server using WebSocket:
+示例见 [examples/ws/client/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/client/main.go)：
 
 ```go
-package main
+client := sloth.DefaultClient()
+conn := sloth.ClientConn(client)
 
-import (
-	"context"
-	"fmt"
-	"time"
+go conn.Dial(ctx, "kcp", "localhost:8992")
 
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/nrpc/wsocket"
-)
-
-func main() {
-	client := sloth.DefaultClient()
-	newConnect := sloth.ClientConn(client)
-	
-	go newConnect.StartWebsocketClient(
-		wsocket.WithClientHandle(&Handler{}),
-		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri("localhost:8990"),
-	)
-    
-    // Make an RPC call
-    time.Sleep(time.Second)
-    resp, err := client.Call(context.Background(), "v1.Test", []byte("hello"))
-    if err != nil {
-        fmt.Println("Error:", err)
-    } else {
-        fmt.Println("Response:", string(resp))
-    }
-}
+time.Sleep(time.Second)
+data, err := client.Call(ctx, "v1.Sign", []byte("sign"))
+_ = data
+_ = err
 ```
 
-## Code Quality
+## 运行示例
 
-The project maintains high code quality standards through:
-- **Unit & Integration Tests**: Comprehensive testing coverage ensuring reliability.
-- **Clean Architecture**: Modular design separating concerns between transport, protocol, and logic.
-- **Performance Optimization**: Efficient handling of concurrent connections and message serialization.
+```bash
+go run ./examples/ws
+go run ./examples/ws/client
+go run ./examples/tcp
+```
 
-## Contributors
+## 编码/协议说明（实用向）
 
-- [w6xian](https://github.com/w6xian)
+- 业务方法的第一个参数通常是 `ctx context.Context`
+- 参数与返回值默认以 `[]byte` 在连接上流转；项目示例里常用 `github.com/w6xian/tlv` 做结构体序列化（如 `tlv.Json(...)` / `tlv.Json2Struct(...)`）
+- 诊断接口：调用 `pprof.Info` 可拿到运行时内存信息（`alloc/heap_alloc/next_gc/num_gc`）
 
-## Repository
+## 服务方法签名约定
 
-[https://github.com/w6xian/sloth](https://github.com/w6xian/sloth)
+常见可用的签名（更多见示例）：
 
-## License
+- `func (s *Svc) Test(ctx context.Context, req *T) (any, error)`
+- `func (s *Svc) Sign(ctx context.Context, data []byte) ([]byte, error)`
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+## 开发与测试
+
+```bash
+go test ./...
+```
+
+CI：见 [.github/workflows/go.yml](file:///d:/var/o4p/github.com/sloth/v2/.github/workflows/go.yml)。
