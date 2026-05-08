@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/internal/logger"
@@ -160,9 +161,9 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- msg:
+		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	default:
 	}
 	ticker.Reset(ch.readWait)
 	// 等待调用结果
@@ -175,14 +176,17 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 			return []byte{}, fmt.Errorf("reply timeout")
 		case back, ok := <-ch.rpcBacker:
 			// fmt.Println("client call back:", back.Id, msg.Id, back.Type, ok)
-			if back.Id == msg.Id && ok {
+			if !ok {
+				return []byte{}, fmt.Errorf("rpc backer closed")
+			}
+			if back.Id == msg.Id {
 				// fmt.Println("client call back.Error:", back.Id, msg.Id, back.Error)
 				if back.Error != "" {
 					return []byte(""), errors.New(back.Error)
 				}
 				return back.Data, nil
 			}
-			return []byte{}, fmt.Errorf("unknown message type")
+			continue
 
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/bucket"
@@ -206,9 +207,9 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- msg:
+		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	default:
 	}
 	ticker.Reset(ch.readWait)
 	// 等待调用结果
