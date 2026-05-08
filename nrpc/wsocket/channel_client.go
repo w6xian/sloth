@@ -38,7 +38,7 @@ type WsChannelClient struct {
 	// readWait default eq 10s
 	readWait time.Duration
 	// func
-	rpc_io int
+	rpc_io int64
 }
 
 func NewWsChannelClient(connect nrpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {

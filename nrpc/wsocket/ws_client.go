@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/actions"
@@ -347,8 +348,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
 			if action == actions.ACTION_CALL {
-				if ch.rpc_io < 0 {
-					ch.rpc_io = 0
+				if atomic.LoadInt64(&ch.rpc_io) < 0 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 				}
 				args := &nrpc.RpcCaller{
 					Id:       idstr,
@@ -367,9 +368,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				c.HandleCall(ctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
-				ch.rpc_io--
-				if ch.rpc_io < -50 {
-					ch.rpc_io = 0
+				if atomic.AddInt64(&ch.rpc_io, -1) < -50 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 					continue
 				}
 				if connReq.String("error") != "" {

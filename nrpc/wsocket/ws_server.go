@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/actions"
@@ -321,8 +322,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 			idstr := connReq.String("id")
 			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
-				if ch.rpc_io < 0 {
-					ch.rpc_io = 0
+				if atomic.LoadInt64(&ch.rpc_io) < 0 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 				}
 				// 调用方法
 				args := &nrpc.RpcCaller{
@@ -345,10 +346,9 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler IS
 				s.HandleCall(hctx, args)
 				continue
 			} else if action == actions.ACTION_REPLY {
-				ch.rpc_io--
 				// 防止被恶意阻塞，这里也有个问题，同一个方法，不能一直返回
-				if ch.rpc_io < -100 {
-					ch.rpc_io = 0
+				if atomic.AddInt64(&ch.rpc_io, -1) < -100 {
+					atomic.StoreInt64(&ch.rpc_io, 0)
 					continue
 				}
 				if connReq.String("error") != "" {

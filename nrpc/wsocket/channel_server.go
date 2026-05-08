@@ -42,7 +42,7 @@ type WsChannelServer struct {
 	// error handler
 	errHandler func(err error)
 	// rpc_io 记录当前连接的rpc调用次数
-	rpc_io int
+	rpc_io int64
 }
 
 func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
