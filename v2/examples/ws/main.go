@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/v2"
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/utils"
@@ -24,9 +25,11 @@ func main() {
 
 	server := sloth.DefaultServer()
 	drpc := sloth.ServerConn(server)
+	r := mux.NewRouter()
 	// Register services
 	drpc.Register("v1", &HelloService{}, "")
 	drpc.Listen(ctx, "ws", "localhost:8990",
+		option.WithRouterWithoutHandle(r),
 		option.WithServerHandleMessage(&Handler{}))
 	drpc.Listen(ctx, "tcp", "localhost:8991")
 	drpc.Listen(ctx, "kcp", "localhost:8992")
@@ -80,17 +83,17 @@ func (h *Handler) OnOpen(ctx context.Context, s types.IBucket, ch bucket.IChanne
 func (h *Handler) OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, msg []byte) error {
 	// Simple authentication/bucketing logic
 	fmt.Println("OnData:1", string(msg))
-	if ch.UserId() == 0 {
-		userId := int64(2)
-		roomId := int64(1)
-		// Assign user to a bucket (room)
-		b := s.Bucket(userId)
-		err := b.Put(userId, roomId, "token", ch)
-		if err != nil {
-			fmt.Println("Put error:", err)
-			return err
-		}
-	}
+	// if ch.UserId() == 0 {
+	// 	userId := int64(2)
+	// 	roomId := int64(1)
+	// 	// Assign user to a bucket (room)
+	// 	b := s.Bucket(userId)
+	// 	err := b.Put(userId, roomId, "token", ch)
+	// 	if err != nil {
+	// 		fmt.Println("Put error:", err)
+	// 		return err
+	// 	}
+	// }
 	return nil
 }
 

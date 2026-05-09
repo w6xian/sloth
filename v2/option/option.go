@@ -39,6 +39,11 @@ func WithRouter(router *mux.Router) ConnectOption {
 		http.Handle("/", router)
 	}
 }
+func WithRouterWithoutHandle(router *mux.Router) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetRouter(router)
+	}
+}
 
 func WithServerHandleMessage(handler handler.IServerHandleMessage) ConnectOption {
 	return func(s IConnectOption) {

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/internal/utils"
@@ -96,8 +95,8 @@ type Connect struct {
 	// Transport 抽象，支持多协议
 	transport nrpc.Transport
 	// 多协议监听器
-	listeners    []ProtocolListener
-	httpHandlers []ServeHandler // HTTP 处理函数列表
+	listeners []ProtocolListener
+	// httpHandlers []ServeHandler // HTTP 处理函数列表
 }
 
 func (c *Connect) Options() *option.Options {
@@ -215,9 +214,9 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		if err != nil {
 			return err
 		}
-		r := mux.NewRouter()
-		opts = append(opts, option.WithRouter(r))
-		c.httpHandlers = append(c.httpHandlers, r)
+		// r := mux.NewRouter()
+		// opts = append(opts, option.WithRouter(r))
+		// c.httpHandlers = append(c.httpHandlers, r)
 		c.listeners = append(c.listeners, ProtocolListener{
 			Network:  network,
 			Address:  address,
