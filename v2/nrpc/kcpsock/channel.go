@@ -45,6 +45,7 @@ type KcpChannelServer struct {
 	rpcBacker chan *message.JsonBackObject
 
 	Connect trpc.ICallRpc
+	releaseConn func()
 
 	rpc_io int
 
@@ -167,6 +168,10 @@ func (ch *KcpChannelServer) Close() error {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 
+	if ch.releaseConn != nil {
+		ch.releaseConn()
+		ch.releaseConn = nil
+	}
 	select {
 	case <-ch.closeChan:
 	default:

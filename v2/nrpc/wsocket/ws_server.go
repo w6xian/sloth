@@ -3,6 +3,7 @@ package wsocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -202,6 +203,23 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	return nil
 }
 func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var release func()
+	if sp, ok := s.Connect.(interface{ ConnGuard() *tools.ConnGuard }); ok {
+		guard := sp.ConnGuard()
+		if guard != nil {
+			ip := tools.RemoteIPFromRequest(r, s.Connect.Options().TrustProxyHeaders)
+			rel, err := guard.Acquire("ws", ip)
+			if err != nil {
+				status := http.StatusTooManyRequests
+				if gr, ok := err.(*tools.GuardReject); ok && errors.Is(gr.Err, tools.ErrConnBanned) {
+					status = http.StatusForbidden
+				}
+				w.WriteHeader(status)
+				return
+			}
+			release = rel
+		}
+	}
 	var upGrader = websocket.Upgrader{
 		ReadBufferSize:  s.ReadBufferSize,
 		WriteBufferSize: s.WriteBufferSize,
@@ -210,6 +228,9 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	upGrader.CheckOrigin = func(r *http.Request) bool { return true }
 	conn, err := upGrader.Upgrade(w, r, nil)
 	if err != nil {
+		if release != nil {
+			release()
+		}
 		fmt.Println("serveWs err:", err.Error())
 		return
 	}
@@ -217,6 +238,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	ch := NewWsChannelServer(s.Connect)
 	//default broadcast size eq 512
 	ch.Conn = conn
+	ch.releaseConn = release
 	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
 	go s.readPump(ctx, ch, s.handler)
 	//send data to websocket conn

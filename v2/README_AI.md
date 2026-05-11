@@ -69,8 +69,18 @@ go run ./examples/ws/client
 - `tlv_decode_with_len value length is too long`
   - 常见是“协议/编码不匹配”：服务端按 Text/JSON 返回，但客户端按 TLV 去解；需要统一 `Protocol` 语义与业务编码策略
 
+## 连接黑名单与限制（已落地）
+
+- 实现文件：[conn_guard.go](file:///d:/var/o4p/github.com/sloth/v2/internal/tools/conn_guard.go)
+- Options 字段：[options.go](file:///d:/var/o4p/github.com/sloth/v2/option/options.go)
+- ConnOption：`WithMaxConnsGlobal/WithMaxConnsPerIP/WithMaxConnsWS/WithMaxConnsTCP/WithMaxConnsKCP/WithTrustProxyHeaders`
+  - 位置：[connect_options.go](file:///d:/var/o4p/github.com/sloth/v2/connect_options.go)
+- 接入点：
+  - WS 握手阶段拒绝（403/429）：[ws_server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/wsocket/ws_server.go#L204-L235)
+  - TCP/KCP accept 后拒绝（close conn）：[tcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/tcpsock/server.go) / [kcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/kcpsock/server.go)
+  - 计数释放在 Channel.Close：WS/TCP/KCP channel 文件内 `releaseConn()`
+
 ## 变更入口（AI 做需求/修 bug 的常用落点）
 
 - 增加新传输层：在 `nrpc/<newsock>` 实现 `server/client/channel/frame`，再在 [connect.go](file:///d:/var/o4p/github.com/sloth/v2/connect.go) 的 `Listen/Serve/Dial/Close` 加 `case` 分发
 - 优化分配：优先把热点通道改为 `chan []byte`，并用 `sync.Pool` 复用临时对象/Map（Header 已做）
-

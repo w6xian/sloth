@@ -14,10 +14,12 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/logger"
 	"github.com/w6xian/sloth/v2/internal/utils"
+	"github.com/w6xian/sloth/v2/internal/tools"
 	"github.com/w6xian/sloth/v2/internal/utils/array"
 	"github.com/w6xian/sloth/v2/internal/utils/id"
 	"github.com/w6xian/sloth/v2/message"
@@ -97,6 +99,7 @@ type Connect struct {
 	// 多协议监听器
 	listeners []ProtocolListener
 	// httpHandlers []ServeHandler // HTTP 处理函数列表
+	guard *tools.ConnGuard
 }
 
 func (c *Connect) Options() *option.Options {
@@ -144,8 +147,57 @@ func newConnect(opts ...ConnOption) *Connect {
 	for _, opt := range opts {
 		opt(svr)
 	}
+	svr.guard = tools.NewConnGuard(tools.ConnLimits{
+		MaxGlobal: svr.Option.MaxConnsGlobal,
+		MaxPerIP:  svr.Option.MaxConnsPerIP,
+		MaxWS:     svr.Option.MaxConnsWS,
+		MaxTCP:    svr.Option.MaxConnsTCP,
+		MaxKCP:    svr.Option.MaxConnsKCP,
+		AutoBanEnabled:   svr.Option.AutoBanEnabled,
+		AutoBanWindow:    svr.Option.AutoBanWindow,
+		AutoBanThreshold: svr.Option.AutoBanThreshold,
+		AutoBanTTL:       svr.Option.AutoBanTTL,
+	})
 	svr.regist_pprof()
 	return svr
+}
+
+func (c *Connect) ConnGuard() *tools.ConnGuard {
+	if c.guard == nil {
+		c.guard = tools.NewConnGuard(tools.ConnLimits{
+			MaxGlobal: c.Option.MaxConnsGlobal,
+			MaxPerIP:  c.Option.MaxConnsPerIP,
+			MaxWS:     c.Option.MaxConnsWS,
+			MaxTCP:    c.Option.MaxConnsTCP,
+			MaxKCP:    c.Option.MaxConnsKCP,
+			AutoBanEnabled:   c.Option.AutoBanEnabled,
+			AutoBanWindow:    c.Option.AutoBanWindow,
+			AutoBanThreshold: c.Option.AutoBanThreshold,
+			AutoBanTTL:       c.Option.AutoBanTTL,
+		})
+	}
+	return c.guard
+}
+
+func (c *Connect) SetConnLimits(l tools.ConnLimits) {
+	c.Option.MaxConnsGlobal = l.MaxGlobal
+	c.Option.MaxConnsPerIP = l.MaxPerIP
+	c.Option.MaxConnsWS = l.MaxWS
+	c.Option.MaxConnsTCP = l.MaxTCP
+	c.Option.MaxConnsKCP = l.MaxKCP
+	c.Option.AutoBanEnabled = l.AutoBanEnabled
+	c.Option.AutoBanWindow = l.AutoBanWindow
+	c.Option.AutoBanThreshold = l.AutoBanThreshold
+	c.Option.AutoBanTTL = l.AutoBanTTL
+	c.ConnGuard().SetLimits(l)
+}
+
+func (c *Connect) BanIP(ip string, ttl time.Duration, reason string) {
+	c.ConnGuard().BanIP(ip, ttl, reason)
+}
+
+func (c *Connect) UnbanIP(ip string) {
+	c.ConnGuard().UnbanIP(ip)
 }
 
 func (c *Connect) regist_pprof() error {

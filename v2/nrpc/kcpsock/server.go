@@ -32,6 +32,7 @@ type KcpServer struct {
 	bucketIdx uint32
 
 	Connect trpc.ICallRpc
+	guard   *tools.ConnGuard
 
 	// 中间件链（通过 Use 注册）
 	middlewares []middleware.Middleware
@@ -60,6 +61,9 @@ func NewKcpServer(connect trpc.ICallRpc, opt *option.Options) *KcpServer {
 		Connect:     connect,
 		middlewares: []middleware.Middleware{},
 		closeChan:   make(chan struct{}),
+	}
+	if sp, ok := connect.(interface{ ConnGuard() *tools.ConnGuard }); ok {
+		s.guard = sp.ConnGuard()
 	}
 	pprof.New(nil).Buckets = int64(len(bs))
 	return s
@@ -108,6 +112,17 @@ func (s *KcpServer) Accept() (nrpc.AuthChannel, error) {
 	conn, err := s.ln.Accept()
 	if err != nil {
 		return nil, err
+	}
+	if s.guard != nil {
+		ip := tools.RemoteIPFromAddr(conn.RemoteAddr().String())
+		release, rerr := s.guard.Acquire("kcp", ip)
+		if rerr != nil {
+			conn.Close()
+			return nil, rerr
+		}
+		ch := NewKcpChannelServer(s.Connect, conn, s)
+		ch.releaseConn = release
+		return ch, nil
 	}
 	ch := NewKcpChannelServer(s.Connect, conn, s)
 	return ch, nil

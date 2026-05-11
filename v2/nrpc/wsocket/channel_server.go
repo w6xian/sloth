@@ -34,6 +34,7 @@ type WsChannelServer struct {
 	Conn      *websocket.Conn
 	connTcp   *net.TCPConn
 	Connect   trpc.ICallRpc
+	releaseConn func()
 	rpcCaller chan []byte
 	rpcBacker chan []byte
 	rpcResult chan []byte
@@ -115,6 +116,10 @@ func (ch *WsChannelServer) Logout() {
 func (ch *WsChannelServer) Close() error {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
+	if ch.releaseConn != nil {
+		ch.releaseConn()
+		ch.releaseConn = nil
+	}
 	if ch.Conn != nil {
 		ch.Conn.Close()
 	}

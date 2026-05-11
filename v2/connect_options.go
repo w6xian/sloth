@@ -117,6 +117,66 @@ func WithRoutineSize(routineSize int) ConnOption {
 	}
 }
 
+func WithMaxConnsGlobal(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsGlobal = max
+	}
+}
+
+func WithMaxConnsPerIP(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsPerIP = max
+	}
+}
+
+func WithMaxConnsWS(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsWS = max
+	}
+}
+
+func WithMaxConnsTCP(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsTCP = max
+	}
+}
+
+func WithMaxConnsKCP(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsKCP = max
+	}
+}
+
+func WithTrustProxyHeaders(trust bool) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.TrustProxyHeaders = trust
+	}
+}
+
+func WithAutoBan(enabled bool) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.AutoBanEnabled = enabled
+	}
+}
+
+func WithAutoBanWindow(window time.Duration) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.AutoBanWindow = window
+	}
+}
+
+func WithAutoBanThreshold(threshold int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.AutoBanThreshold = threshold
+	}
+}
+
+func WithAutoBanTTL(ttl time.Duration) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.AutoBanTTL = ttl
+	}
+}
+
 // 编码解码
 
 func UseEncoder(encoder Encoder) IRpcOption {

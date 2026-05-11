@@ -31,6 +31,18 @@ type Options struct {
 	SliceSize int64
 	// KeepAlive is the duration for which the server allows a client to keep the connection alive.
 	KeepAlive bool
+
+	MaxConnsGlobal int64
+	MaxConnsPerIP  int64
+	MaxConnsWS     int64
+	MaxConnsTCP    int64
+	MaxConnsKCP    int64
+	TrustProxyHeaders bool
+
+	AutoBanEnabled   bool
+	AutoBanWindow    time.Duration
+	AutoBanThreshold int64
+	AutoBanTTL       time.Duration
 }
 
 func NewOptions() *Options {
@@ -50,5 +62,15 @@ func NewOptions() *Options {
 		RoutineSize:   20,
 		SliceSize:     512,
 		KeepAlive:     true,
+		MaxConnsGlobal: 0,
+		MaxConnsPerIP:  0,
+		MaxConnsWS:     0,
+		MaxConnsTCP:    0,
+		MaxConnsKCP:    0,
+		TrustProxyHeaders: false,
+		AutoBanEnabled:   false,
+		AutoBanWindow:    30 * time.Second,
+		AutoBanThreshold: 5,
+		AutoBanTTL:       10 * time.Minute,
 	}
 }

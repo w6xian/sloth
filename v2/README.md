@@ -17,6 +17,7 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 - Header / Auth：header 透传、登录后可设置 `AuthInfo`
 - Bucket / Room：面向海量连接的分桶与房间广播
 - 中间件链：`middleware.Log / middleware.Recovery` 等
+- 安全：服务端 IP 黑名单 + 连接数限制（全局 / 分协议 / 单 IP）
 - 诊断：内置 `pprof.Info` 服务方法，返回内存/连接/room 等信息（含 `next_gc`）
 
 ## 安装
@@ -35,7 +36,15 @@ go get github.com/w6xian/sloth/v2
 ctx := context.Background()
 
 server := sloth.DefaultServer()
-conn := sloth.ServerConn(server)
+conn := sloth.ServerConn(
+    server,
+    sloth.WithMaxConnsGlobal(20000),
+    sloth.WithMaxConnsPerIP(50),
+    sloth.WithMaxConnsWS(15000),
+    sloth.WithMaxConnsTCP(3000),
+    sloth.WithMaxConnsKCP(3000),
+    sloth.WithTrustProxyHeaders(true),
+)
 
 _ = conn.Register("v1", &HelloService{}, "")
 
@@ -46,6 +55,22 @@ _ = conn.Listen(ctx, "kcp", "localhost:8992")
 if err := conn.Serve(); err != nil {
 	panic(err)
 }
+```
+
+## 黑名单与连接限制（服务端）
+
+- 配置入口（ConnOption）：
+  - `WithMaxConnsGlobal / WithMaxConnsWS / WithMaxConnsTCP / WithMaxConnsKCP / WithMaxConnsPerIP`
+  - `WithTrustProxyHeaders(true)`：WS 场景下信任 `X-Forwarded-For` 解析真实 IP
+- 自动封禁（AutoBan）：
+  - 配置项：`WithAutoBan(true)` + `WithAutoBanWindow/WithAutoBanThreshold/WithAutoBanTTL`
+  - 计数规则：仅在“拒绝路径”才计数（命中连接限制/被封禁等导致拒绝）
+  - 连续失败：一旦该 IP 成功建立连接，会清空该 IP 的失败计数（打断连续失败）
+- 动态封禁：
+
+```go
+conn.BanIP("1.2.3.4", 10*time.Minute, "attack")
+conn.UnbanIP("1.2.3.4")
 ```
 
 ### 启动客户端并调用
