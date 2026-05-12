@@ -36,6 +36,8 @@ type TcpServer struct {
 
 	handler handler.IServerHandleMessage
 
+	defaultHeader message.Header
+
 	closeOnce sync.Once
 	closeChan chan struct{}
 }
@@ -79,6 +81,11 @@ func (s *TcpServer) Use(middlewares ...middleware.Middleware) {
 
 func (s *TcpServer) UseListener(ln net.Listener) {
 	s.ln = ln
+}
+
+// DefaultHeader 获取默认响应头
+func (s *TcpServer) DefaultHeader() message.Header {
+	return s.defaultHeader
 }
 
 // Listen 启动 TCP 监听，返回 Listener（即自身，实现 nrpc.Listener）。

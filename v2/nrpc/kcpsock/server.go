@@ -41,6 +41,13 @@ type KcpServer struct {
 
 	closeOnce sync.Once
 	closeChan chan struct{}
+
+	defaultHeader message.Header
+}
+
+// DefaultHeader 获取默认响应头
+func (s *KcpServer) DefaultHeader() message.Header {
+	return s.defaultHeader
 }
 
 func NewKcpServer(connect trpc.ICallRpc, opt *option.Options) *KcpServer {

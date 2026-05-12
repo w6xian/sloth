@@ -8,23 +8,6 @@ import (
 	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
-// TcpTransport 实现 nrpc.Transport 接口，提供 TCP 协议的
-// Listen（服务端监听）和 Dial（客户端连接）能力。
-//
-// 用法：
-//
-//	transport := NewTcpTransport(connect, opt)
-//
-//	// 服务端
-//	listener, _ := transport.Listen(ctx, ":8080")
-//	for {
-//	    ch, _ := listener.Accept()
-//	    go handleChannel(ch)
-//	}
-//
-//	// 客户端
-//	client, _ := transport.Dial(ctx, "127.0.0.1:8080")
-//	rsp, err := client.Call(ctx, header, "MethodName", arg)
 type TcpTransport struct {
 	connect trpc.ICallRpc
 	opt     *option.Options

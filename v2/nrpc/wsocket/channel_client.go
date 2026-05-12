@@ -28,6 +28,7 @@ type WsChannelClient struct {
 	rpcBacker chan []byte
 	rpcResult chan []byte
 	Connect   trpc.ICallRpc
+	defaultHeader message.Header
 
 	// 客户端的用户ID
 	UserId int64
@@ -64,6 +65,7 @@ func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *
 	c.readWait = 10 * time.Second
 	c.Sign = ""
 	c.Connect = connect
+	c.defaultHeader = message.Header{}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -79,6 +81,10 @@ func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *
 		},
 	}
 	return
+}
+
+func (c *WsChannelClient) DefaultHeader() message.Header {
+	return c.defaultHeader
 }
 func (s *WsChannelClient) log(level logger.LogLevel, line string, args ...any) {
 	if s.Connect == nil {

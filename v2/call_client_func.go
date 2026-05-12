@@ -121,7 +121,23 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 		args = append(args, b)
 	}
 
-	resp, err := ch.Call(ctx, header, mtd, args...)
+	usePoolHeader := false
+	mergedHeader := header
+	if len(c.Header) != 0 {
+		usePoolHeader = true
+		mergedHeader = message.GetHeader()
+		for k, v := range c.Header {
+			mergedHeader[k] = v
+		}
+		for k, v := range header {
+			mergedHeader[k] = v
+		}
+	}
+	if usePoolHeader {
+		defer message.PutHeader(mergedHeader)
+	}
+
+	resp, err := ch.Call(ctx, mergedHeader, mtd, args...)
 	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err

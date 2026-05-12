@@ -44,10 +44,11 @@ type TcpChannelServer struct {
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
 
-	Connect trpc.ICallRpc
+	Connect     trpc.ICallRpc
 	releaseConn func()
 
-	rpc_io int
+	rpc_io        int
+	defaultHeader message.Header
 
 	// 关闭信号
 	closeChan chan struct{}
@@ -133,6 +134,10 @@ func (ch *TcpChannelServer) ReplyError(id string, errBytes []byte) error {
 	default:
 	}
 	return nil
+}
+
+func (ch *TcpChannelServer) DefaultHeader() message.Header {
+	return ch.defaultHeader
 }
 
 // Call 服务端主动调用客户端方法（反向 RPC），暂未实现。
@@ -297,14 +302,14 @@ func (ch *TcpChannelServer) handleCall(payload []byte) {
 			}
 		}
 		msg := &trpc.RpcCaller{
-			Id:      caller.Id,
+			Id:       caller.Id,
 			Protocol: caller.Protocol,
 			Action:   caller.Action,
-			Channel: ch,
-			Header:  header,
-			Method:  mtd,
-			Data:    data,
-			Args:    moreArgs,
+			Channel:  ch,
+			Header:   header,
+			Method:   mtd,
+			Data:     data,
+			Args:     moreArgs,
 		}
 		rst, err := ch.server.Connect.CallFunc(ctx, ch.server, msg)
 		if err != nil {

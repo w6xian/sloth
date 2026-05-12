@@ -35,6 +35,7 @@ type ICallRpc interface {
 type ICall interface {
 	Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error)
 	Push(ctx context.Context, msg *message.Msg) error
+	DefaultHeader() message.Header
 	GetAuthInfo() (*auth.AuthInfo, error)
 	SetAuthInfo(auth *auth.AuthInfo) error
 }

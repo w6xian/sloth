@@ -83,8 +83,9 @@ type KcpClient struct {
 	closeChan chan struct{}
 
 	// 认证信息
-	authMu   sync.RWMutex
-	authInfo *auth.AuthInfo
+	authMu        sync.RWMutex
+	authInfo      *auth.AuthInfo
+	defaultHeader message.Header
 }
 
 // NewKcpClient 创建 KCP 客户端
@@ -92,6 +93,7 @@ func NewKcpClient(connect trpc.ICallRpc) *KcpClient {
 	c := &KcpClient{
 		Connect:   connect,
 		closeChan: make(chan struct{}),
+		defaultHeader: message.Header{},
 	}
 	c.rpcCallerPool = sync.Pool{
 		New: func() any {
@@ -145,10 +147,31 @@ func (c *KcpClient) Dial(ctx context.Context, addr string) (nrpc.RawConn, error)
 
 // ── nrpc.ICall 接口实现 ───────────────────────────────────────────
 
+// DefaultHeader 获取默认请求头
+func (c *KcpClient) DefaultHeader() message.Header {
+	return c.defaultHeader
+}
+
 // Call 发起 RPC 调用
 func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	if c.conn == nil {
 		return nil, fmt.Errorf("not connected")
+	}
+
+	usePoolHeader := false
+	mergedHeader := header
+	if len(c.defaultHeader) != 0 {
+		usePoolHeader = true
+		mergedHeader = message.GetHeader()
+		for k, v := range c.defaultHeader {
+			mergedHeader[k] = v
+		}
+		for k, v := range header {
+			mergedHeader[k] = v
+		}
+	}
+	if usePoolHeader {
+		defer message.PutHeader(mergedHeader)
 	}
 
 	// 生成唯一 call id
@@ -162,7 +185,7 @@ func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	callMsg.Id = id
 	callMsg.Protocol = 0 // TLV 协议（返回值/参数按框架默认编码，避免客户端 tlv decoder 失败）
 	callMsg.Action = 1   // ACTION_CALL
-	callMsg.Header = header
+	callMsg.Header = mergedHeader
 	callMsg.Method = mtd
 	callMsg.Data = nil
 	callMsg.Args = nil

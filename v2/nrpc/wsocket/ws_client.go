@@ -50,6 +50,7 @@ type LocalClient struct {
 
 	middlewares []middleware.Middleware
 
+	defaultHeader message.Header
 	// RpcCaller 对象池，减少 GC 压力
 	rpcCallerPool sync.Pool
 }
@@ -107,6 +108,7 @@ func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *Loc
 	s.Connect = connect
 	s.uriPath = "/ws"
 	s.address = "127.0.0.1:8080"
+	s.defaultHeader = message.Header{}
 
 	s.serviceMapMu = sync.RWMutex{}
 
@@ -225,6 +227,10 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	}
 }
 
+func (c *LocalClient) DefaultHeader() message.Header {
+	return c.defaultHeader
+}
+
 func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd string, data ...[]byte) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -236,13 +242,29 @@ func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd strin
 		return nil, errors.New("client not found")
 	}
 
+	usePoolHeader := false
+	mergedHeader := header
+	if len(c.defaultHeader) != 0 {
+		usePoolHeader = true
+		mergedHeader = message.GetHeader()
+		for k, v := range c.defaultHeader {
+			mergedHeader[k] = v
+		}
+		for k, v := range header {
+			mergedHeader[k] = v
+		}
+	}
+	if usePoolHeader {
+		defer message.PutHeader(mergedHeader)
+	}
+
 	// 使用中间件链包装调用
 	final := func(ctx context.Context, hdr message.Header, method string, args ...[]byte) ([]byte, error) {
 		return c.client.Call(ctx, hdr, method, args...)
 	}
 
 	handler := middleware.Chain(c.middlewares, final)
-	rst, err := handler(ctx, header, mtd, data...)
+	rst, err := handler(ctx, mergedHeader, mtd, data...)
 	if err != nil {
 		return nil, err
 	}
