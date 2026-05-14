@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -157,7 +158,20 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			c.log(logger.Error, "ListenAndServe recover err : %v", err)
 		}
 	}()
-	addr := fmt.Sprintf("ws://%s%s", c.address, c.uriPath)
+	addr := ""
+	if strings.Contains(c.address, "://") {
+		u, err := url.Parse(c.address)
+		if err == nil {
+			if u.Path == "" || u.Path == "/" {
+				u.Path = c.uriPath
+			}
+			addr = u.String()
+		} else {
+			addr = c.address
+		}
+	} else {
+		addr = fmt.Sprintf("ws://%s%s", c.address, c.uriPath)
+	}
 	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {

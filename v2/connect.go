@@ -18,8 +18,8 @@ import (
 
 	"github.com/w6xian/sloth/v2/bucket"
 	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/internal/tools"
+	"github.com/w6xian/sloth/v2/internal/utils"
 	"github.com/w6xian/sloth/v2/internal/utils/array"
 	"github.com/w6xian/sloth/v2/internal/utils/id"
 	"github.com/w6xian/sloth/v2/message"
@@ -341,11 +341,25 @@ func (c *Connect) Serve() error {
 		go func(listener ProtocolListener) {
 			defer wg.Done()
 			switch listener.Network {
-			case "ws", "wss", "websocket":
+			case "ws", "websocket":
 				// WebSocket 服务
 				c.Log(logger.Info, "starting WebSocket server on %s", listener.Address)
 
 				if err := http.Serve(listener.Listener, nil); err != nil {
+					errChan <- err
+				}
+			case "wss":
+				c.Log(logger.Info, "starting WSS server on %s", listener.Address)
+				certFile := strings.TrimSpace(c.Option.TLSCertFile)
+				keyFile := strings.TrimSpace(c.Option.TLSKeyFile)
+				if certFile == "" || keyFile == "" {
+					errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile)")
+					return
+				}
+				srv := &http.Server{
+					Handler: nil,
+				}
+				if err := srv.ServeTLS(listener.Listener, certFile, keyFile); err != nil {
 					errChan <- err
 				}
 			case "tcp", "tcp4", "tcp6":
@@ -440,9 +454,13 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 	switch network {
 	case "ws", "wss", "websocket":
 		// WebSocket 客户端
+		scheme := "ws://"
+		if network == "wss" {
+			scheme = "wss://"
+		}
 		opts := []option.ConnectOption{
 			option.WithUriPath("/ws"),
-			option.WithAddress(address),
+			option.WithAddress(scheme + address),
 		}
 		opts = append(opts, options...)
 		if err := c.initWsClientInstance(opts...); err != nil {

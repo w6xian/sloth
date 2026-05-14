@@ -43,6 +43,9 @@ type Options struct {
 	AutoBanWindow    time.Duration
 	AutoBanThreshold int64
 	AutoBanTTL       time.Duration
+
+	TLSCertFile string
+	TLSKeyFile  string
 }
 
 func NewOptions() *Options {
@@ -72,5 +75,7 @@ func NewOptions() *Options {
 		AutoBanWindow:    30 * time.Second,
 		AutoBanThreshold: 5,
 		AutoBanTTL:       10 * time.Minute,
+		TLSCertFile: "",
+		TLSKeyFile:  "",
 	}
 }

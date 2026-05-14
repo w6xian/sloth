@@ -177,6 +177,25 @@ func WithAutoBanTTL(ttl time.Duration) ConnOption {
 	}
 }
 
+func WithTLSCertFile(path string) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.TLSCertFile = path
+	}
+}
+
+func WithTLSKeyFile(path string) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.TLSKeyFile = path
+	}
+}
+
+func WithTLSCertKey(certFile string, keyFile string) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.TLSCertFile = certFile
+		ch.Option.TLSKeyFile = keyFile
+	}
+}
+
 // 编码解码
 
 func UseEncoder(encoder Encoder) IRpcOption {
