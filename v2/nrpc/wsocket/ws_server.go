@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,22 +32,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// sync.Pool for JsonValue reuse
-var jsonValuePool = sync.Pool{
-	New: func() any {
-		return &utils.JsonValue{}
-	},
-}
-
-func getJsonValue() *utils.JsonValue {
-	return jsonValuePool.Get().(*utils.JsonValue)
-}
-
-func putJsonValue(v *utils.JsonValue) {
-	if v != nil {
-		*v = utils.JsonValue{}
-		jsonValuePool.Put(v)
+func allowWebSocketOrigin(r *http.Request) bool {
+	if r == nil {
+		return false
 	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 type WsServer struct {
@@ -224,8 +223,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		ReadBufferSize:  s.ReadBufferSize,
 		WriteBufferSize: s.WriteBufferSize,
 	}
-	//cross origin domain support
-	upGrader.CheckOrigin = func(r *http.Request) bool { return true }
+	upGrader.CheckOrigin = allowWebSocketOrigin
 	conn, err := upGrader.Upgrade(w, r, nil)
 	if err != nil {
 		if release != nil {
@@ -331,7 +329,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 	}()
 	defer func() {
 		if ch.Room() == nil || ch.UserId() == 0 {
-			GetBucket(context.Background(), s.Buckets, ch.UserId()).DeleteChannel(ch)
+			GetBucket(ctx, s.Buckets, ch.UserId()).DeleteChannel(ch)
 		}
 		if ch.Conn != nil {
 			ch.Conn.Close()
@@ -393,8 +391,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		// var connReq *nrpc.RpcCaller
-		// fmt.Println(string(m))
+
+		connReq = getJsonValue()
 		if reqErr := json.Unmarshal(m, connReq); reqErr == nil {
 			// fmt.Println("----------", connReq.Int64("action"))
 			action := int(connReq.Int64("action"))
@@ -426,10 +424,10 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 				// 链接通道
 				args.Channel = ch
 				// 调用 connect.CallFunc 方法
-				hctx := context.Background()
-				s.HandleCall(hctx, args)
+				s.HandleCall(ctx, args)
 				message.PutHeader(message.Header(args.Header))
 				args.Header = nil
+				putJsonValue(connReq)
 				continue
 			} else if action == actions.ACTION_REPLY {
 				// 防止被恶意阻塞，这里也有个问题，同一个方法，不能一直返回
@@ -450,8 +448,10 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 					select {
 					case ch.rpcResult <- payload:
 					case <-ctx.Done():
+						putJsonValue(connReq)
 						return
 					}
+					putJsonValue(connReq)
 					continue
 				}
 				b := connReq.Bytes("data")
@@ -469,15 +469,17 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 				select {
 				case ch.rpcResult <- payload:
 				case <-ctx.Done():
+					putJsonValue(connReq)
 					return
 				}
+				putJsonValue(connReq)
 				continue
 			}
 			// fmt.Println("ws_server readPump err action messageType:", connReq.Action)
 		} else {
 			log.Println("ws_server readPump err action messageType:", messageType, "msg:", string(m), reqErr)
 		}
-
+		putJsonValue(connReq)
 		if handler != nil {
 			handler.OnData(ctx, s, ch, messageType, m)
 		}

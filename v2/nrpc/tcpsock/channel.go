@@ -113,25 +113,30 @@ func (ch *TcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err err
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
 		return ctx.Err()
-	default:
 	}
 	return nil
 }
 
 // ReplySuccess 向客户端发送 RPC 调用成功回复。
 func (ch *TcpChannelServer) ReplySuccess(id string, data []byte) error {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackSuccess(id, data):
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
 
 // ReplyError 向客户端发送 RPC 调用失败回复。
 func (ch *TcpChannelServer) ReplyError(id string, errBytes []byte) error {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackError(id, errBytes):
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -233,7 +238,7 @@ func (ch *TcpChannelServer) readLoop(ctx context.Context) {
 
 		switch frameType {
 		case nrpc.FrameTypeCall:
-			ch.handleCall(payload)
+			ch.handleCall(ctx, payload)
 		case nrpc.FrameTypePing:
 			_ = WriteFrame(ch.conn, nrpc.FrameTypePong, nil, 10*time.Second)
 		default:
@@ -281,7 +286,7 @@ func (ch *TcpChannelServer) writeLoop(ctx context.Context) {
 }
 
 // handleCall 处理客户端发来的 RPC Call 帧，通过中间件链执行。
-func (ch *TcpChannelServer) handleCall(payload []byte) {
+func (ch *TcpChannelServer) handleCall(ctx context.Context, payload []byte) {
 	var caller trpc.RpcCaller
 	if err := json.Unmarshal(payload, &caller); err != nil {
 		ch.log(logger.Error, "handleCall unmarshal err: %v", err)
@@ -322,5 +327,5 @@ func (ch *TcpChannelServer) handleCall(payload []byte) {
 
 	// 用中间件链包装
 	handler := middleware.Chain(ch.server.middlewares, final)
-	handler(context.Background(), message.Header(caller.Header), caller.Method, caller.Args...)
+	handler(ctx, message.Header(caller.Header), caller.Method, caller.Args...)
 }

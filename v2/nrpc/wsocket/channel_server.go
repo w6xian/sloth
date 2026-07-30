@@ -24,20 +24,20 @@ import (
 // 服务器端对客户端的连接通道
 // in fact, Channel it's a user Connect session
 type WsChannelServer struct {
-	Lock      sync.Mutex
-	_room     *bucket.Room
-	_next     bucket.IChannel
-	_prev     bucket.IChannel
-	broadcast chan *message.Msg
-	_userId   int64
-	_sign     string
-	Conn      *websocket.Conn
-	connTcp   *net.TCPConn
-	Connect   trpc.ICallRpc
+	Lock        sync.Mutex
+	_room       *bucket.Room
+	_next       bucket.IChannel
+	_prev       bucket.IChannel
+	broadcast   chan *message.Msg
+	_userId     int64
+	_sign       string
+	Conn        *websocket.Conn
+	connTcp     *net.TCPConn
+	Connect     trpc.ICallRpc
 	releaseConn func()
-	rpcCaller chan []byte
-	rpcBacker chan []byte
-	rpcResult chan []byte
+	rpcCaller   chan []byte
+	rpcBacker   chan []byte
+	rpcResult   chan []byte
 
 	pongTimeout    time.Duration
 	writeWait      time.Duration
@@ -183,7 +183,6 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
 		return ctx.Err()
-	default:
 	}
 	return
 }
@@ -252,9 +251,12 @@ func (c *WsChannelServer) ReplySuccess(id string, data []byte) error {
 	payload := utils.Serialize(msg)
 	c.putBackObj(msg)
 
+	timer := time.NewTimer(c.writeWait)
+	defer timer.Stop()
 	select {
 	case c.rpcBacker <- payload:
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -279,9 +281,12 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 	payload := utils.Serialize(msg)
 	c.putBackObj(msg)
 
+	timer := time.NewTimer(c.writeWait)
+	defer timer.Stop()
 	select {
 	case c.rpcBacker <- payload:
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -320,7 +325,6 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	default:
 	}
 	ticker.Reset(ch.readWait)
 	// 等待调用结果

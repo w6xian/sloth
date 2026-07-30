@@ -67,6 +67,7 @@ var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
 type ProtocolListener struct {
 	Network   string                 // 协议类型: ws, tcp, quic, grpc
 	Address   string                 // 监听地址
+	Context   context.Context        // 监听上下文
 	Listener  net.Listener           // net.Listener 监听器
 	Transport nrpc.Listener          // Transport 抽象监听器
 	Options   []option.ConnectOption // 连接	 选项
@@ -148,11 +149,11 @@ func newConnect(opts ...ConnOption) *Connect {
 		opt(svr)
 	}
 	svr.guard = tools.NewConnGuard(tools.ConnLimits{
-		MaxGlobal: svr.Option.MaxConnsGlobal,
-		MaxPerIP:  svr.Option.MaxConnsPerIP,
-		MaxWS:     svr.Option.MaxConnsWS,
-		MaxTCP:    svr.Option.MaxConnsTCP,
-		MaxKCP:    svr.Option.MaxConnsKCP,
+		MaxGlobal:        svr.Option.MaxConnsGlobal,
+		MaxPerIP:         svr.Option.MaxConnsPerIP,
+		MaxWS:            svr.Option.MaxConnsWS,
+		MaxTCP:           svr.Option.MaxConnsTCP,
+		MaxKCP:           svr.Option.MaxConnsKCP,
 		AutoBanEnabled:   svr.Option.AutoBanEnabled,
 		AutoBanWindow:    svr.Option.AutoBanWindow,
 		AutoBanThreshold: svr.Option.AutoBanThreshold,
@@ -165,11 +166,11 @@ func newConnect(opts ...ConnOption) *Connect {
 func (c *Connect) ConnGuard() *tools.ConnGuard {
 	if c.guard == nil {
 		c.guard = tools.NewConnGuard(tools.ConnLimits{
-			MaxGlobal: c.Option.MaxConnsGlobal,
-			MaxPerIP:  c.Option.MaxConnsPerIP,
-			MaxWS:     c.Option.MaxConnsWS,
-			MaxTCP:    c.Option.MaxConnsTCP,
-			MaxKCP:    c.Option.MaxConnsKCP,
+			MaxGlobal:        c.Option.MaxConnsGlobal,
+			MaxPerIP:         c.Option.MaxConnsPerIP,
+			MaxWS:            c.Option.MaxConnsWS,
+			MaxTCP:           c.Option.MaxConnsTCP,
+			MaxKCP:           c.Option.MaxConnsKCP,
 			AutoBanEnabled:   c.Option.AutoBanEnabled,
 			AutoBanWindow:    c.Option.AutoBanWindow,
 			AutoBanThreshold: c.Option.AutoBanThreshold,
@@ -244,7 +245,6 @@ func (c *Connect) GetServiceFuncs(name string) map[string]FuncStruct {
 func (c *Connect) Listen(ctx context.Context, network, address string, opts ...option.ConnectOption) error {
 	// 如果设置了 Transport，使用 Transport 抽象
 	if c.transport != nil {
-		ctx := context.Background()
 		listener, err := c.transport.Listen(ctx, address)
 		if err != nil {
 			return err
@@ -252,6 +252,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		c.listeners = append(c.listeners, ProtocolListener{
 			Network:   network,
 			Address:   address,
+			Context:   ctx,
 			Transport: listener,
 		})
 		return nil
@@ -272,6 +273,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		c.listeners = append(c.listeners, ProtocolListener{
 			Network:  network,
 			Address:  address,
+			Context:  ctx,
 			Listener: ln,
 			Options:  opts,
 		})
@@ -286,6 +288,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		c.listeners = append(c.listeners, ProtocolListener{
 			Network:  network,
 			Address:  address,
+			Context:  ctx,
 			Listener: ln,
 		})
 		c.Log(logger.Info, "registered TCP listener on %s", address)
@@ -298,6 +301,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		c.listeners = append(c.listeners, ProtocolListener{
 			Network:   network,
 			Address:   address,
+			Context:   ctx,
 			Transport: srv,
 		})
 		c.Log(logger.Info, "registered KCP listener on %s", address)
@@ -325,7 +329,7 @@ func (c *Connect) Serve() error {
 	// 初始化 WebSocket 服务器
 	for _, l := range c.listeners {
 		if l.Network == "ws" || l.Network == "wss" || l.Network == "websocket" {
-			if err := c.initWsServerInstance(l.Options...); err != nil {
+			if err := c.initWsServerInstance(l.Context, l.Options...); err != nil {
 				return err
 			}
 			break
@@ -340,6 +344,10 @@ func (c *Connect) Serve() error {
 		wg.Add(1)
 		go func(listener ProtocolListener) {
 			defer wg.Done()
+			runCtx := listener.Context
+			if runCtx == nil {
+				runCtx = context.Background()
+			}
 			switch listener.Network {
 			case "ws", "websocket":
 				// WebSocket 服务
@@ -369,7 +377,7 @@ func (c *Connect) Serve() error {
 				if c.client != nil && c.client.Serve == nil {
 					c.client.Serve = tcpServer
 				}
-				if err := tcpServer.Serve(context.Background()); err != nil {
+				if err := tcpServer.Serve(runCtx); err != nil {
 					errChan <- err
 				}
 			case "kcp":
@@ -382,7 +390,7 @@ func (c *Connect) Serve() error {
 				if c.client != nil && c.client.Serve == nil {
 					c.client.Serve = srv
 				}
-				if err := srv.Serve(context.Background()); err != nil {
+				if err := srv.Serve(runCtx); err != nil {
 					errChan <- err
 				}
 			}
@@ -435,10 +443,10 @@ func (c *Connect) Close() error {
 func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) {
 	// 如果设置了 Transport，使用 Transport 抽象
 	if c.transport != nil {
-		ctx := context.Background()
 		icall, err := c.transport.Dial(ctx, address)
 		if err != nil {
-			panic(err)
+			c.Log(logger.Error, "transport dial error: %v", err)
+			return
 		}
 		c.server.Listen = icall
 		return
@@ -463,8 +471,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			option.WithAddress(scheme + address),
 		}
 		opts = append(opts, options...)
-		if err := c.initWsClientInstance(opts...); err != nil {
-			panic(err)
+		if err := c.initWsClientInstance(ctx, opts...); err != nil {
+			c.Log(logger.Error, "websocket dial error: %v", err)
+			return
 		}
 	case "tcp", "tcp4", "tcp6":
 		tcpClient := tcpsock.NewTcpClient(c)
@@ -498,8 +507,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			option.WithAddress(address),
 		}
 		opts = append(opts, options...)
-		if err := c.initWsClientInstance(opts...); err != nil {
-			panic(err)
+		if err := c.initWsClientInstance(ctx, opts...); err != nil {
+			c.Log(logger.Error, "websocket dial error: %v", err)
+			return
 		}
 	}
 

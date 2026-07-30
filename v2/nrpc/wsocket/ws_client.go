@@ -152,6 +152,16 @@ func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
 	c.Connect.Log(level, "[LocalClient]"+line, args...)
 }
 
+func signalClose(closeChan chan struct{}) {
+	if closeChan == nil {
+		return
+	}
+	select {
+	case closeChan <- struct{}{}:
+	default:
+	}
+}
+
 func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 	defer func() {
 		if err := recover(); err != nil {
@@ -182,8 +192,14 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			// 1-30 秒重试
 			retry := utils.RandInt64(1, 30)
 			c.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
-			time.Sleep(time.Duration(retry) * time.Second)
-			c.ListenAndServe(context.Background())
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(retry) * time.Second):
+			}
+			if ctx.Err() == nil {
+				c.ListenAndServe(ctx)
+			}
 			return err
 		}
 		c.ClientWs(ctx, conn)
@@ -219,14 +235,14 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	}()
 
 	// 链接session
-	closeChan := make(chan struct{}, 2)
-	defer close(closeChan)
+	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
 	wsConn := NewWsChannelClient(c.Connect)
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
 	wsConn.RoomId = 0
+	parentCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	//get data from websocket conn
 	go c.readPump(ctx, wsConn, closeChan, c.handler)
@@ -236,8 +252,8 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	<-closeChan
 	cancel()
 	// 重连
-	if c.KeepAlive {
-		c.ListenAndServe(context.Background())
+	if c.KeepAlive && parentCtx.Err() == nil {
+		c.ListenAndServe(parentCtx)
 	}
 }
 
@@ -305,9 +321,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	ticker := time.NewTicker(c.PingPeriod)
 	defer func() {
 		// 检测是否有效或已关闭
-		if closeChan != nil {
-			closeChan <- struct{}{}
-		}
+		signalClose(closeChan)
 	}()
 	defer func() {
 		ticker.Stop()
@@ -399,9 +413,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
-		if closeChan != nil {
-			closeChan <- struct{}{}
-		}
+		signalClose(closeChan)
 	}()
 	defer func() {
 
@@ -466,7 +478,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			m = tlvFrame.Value()
 		}
 		// fmt.Println("Call LocalClient-44-:", m)
-		var connReq utils.JsonValue
+		connReq := getJsonValue()
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			action := int(connReq.Int64("action"))
 			protocol := int(connReq.Int64("protocol"))
@@ -499,11 +511,13 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				args.Args = connReq.BytesArray("args")
 				args.Channel = ch
 				c.HandleCall(ctx, args)
+				putJsonValue(connReq)
 				// 注意：HandleCall 不负责归还对象，对象由调用方在处理完成后归还
 				continue
 			} else if action == actions.ACTION_REPLY {
 				if atomic.AddInt64(&ch.rpc_io, -1) < -50 {
 					atomic.StoreInt64(&ch.rpc_io, 0)
+					putJsonValue(connReq)
 					continue
 				}
 				errStr := connReq.String("error")
@@ -519,8 +533,10 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 					select {
 					case ch.rpcResult <- payload:
 					case <-ctx.Done():
+						putJsonValue(connReq)
 						return
 					}
+					putJsonValue(connReq)
 					continue
 				}
 				backObj := ch.getBackObj()
@@ -534,15 +550,17 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				select {
 				case ch.rpcResult <- payload:
 				case <-ctx.Done():
+					putJsonValue(connReq)
 					return
 				}
+				putJsonValue(connReq)
 				continue
 			}
 		} else {
 			// 处理其他消息类型
 			fmt.Println("Call LocalClient-44-:", err)
 		}
-
+		putJsonValue(connReq)
 		if handler != nil {
 			handler.OnData(ctx, c, ch, messageType, m)
 		}

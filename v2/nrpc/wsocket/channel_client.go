@@ -23,11 +23,11 @@ import (
 // 客户端对服务器的连接通道
 // in fact, Client it's a user Connect session
 type WsChannelClient struct {
-	send      chan *message.Msg
-	rpcCaller chan []byte
-	rpcBacker chan []byte
-	rpcResult chan []byte
-	Connect   trpc.ICallRpc
+	send          chan *message.Msg
+	rpcCaller     chan []byte
+	rpcBacker     chan []byte
+	rpcResult     chan []byte
+	Connect       trpc.ICallRpc
 	defaultHeader message.Header
 
 	// 客户端的用户ID
@@ -169,7 +169,8 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 
 	select {
 	case c.send <- msg:
-	default:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return
 }
@@ -190,9 +191,12 @@ func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
 	payload := utils.Serialize(msg)
 	c.putBackObj(msg)
 
+	timer := time.NewTimer(c.writeWait)
+	defer timer.Stop()
 	select {
 	case c.rpcBacker <- payload:
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -216,9 +220,12 @@ func (c *WsChannelClient) ReplyError(id string, err []byte) error {
 	payload := utils.Serialize(msg)
 	c.putBackObj(msg)
 
+	timer := time.NewTimer(c.writeWait)
+	defer timer.Stop()
 	select {
 	case c.rpcBacker <- payload:
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -282,7 +289,6 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	default:
 	}
 	ticker.Reset(ch.readWait)
 	// 等待调用结果
@@ -355,7 +361,6 @@ func (ch *WsChannelClient) CallAsync(ctx context.Context, header message.Header,
 		ch.Lock.Unlock()
 		close(respChan)
 		return nil, ctx.Err()
-	default:
 	}
 
 	ticker.Reset(ch.readWait)

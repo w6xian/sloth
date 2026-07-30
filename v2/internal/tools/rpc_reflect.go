@@ -12,7 +12,7 @@ var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
 // Precompute the reflect type for error.
 var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
 
-func suitableMethods(typ reflect.Type) map[string]reflect.Method {
+func suitableMethods(typ reflect.Type) (map[string]reflect.Method, error) {
 	methods := make(map[string]reflect.Method)
 	for m := 0; m < typ.NumMethod(); m++ {
 		m := typ.Method(m)
@@ -29,30 +29,30 @@ func suitableMethods(typ reflect.Type) map[string]reflect.Method {
 		}
 		// 只限定第一个参数，一这是context.Context，后面的参数可以是任意类型
 		if m.Type.NumIn() < 2 {
-			panic(fmt.Sprintf("method %s must have at least 1 arguments", m.Name))
+			return nil, fmt.Errorf("method %s must have at least 1 arguments", m.Name)
 		}
 		arg1 := m.Type.In(1)
 		// 判定第一个参数是不是context.Context
 		if !arg1.Implements(typeOfContext) {
-			panic(fmt.Sprintf("method %s must have at least 1 arguments, first argument must be context.Context", m.Name))
+			return nil, fmt.Errorf("method %s must have at least 1 arguments, first argument must be context.Context", m.Name)
 		}
 		// 返回值最后一个值需要是error
 		if m.Type.NumOut() < 1 {
-			panic(fmt.Sprintf("method %s must have 1-2 return value and last return value must be error", m.Name))
+			return nil, fmt.Errorf("method %s must have 1-2 return value and last return value must be error", m.Name)
 		}
 		if m.Type.NumOut() > 2 {
-			panic(fmt.Sprintf("method %s must have 1-2 return values and last return value must be error", m.Name))
+			return nil, fmt.Errorf("method %s must have 1-2 return values and last return value must be error", m.Name)
 		}
 		out := m.Type.Out(m.Type.NumOut() - 1)
 		if !out.Implements(typeOfError) {
-			panic(fmt.Sprintf("method %s must have at least 1 return value, last return value must be error", m.Name))
+			return nil, fmt.Errorf("method %s must have at least 1 return value, last return value must be error", m.Name)
 		}
 		methods[m.Name] = m
 	}
-	return methods
+	return methods, nil
 }
 
-func Register(name string, rcvr any) *ServiceFuncs {
+func Register(name string, rcvr any) (*ServiceFuncs, error) {
 	service := new(ServiceFuncs)
 	getType := reflect.TypeOf(rcvr)
 	service.V = reflect.ValueOf(rcvr)
@@ -66,8 +66,12 @@ func Register(name string, rcvr any) *ServiceFuncs {
 		service.N = sname
 	}
 	// Install the methods
-	service.M = suitableMethods(getType)
-	return service
+	methods, err := suitableMethods(getType)
+	if err != nil {
+		return nil, err
+	}
+	service.M = methods
+	return service, nil
 }
 
 type ServiceFuncs struct {

@@ -44,7 +44,7 @@ type KcpChannelServer struct {
 	rpcCaller chan *message.JsonCallObject
 	rpcBacker chan *message.JsonBackObject
 
-	Connect trpc.ICallRpc
+	Connect     trpc.ICallRpc
 	releaseConn func()
 
 	rpc_io int
@@ -112,25 +112,30 @@ func (ch *KcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err err
 	case ch.broadcast <- msg:
 	case <-ctx.Done():
 		return ctx.Err()
-	default:
 	}
 	return nil
 }
 
 // ReplySuccess 向客户端发送 RPC 调用成功回复。
 func (ch *KcpChannelServer) ReplySuccess(id string, data []byte) error {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackSuccess(id, data):
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
 
 // ReplyError 向客户端发送 RPC 调用失败回复。
 func (ch *KcpChannelServer) ReplyError(id string, errBytes []byte) error {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
 	select {
 	case ch.rpcBacker <- message.NewWsJsonBackError(id, errBytes):
-	default:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
 	}
 	return nil
 }
@@ -228,7 +233,7 @@ func (ch *KcpChannelServer) readLoop(ctx context.Context) {
 
 		switch frameType {
 		case nrpc.FrameTypeCall:
-			ch.handleCall(payload)
+			ch.handleCall(ctx, payload)
 		case nrpc.FrameTypePing:
 			_ = WriteFrame(ch.conn, nrpc.FrameTypePong, nil, 10*time.Second)
 		default:
@@ -276,7 +281,7 @@ func (ch *KcpChannelServer) writeLoop(ctx context.Context) {
 }
 
 // handleCall 处理客户端发来的 RPC Call 帧，通过中间件链执行。
-func (ch *KcpChannelServer) handleCall(payload []byte) {
+func (ch *KcpChannelServer) handleCall(ctx context.Context, payload []byte) {
 	var caller trpc.RpcCaller
 	if err := json.Unmarshal(payload, &caller); err != nil {
 		ch.log(logger.Error, "handleCall unmarshal err: %v", err)
@@ -317,5 +322,5 @@ func (ch *KcpChannelServer) handleCall(payload []byte) {
 
 	// 用中间件链包装
 	handler := middleware.Chain(ch.server.middlewares, final)
-	handler(context.Background(), message.Header(caller.Header), caller.Method, caller.Args...)
+	handler(ctx, message.Header(caller.Header), caller.Method, caller.Args...)
 }

@@ -3,6 +3,8 @@ package wsocket
 import (
 	"reflect"
 	"sync"
+
+	"github.com/w6xian/sloth/v2/internal/utils"
 )
 
 // Reset defines Reset method for pooled object.
@@ -58,4 +60,22 @@ func (p *typePools) Get(t reflect.Type) any {
 	p.mu.RUnlock()
 
 	return pool.Get()
+}
+
+// sync.Pool for JsonValue reuse
+var jsonValuePool = sync.Pool{
+	New: func() any {
+		return &utils.JsonValue{}
+	},
+}
+
+func getJsonValue() *utils.JsonValue {
+	return jsonValuePool.Get().(*utils.JsonValue)
+}
+
+func putJsonValue(v *utils.JsonValue) {
+	if v != nil {
+		*v = utils.JsonValue{}
+		jsonValuePool.Put(v)
+	}
 }
