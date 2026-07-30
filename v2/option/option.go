@@ -33,10 +33,10 @@ func WithAddress(path string) ConnectOption {
 	}
 }
 
-func WithRouter(router *mux.Router) ConnectOption {
+func WithRouter(router *mux.Router, path string) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetRouter(router)
-		http.Handle("/", router)
+		http.Handle(path, router)
 	}
 }
 func WithRouterWithoutHandle(router *mux.Router) ConnectOption {

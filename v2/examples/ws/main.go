@@ -29,7 +29,7 @@ func main() {
 	// Register services
 	drpc.Register("v1", &HelloService{}, "")
 	drpc.Listen(ctx, "ws", "localhost:8990",
-		option.WithRouterWithoutHandle(r),
+		option.WithRouter(r, "/ws"),
 		option.WithServerHandleMessage(&Handler{}))
 	drpc.Listen(ctx, "tcp", "localhost:8991")
 	drpc.Listen(ctx, "kcp", "localhost:8992")

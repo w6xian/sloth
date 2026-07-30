@@ -18,6 +18,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// AB is a test struct
+type AB struct {
+	A int64 `json:"a"`
+	B int64 `json:"b"`
+}
+
 // main entry point for the WebSocket client
 func main() {
 	runtime := context.Background()
@@ -31,7 +37,7 @@ func main() {
 
 	// Start WebSocket Client in a goroutine
 
-	go newConnect.Dial(ctx, "kcp", "localhost:8992")
+	go newConnect.Dial(ctx, "ws", "localhost:8990")
 
 	// Main loop for making RPC calls
 	func() {
@@ -62,6 +68,13 @@ func main() {
 
 			// Example RPC call with header and various arguments
 			data, err := client.CallWithHeader(context.Background(), message.Header{
+				"APP_ID":  "header_app_id",
+				"USER_ID": "1",
+			}, "v1.Test", &AB{A: 1, B: 2},
+			)
+			fmt.Println("v1.Test Call result:", data, err)
+			// Example RPC call with header and various arguments
+			data, err = client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
 				"USER_ID": "1",
 			}, "pprof.Info", []byte("abc"),
