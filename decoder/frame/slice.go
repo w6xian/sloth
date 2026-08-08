@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/v2/internal/utils"
 )
 
 const TextMessage byte = 0x01

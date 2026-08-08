@@ -6,19 +6,29 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth"
-	"github.com/w6xian/sloth/internal/utils"
-	"github.com/w6xian/sloth/message"
-	"github.com/w6xian/sloth/nrpc"
-	"github.com/w6xian/sloth/nrpc/wsocket"
-	"github.com/w6xian/sloth/pprof"
+	"github.com/w6xian/sloth/v2"
+	"github.com/w6xian/sloth/v2/internal/utils"
+	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/pprof"
+	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
 )
 
+// AB is a test struct
+type AB struct {
+	A int64 `json:"a"`
+	B int64 `json:"b"`
+}
+
 // main entry point for the WebSocket client
 func main() {
+	runtime := context.Background()
+	ctx, cancel := context.WithCancel(runtime)
+	defer cancel()
 
 	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
@@ -26,38 +36,45 @@ func main() {
 	// Get service methods
 
 	// Start WebSocket Client in a goroutine
-	go newConnect.StartWebsocketClient(
-		wsocket.WithClientHandle(&Handler{server: client}),
-		wsocket.WithClientUriPath("/ws"),
-		wsocket.WithClientServerUri("localhost:8990"),
-	)
+
+	go newConnect.Dial(ctx, "ws", "localhost:8990")
 
 	// Main loop for making RPC calls
 	func() {
 		for {
-			time.Sleep(time.Second)
+			time.Sleep(time.Millisecond * 5000)
 
 			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
 				client.Header.Set("APP_ID", "1")
 				client.Header.Set("USER_ID", "1")
 				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
+				fmt.Println("------------")
+				fmt.Println("Sign result", data, err)
+				fmt.Println("------------")
 				if err != nil {
-					fmt.Println("Call error:", err)
+					fmt.Println("v1.Sign Call error:", err)
 					continue
 				}
-				auth := &nrpc.AuthInfo{}
+				auth := &auth.AuthInfo{}
 				err = tlv.Json2Struct(data, auth)
 				if err != nil {
-					fmt.Println("Deserialize error:", err)
 					continue
 				}
-				fmt.Println("Sign success:", auth)
+				fmt.Println(auth)
 				client.SetAuthInfo(auth)
+				fmt.Println("v1.Sign Call success:")
 			}
 
 			// Example RPC call with header and various arguments
 			data, err := client.CallWithHeader(context.Background(), message.Header{
+				"APP_ID":  "header_app_id",
+				"USER_ID": "1",
+			}, "v1.Test", &AB{A: 1, B: 2},
+			)
+			fmt.Println("v1.Test Call result:", data, err)
+			// Example RPC call with header and various arguments
+			data, err = client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
 				"USER_ID": "1",
 			}, "pprof.Info", []byte("abc"),
@@ -69,7 +86,7 @@ func main() {
 				&[]string{"a", "b", "c"},
 			)
 			if err != nil {
-				fmt.Println("Call error:", err)
+				fmt.Println("pprof.Info Call error:", err)
 				continue
 			}
 			info := &pprof.PProfInfo{}
@@ -78,7 +95,7 @@ func main() {
 				fmt.Println("Deserialize error:", err)
 				continue
 			}
-			fmt.Println("Call success:", info)
+			fmt.Println("pprof.Info Call success:", info)
 		}
 	}()
 
@@ -101,13 +118,13 @@ type Handler struct {
 }
 
 // OnClose is called when connection is closed
-func (h *Handler) OnClose(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
-	fmt.Println("OnClose:", ch.UserId)
+func (h *Handler) OnClose(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error {
+	fmt.Println("OnClose:", ch.GetUserId())
 	return nil
 }
 
 // OnData handles received messages
-func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, msgType int, message []byte) error {
 	if msgType == websocket.TextMessage {
 		fmt.Println("HandleMessage:", 1, string(message))
 	}
@@ -116,14 +133,14 @@ func (h *Handler) OnData(ctx context.Context, c *wsocket.LocalClient, ch *wsocke
 }
 
 // OnError handles errors
-func (h *Handler) OnError(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient, err error) error {
+func (h *Handler) OnError(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, err error) error {
 	fmt.Println("OnError:", err.Error())
 	return nil
 }
 
 // OnOpen is called when connection is opened
-func (h *Handler) OnOpen(ctx context.Context, c *wsocket.LocalClient, ch *wsocket.WsChannelClient) error {
-	fmt.Println("OnOpen:", ch.UserId, h.server)
+func (h *Handler) OnOpen(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error {
+	fmt.Println("OnOpen:", ch.GetUserId(), h.server)
 	// Example of sending an initial message or setting state
 	// ch.UserId = 2
 	// ch.RoomId = 1
@@ -138,7 +155,7 @@ type HelloService struct {
 // Test is a sample client-side method
 func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	fmt.Println("Test args:", b)
-	ch := ctx.Value(sloth.ChannelKey).(nrpc.IChannel)
+	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
@@ -150,7 +167,7 @@ func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
 	}
 	fmt.Println("Test args:", auth)
 
-	return utils.Serialize(map[string]string{"req": "local 1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
+	return utils.Serialize(map[string]string{"req": "local test", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 
 // Hello struct

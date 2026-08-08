@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth/bucket"
-	"github.com/w6xian/sloth/decoder"
-	"github.com/w6xian/sloth/message"
-	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/sloth/v2/bucket"
+	"github.com/w6xian/sloth/v2/decoder"
+	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/types"
 	"github.com/w6xian/tlv"
 )
 
 type ClientRpc struct {
-	Serve   IServer
+	Serve   types.IServer
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
@@ -55,8 +55,8 @@ func GetChannel(ctx context.Context) (bucket.IChannel, error) {
 	}
 	return ch, nil
 }
-func GetBucket(ctx context.Context) (nrpc.IBucket, error) {
-	bucket, ok := ctx.Value(BucketKey).(nrpc.IBucket)
+func GetBucket(ctx context.Context) (types.IBucket, error) {
+	bucket, ok := ctx.Value(BucketKey).(types.IBucket)
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}
@@ -121,7 +121,23 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 		args = append(args, b)
 	}
 
-	resp, err := ch.Call(ctx, header, mtd, args...)
+	usePoolHeader := false
+	mergedHeader := header
+	if len(c.Header) != 0 {
+		usePoolHeader = true
+		mergedHeader = message.GetHeader()
+		for k, v := range c.Header {
+			mergedHeader[k] = v
+		}
+		for k, v := range header {
+			mergedHeader[k] = v
+		}
+	}
+	if usePoolHeader {
+		defer message.PutHeader(mergedHeader)
+	}
+
+	resp, err := ch.Call(ctx, mergedHeader, mtd, args...)
 	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err

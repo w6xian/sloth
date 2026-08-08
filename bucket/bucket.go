@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/v2/message"
 )
 
 type Bucket struct {

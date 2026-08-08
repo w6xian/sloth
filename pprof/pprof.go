@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/v2/internal/utils"
 )
 
 type IPProf interface {
@@ -35,6 +35,7 @@ type Mem struct {
 	Sys        int64 `json:"sys"`
 	HeapAlloc  int64 `json:"heap_alloc"`
 	HeapSys    int64 `json:"heap_sys"`
+	NextGC     int64 `json:"next_gc"`
 	NumGC      int64 `json:"num_gc"`
 }
 
@@ -88,6 +89,7 @@ func (h *PProfInfo) Info(ctx context.Context) (*PProfInfo, error) {
 		Sys:        int64(m.Sys),
 		HeapAlloc:  int64(m.HeapAlloc),
 		HeapSys:    int64(m.HeapSys),
+		NextGC:     int64(m.NextGC),
 		NumGC:      int64(m.NumGC),
 	}
 	return h, nil
@@ -102,6 +104,7 @@ func (h *PProfInfo) String() string {
 		Sys:        int64(m.Sys),
 		HeapAlloc:  int64(m.HeapAlloc),
 		HeapSys:    int64(m.HeapSys),
+		NextGC:     int64(m.NextGC),
 		NumGC:      int64(m.NumGC),
 	}
 	return string(utils.Serialize(h))

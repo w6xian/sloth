@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/v2/message"
 )
 
 const NoRoom = -1

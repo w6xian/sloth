@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/bucket"
-	"github.com/w6xian/sloth/decoder/frame"
-	"github.com/w6xian/sloth/internal/tools"
+	"github.com/w6xian/sloth/v2/bucket"
+	"github.com/w6xian/sloth/v2/decoder/frame"
+	"github.com/w6xian/sloth/v2/internal/tools"
 
 	"github.com/gorilla/websocket"
 )

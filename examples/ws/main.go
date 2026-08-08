@@ -2,57 +2,54 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth"
-	"github.com/w6xian/sloth/bucket"
-	"github.com/w6xian/sloth/internal/utils"
-	"github.com/w6xian/sloth/message"
-	"github.com/w6xian/sloth/nrpc"
-	"github.com/w6xian/sloth/nrpc/wsocket"
+	"github.com/w6xian/sloth/v2"
+	"github.com/w6xian/sloth/v2/bucket"
+	"github.com/w6xian/sloth/v2/internal/utils"
+	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/option"
+	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/tlv"
 )
 
 // main entry point for the WebSocket server
 func main() {
-	ln, err := net.Listen("tcp", "localhost:8990")
-	if err != nil {
-		panic(err)
-	}
-	r := mux.NewRouter()
+	// Create a context with a cancel function
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	// Create default RPC server
 	server := sloth.DefaultServer()
-	newConnect := sloth.ServerConn(server)
-
+	drpc := sloth.ServerConn(server)
+	r := mux.NewRouter()
 	// Register services
-	newConnect.Register("v1", &HelloService{}, "")
+	drpc.Register("v1", &HelloService{}, "")
+	drpc.Listen(ctx, "ws", "localhost:8990",
+		option.WithRouter(r, "/ws"),
+		option.WithServerHandleMessage(&Handler{}))
+	drpc.Listen(ctx, "tcp", "localhost:8991")
+	drpc.Listen(ctx, "kcp", "localhost:8992")
+	go func() {
+		for {
+			time.Sleep(time.Millisecond * 2000)
+			rst, err := server.Call(ctx, 2, "shop.Test", tlv.Json(&AB{A: 1, B: 2}))
+			if err != nil {
+				fmt.Println("Call error:", err)
+				continue
+			}
+			fmt.Println("Call result:", string(rst))
+		}
+	}()
 
-	api, err := newConnect.GetServiceList(context.Background())
-	if err != nil {
+	if err := drpc.Serve(); err != nil {
 		panic(err)
 	}
-	data, _ := json.Marshal(api)
-	fmt.Println(string(data))
-
-	// Set up WebSocket listener options
-	newConnect.ListenOption(
-		wsocket.WithRouter(r),
-		wsocket.WithServerHandle(&Handler{}),
-	)
-
-	http.Handle("/", r)
 	fmt.Println("WebSocket server listening on localhost:8990")
 
-	// Start HTTP server
-	if err := http.Serve(ln, nil); err != nil {
-		fmt.Println("Server error:", err)
-	}
 }
 
 // Hello represents a simple message structure
@@ -65,34 +62,38 @@ type Handler struct {
 }
 
 // OnClose is called when a WebSocket connection is closed
-func (h *Handler) OnClose(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel) error {
-	fmt.Println("OnClose")
+func (h *Handler) OnClose(ctx context.Context, s types.IBucket, ch bucket.IChannel) error {
+	fmt.Println("OnClose1")
 	return nil
 }
 
 // OnError is called when a WebSocket error occurs
-func (h *Handler) OnError(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel, err error) error {
-	fmt.Println("OnError:", err)
+func (h *Handler) OnError(ctx context.Context, s types.IBucket, ch bucket.IChannel, err error) error {
+	fmt.Println("OnError1:", err)
 	return nil
 }
 
 // OnOpen is called when a new WebSocket connection is established
-func (h *Handler) OnOpen(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel) error {
-	fmt.Println("OnOpen")
+func (h *Handler) OnOpen(ctx context.Context, s types.IBucket, ch bucket.IChannel) error {
+	fmt.Println("OnOpen1")
 	return nil
 }
 
 // OnData is called when data is received from a WebSocket connection
-func (h *Handler) OnData(ctx context.Context, s *wsocket.WsServer, ch bucket.IChannel, msgType int, message []byte) error {
+func (h *Handler) OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, msg []byte) error {
 	// Simple authentication/bucketing logic
-	if ch.UserId() == 0 {
-		userId := int64(2)
-		roomId := int64(1)
-		// Assign user to a bucket (room)
-		b := s.Bucket(userId)
-		err := b.Put(userId, roomId, "token", ch)
-		return err
-	}
+	fmt.Println("OnData:1", string(msg))
+	// if ch.UserId() == 0 {
+	// 	userId := int64(2)
+	// 	roomId := int64(1)
+	// 	// Assign user to a bucket (room)
+	// 	b := s.Bucket(userId)
+	// 	err := b.Put(userId, roomId, "token", ch)
+	// 	if err != nil {
+	// 		fmt.Println("Put error:", err)
+	// 		return err
+	// 	}
+	// }
 	return nil
 }
 
@@ -143,7 +144,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	}
 
 	// Get bucket server from context
-	svr, ok := ctx.Value(sloth.BucketKey).(nrpc.IBucket)
+	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
 	if !ok {
 		return nil, fmt.Errorf("bucket not found")
 	}
@@ -151,7 +152,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
 
 	// Simulate auth info extraction
-	auth := nrpc.AuthInfo{
+	auth := auth.AuthInfo{
 		UserId: 2,
 		RoomId: 1,
 		Token:  "token_123", // Added fake token
@@ -160,7 +161,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	// Register session in bucket
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
 	fmt.Println("Sign args:", string(data))
-
+	fmt.Println(tlv.Json(auth))
 	return tlv.Json(auth), nil
 }
 

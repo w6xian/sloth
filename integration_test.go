@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/nrpc"
-	"github.com/w6xian/sloth/nrpc/wsocket"
+	"github.com/w6xian/sloth/v2/nrpc/wsocket"
+	"github.com/w6xian/sloth/v2/types/trpc"
 )
 
 // 集成测试服务
@@ -51,7 +51,7 @@ func TestIntegration(t *testing.T) {
 
 	// 在goroutine中启动服务器
 	go func() {
-		err := s.ListenOption()
+		err := s.Listen(context.Background(), "tcp", "localhost:8990")
 		if err != nil {
 			t.Logf("ListenOption returned error: %v", err)
 		}
@@ -67,7 +67,7 @@ func TestIntegration(t *testing.T) {
 
 	// 在goroutine中启动客户端
 	go func() {
-		newConnect.Dial("tcp", "localhost:8990")
+		newConnect.Dial(context.Background(), "tcp", "localhost:8990")
 	}()
 
 	// 等待连接建立
@@ -91,7 +91,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// 创建RPC调用请求
-	rpcCaller := &nrpc.RpcCaller{
+	rpcCaller := &trpc.RpcCaller{
 		Method:   "v1.Hello",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,
@@ -131,7 +131,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// 创建RPC调用请求
-	echoRpcCaller := &nrpc.RpcCaller{
+	echoRpcCaller := &trpc.RpcCaller{
 		Method:   "v1.Echo",
 		Data:     echoReqData,
 		Protocol: wsocket.BinaryMessage,
@@ -161,7 +161,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// 测试错误处理
-	errorRpcCaller := &nrpc.RpcCaller{
+	errorRpcCaller := &trpc.RpcCaller{
 		Method:   "v1.NonExistent",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,
@@ -173,7 +173,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// 测试错误的方法格式
-	invalidRpcCaller := &nrpc.RpcCaller{
+	invalidRpcCaller := &trpc.RpcCaller{
 		Method:   "invalid",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,
@@ -185,7 +185,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// 测试不存在的服务
-	nonExistentRpcCaller := &nrpc.RpcCaller{
+	nonExistentRpcCaller := &trpc.RpcCaller{
 		Method:   "non-existent.Hello",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,
@@ -218,7 +218,7 @@ func TestIntegrationTimeout(t *testing.T) {
 	}
 
 	// 创建RPC调用请求
-	rpcCaller := &nrpc.RpcCaller{
+	rpcCaller := &trpc.RpcCaller{
 		Method:   "v1.Hello",
 		Data:     reqData,
 		Protocol: wsocket.BinaryMessage,

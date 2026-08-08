@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/w6xian/sloth/decoder/frame"
+	"github.com/w6xian/sloth/v2/decoder/frame"
 )
 
 func TestGetSliceArray(t *testing.T) {

@@ -5,13 +5,14 @@ import (
 	"errors"
 	"log"
 
-	"github.com/w6xian/sloth/message"
-	"github.com/w6xian/sloth/nrpc"
+	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v2/types/trpc"
 	"github.com/w6xian/tlv"
 )
 
 type ServerRpc struct {
-	Listen  nrpc.ICall
+	Listen  trpc.ICall
 	RoomId  int64
 	UserId  int64
 	Auth    string
@@ -27,7 +28,7 @@ func (c *ServerRpc) SetEncoder(encoder Encoder) {
 func (c *ServerRpc) SetDecoder(decoder Decoder) {
 	c.Decoder = decoder
 }
-func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
+func (c *ServerRpc) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}
@@ -40,7 +41,7 @@ func (c *ServerRpc) SetAuthInfo(auth *nrpc.AuthInfo) error {
 }
 
 // GetAuthInfo 获取认证信息
-func (c *ServerRpc) GetAuthInfo() (*nrpc.AuthInfo, error) {
+func (c *ServerRpc) GetAuthInfo() (*auth.AuthInfo, error) {
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
@@ -79,10 +80,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		}
 		args = append(args, b)
 	}
-	// fmt.Println("Call args:", args)
-
+	// 调用服务器方法,这里对应的是 channel_client.go 中的Call方法
 	resp, err := c.Listen.Call(ctx, c.Header.Clone(), mtd, args...)
-	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +108,23 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 	}
 	// fmt.Println("Call args:", args)
 
-	resp, err := c.Listen.Call(ctx, header, mtd, args...)
+	usePoolHeader := false
+	mergedHeader := header
+	if len(c.Header) != 0 {
+		usePoolHeader = true
+		mergedHeader = message.GetHeader()
+		for k, v := range c.Header {
+			mergedHeader[k] = v
+		}
+		for k, v := range header {
+			mergedHeader[k] = v
+		}
+	}
+	if usePoolHeader {
+		defer message.PutHeader(mergedHeader)
+	}
+
+	resp, err := c.Listen.Call(ctx, mergedHeader, mtd, args...)
 	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err

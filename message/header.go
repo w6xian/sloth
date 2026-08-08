@@ -3,6 +3,7 @@ package message
 import (
 	"encoding/json"
 	"maps"
+	"sync"
 
 	"github.com/w6xian/tlv"
 )
@@ -62,4 +63,28 @@ func NewHeaderFromBV(bv []byte) (Header, error) {
 		return nil, err
 	}
 	return h, nil
+}
+
+var headerPool = sync.Pool{
+	New: func() any {
+		return make(Header, 8)
+	},
+}
+
+func GetHeader() Header {
+	h := headerPool.Get().(Header)
+	for k := range h {
+		delete(h, k)
+	}
+	return h
+}
+
+func PutHeader(h Header) {
+	if h == nil {
+		return
+	}
+	for k := range h {
+		delete(h, k)
+	}
+	headerPool.Put(h)
 }

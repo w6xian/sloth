@@ -1,7 +1,7 @@
 package decoder
 
 import (
-	"github.com/w6xian/sloth/internal/utils/id"
+	"github.com/w6xian/sloth/v2/internal/utils/id"
 )
 
 func NextId(n ...int64) uint64 {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/w6xian/sloth/actions"
-	"github.com/w6xian/sloth/decoder"
-	"github.com/w6xian/sloth/internal/utils"
+	"github.com/w6xian/sloth/v2/actions"
+	"github.com/w6xian/sloth/v2/decoder"
+	"github.com/w6xian/sloth/v2/internal/utils"
 )
 
 type JsonCallObject struct {

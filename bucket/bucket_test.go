@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/v2/message"
 )
 
 // 测试通道实现

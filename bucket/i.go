@@ -3,7 +3,7 @@ package bucket
 import (
 	"context"
 
-	"github.com/w6xian/sloth/message"
+	"github.com/w6xian/sloth/v2/message"
 )
 
 type IChannel interface {
