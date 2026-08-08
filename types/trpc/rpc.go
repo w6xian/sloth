@@ -29,6 +29,8 @@ type RpcCaller struct {
 type ICallRpc interface {
 	Log(level logger.LogLevel, line string, args ...any)
 	CallFunc(ctx context.Context, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
+	CallNetFunc(ctx context.Context, service string, msgId string, payload []byte) ([]byte, error)
+	IsRegisteredService(service string) bool
 	Options() *option.Options
 }
 
@@ -41,6 +43,7 @@ type ICall interface {
 }
 
 type IWsReply interface {
+	NetReply(id string, payload []byte, err error) error
 	ReplySuccess(id string, data []byte) error
 	ReplyError(id string, err []byte) error
 }

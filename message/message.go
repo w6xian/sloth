@@ -31,7 +31,6 @@ func NewWsJsonCallObject(method string, data ...[]byte) *JsonCallObject {
 	if len(data) > 1 {
 		args = data[1:]
 	}
-	// fmt.Println("NewWsJsonCallObject args:", arg, args)
 	return &JsonCallObject{
 		Id:     fmt.Sprintf("%d", decoder.NextId()),
 		Action: actions.ACTION_CALL,

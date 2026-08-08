@@ -59,7 +59,6 @@ func Encode(s *DataSlice, opts ...FrameOption) []byte {
 	// nbyte data
 	tag := s.P & 0x3F
 	checkCRC := s.P&CRC == CRC
-	fmt.Println(tag, checkCRC)
 	l := len(s.D)
 	// 根据长度大小判断是否需要扩展tag
 	if l <= 0xFFFF {
@@ -72,7 +71,6 @@ func Encode(s *DataSlice, opts ...FrameOption) []byte {
 		checkCRC = true
 		tag |= CRC
 	}
-	fmt.Println(tag, opt.LengthSize, checkCRC)
 	// 根据长度大小判断是否需要扩展tag
 	// 1+2+1+1+2/4+[2]+len(s.D)
 	headerSize := get_header_size(opt.LengthSize, checkCRC)

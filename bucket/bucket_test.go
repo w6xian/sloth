@@ -19,7 +19,9 @@ type TestChannel struct {
 func (c *TestChannel) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	return nil, nil
 }
-
+func (c *TestChannel) CallNet(ctx context.Context, msgId string, payload []byte) ([]byte, error) {
+	return nil, nil
+}
 func (c *TestChannel) Push(ctx context.Context, msg *message.Msg) error {
 	return nil
 }

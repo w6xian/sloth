@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v2/bucket"
@@ -47,11 +49,16 @@ type TcpChannelServer struct {
 	Connect     trpc.ICallRpc
 	releaseConn func()
 
-	rpc_io        int
+	rpc_io        int64
 	defaultHeader message.Header
 
 	// 关闭信号
 	closeChan chan struct{}
+}
+
+// CallNet implements [nrpc.AuthChannel].
+func (ch *TcpChannelServer) CallNet(ctx context.Context, msgId string, payload []byte) ([]byte, error) {
+	panic("unimplemented")
 }
 
 func NewTcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *TcpServer) *TcpChannelServer {
@@ -63,8 +70,8 @@ func NewTcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *TcpServer
 		rpcCaller: make(chan *message.JsonCallObject, 10),
 		rpcBacker: make(chan *message.JsonBackObject, 10),
 		closeChan: make(chan struct{}),
-		rpc_io:    0,
 	}
+	atomic.StoreInt64(&ch.rpc_io, 0)
 	ch._next = nil
 	ch._prev = nil
 	return ch
@@ -114,6 +121,11 @@ func (ch *TcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	return nil
+}
+
+// ReplySuccess 向客户端发送 RPC 调用成功回复。
+func (ch *TcpChannelServer) NetReply(id string, payload []byte, err error) error {
 	return nil
 }
 
@@ -199,7 +211,7 @@ func (ch *TcpChannelServer) Close() error {
 
 func (ch *TcpChannelServer) log(level logger.LogLevel, line string, args ...any) {
 	if ch.Connect == nil {
-		fmt.Println("TcpChannelServer Connect is nil")
+		log.Println("TcpChannelServer Connect is nil")
 		return
 	}
 	ch.Connect.Log(level, "[TcpChannel]"+line, args...)

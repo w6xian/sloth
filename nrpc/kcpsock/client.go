@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -86,13 +87,16 @@ type KcpClient struct {
 	authMu        sync.RWMutex
 	authInfo      *auth.AuthInfo
 	defaultHeader message.Header
+
+	// 服务端发起的调用处理器（可选）
+	serverCallHandler func(ctx context.Context, caller *trpc.RpcCaller) ([]byte, error)
 }
 
 // NewKcpClient 创建 KCP 客户端
 func NewKcpClient(connect trpc.ICallRpc) *KcpClient {
 	c := &KcpClient{
-		Connect:   connect,
-		closeChan: make(chan struct{}),
+		Connect:       connect,
+		closeChan:     make(chan struct{}),
 		defaultHeader: message.Header{},
 	}
 	c.rpcCallerPool = sync.Pool{
@@ -174,6 +178,20 @@ func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string,
 		defer message.PutHeader(mergedHeader)
 	}
 
+	writeWait := 10 * time.Second
+	readWait := 10 * time.Second
+	if c.Connect != nil {
+		opt := c.Connect.Options()
+		if opt != nil {
+			if opt.WriteWait > 0 {
+				writeWait = opt.WriteWait
+			}
+			if opt.ReadWait > 0 {
+				readWait = opt.ReadWait
+			}
+		}
+	}
+
 	// 生成唯一 call id
 	c.callIdMu.Lock()
 	c.callId++
@@ -183,8 +201,8 @@ func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	// 构造 RpcCaller
 	callMsg := c.getRpcCaller()
 	callMsg.Id = id
-	callMsg.Protocol = 0 // TLV 协议（返回值/参数按框架默认编码，避免客户端 tlv decoder 失败）
-	callMsg.Action = 1   // ACTION_CALL
+	callMsg.Protocol = 0
+	callMsg.Action = 1
 	callMsg.Header = mergedHeader
 	callMsg.Method = mtd
 	callMsg.Data = nil
@@ -201,23 +219,27 @@ func (c *KcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	c.pendingCalls.Store(id, replyChan)
 	defer c.pendingCalls.Delete(id)
 
-	// 序列化并发送
+	// 序列化并发送（使用写超时）
 	data, err := json.Marshal(callMsg)
 	c.putRpcCaller(callMsg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal call err: %w", err)
 	}
-	if err := c.WriteFrame(ctx, nrpc.FrameTypeCall, data, 10*time.Second); err != nil {
+	if err := c.WriteFrame(ctx, nrpc.FrameTypeCall, data, writeWait); err != nil {
 		return nil, fmt.Errorf("write frame err: %w", err)
 	}
 
 	// 等待回复或超时
+	ticker := time.NewTicker(readWait)
+	defer ticker.Stop()
 	select {
 	case reply := <-replyChan:
 		if reply.Error != "" {
 			return nil, fmt.Errorf("%s", reply.Error)
 		}
 		return reply.Data, nil
+	case <-ticker.C:
+		return nil, fmt.Errorf("reply timeout")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -261,7 +283,7 @@ func (c *KcpClient) Close() error {
 
 func (c *KcpClient) log(level logger.LogLevel, line string, args ...any) {
 	if c.Connect == nil {
-		fmt.Println("KcpClient Connect is nil")
+		log.Println("KcpClient Connect is nil")
 		return
 	}
 	c.Connect.Log(level, "[KcpClient]"+line, args...)

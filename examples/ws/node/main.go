@@ -8,8 +8,6 @@ import (
 
 	"github.com/w6xian/sloth/v2"
 	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/pprof"
 	"github.com/w6xian/sloth/v2/types"
 	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/sloth/v2/types/trpc"
@@ -24,6 +22,8 @@ type AB struct {
 	B int64 `json:"b"`
 }
 
+var name = "shop1"
+
 // main entry point for the WebSocket client
 func main() {
 	runtime := context.Background()
@@ -32,7 +32,7 @@ func main() {
 
 	client := sloth.DefaultClient()
 	newConnect := sloth.ClientConn(client)
-	newConnect.Register("shop", &HelloService{}, "")
+	newConnect.Register(name, &HelloService{}, "")
 	// Get service methods
 
 	// Start WebSocket Client in a goroutine
@@ -40,64 +40,32 @@ func main() {
 	go newConnect.Dial(ctx, "ws", "localhost:8990")
 
 	// Main loop for making RPC calls
-	func() {
-		for {
-			time.Sleep(time.Millisecond * 5000)
-
-			// If not authenticated/signed in, do so
-			if client.UserId == 0 {
-				client.Header.Set("APP_ID", "1")
-				client.Header.Set("USER_ID", "1")
-				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
-				fmt.Println("------------")
-				fmt.Println("Sign result", data, err)
-				fmt.Println("------------")
-				if err != nil {
-					fmt.Println("v1.Sign Call error:", err)
-					continue
-				}
-				auth := &auth.AuthInfo{}
-				err = tlv.Json2Struct(data, auth)
-				if err != nil {
-					continue
-				}
-				fmt.Println(auth)
-				client.SetAuthInfo(auth)
-				fmt.Println("v1.Sign Call success:")
-			}
-
-			// Example RPC call with header and various arguments
-			data, err := client.CallWithHeader(context.Background(), message.Header{
-				"APP_ID":  "header_app_id",
-				"USER_ID": "1",
-			}, "v1.Test", &AB{A: 1, B: 2},
-			)
-			fmt.Println("v1.Test Call result:", data, err)
-			// Example RPC call with header and various arguments
-			data, err = client.CallWithHeader(context.Background(), message.Header{
-				"APP_ID":  "header_app_id",
-				"USER_ID": "1",
-			}, "pprof.Info", []byte("abc"),
-				int(utils.RandInt64(1, 0xFFFF)),
-				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
-				"w6xian_str",
-				&[]byte{0x01, 0x02, 0x03, 0x04},
-				[]string{"a", "b", "c"},
-				&[]string{"a", "b", "c"},
-			)
+	for {
+		time.Sleep(time.Millisecond * 5000)
+		// If not authenticated/signed in, do so
+		if client.UserId == 0 {
+			client.Header.Set("APP_ID", "1")
+			client.Header.Set("USER_ID", "1")
+			data, err := client.Call(context.Background(), "v1.Reg", name)
+			fmt.Println("------------")
+			fmt.Println("Reg result", data, err)
+			fmt.Println("------------")
 			if err != nil {
-				fmt.Println("pprof.Info Call error:", err)
+				fmt.Println("v1.Reg Call error:", err)
 				continue
 			}
-			info := &pprof.PProfInfo{}
-			err = utils.Deserialize(data, info)
+			auth := &auth.AuthInfo{}
+			err = tlv.Json2Struct(data, auth)
 			if err != nil {
-				fmt.Println("Deserialize error:", err)
 				continue
 			}
-			fmt.Println("pprof.Info Call success:", info)
+			fmt.Println(auth)
+			client.SetAuthInfo(auth)
+			fmt.Println("v1.Sign Call success:")
+			break
 		}
-	}()
+	}
+	select {}
 
 }
 
@@ -153,21 +121,17 @@ type HelloService struct {
 }
 
 // Test is a sample client-side method
-func (h *HelloService) Test(ctx context.Context, b []byte) ([]byte, error) {
-	fmt.Println("Test args:", b)
+func (h *HelloService) Test1(ctx context.Context, b []byte) ([]byte, error) {
 	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
-
-	auth, err := ch.GetAuthInfo()
+	_, err := ch.GetAuthInfo()
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Test args:", auth)
 
-	return utils.Serialize(map[string]string{"req": "local test", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
+	return utils.Serialize(map[string]string{"req": "local." + name + ".Test1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 
 // Hello struct

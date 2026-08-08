@@ -2,7 +2,7 @@ package sloth
 
 import (
 	"encoding/base64"
-	"fmt"
+	"log"
 
 	"github.com/w6xian/tlv"
 )
@@ -10,7 +10,7 @@ import (
 func DecodeString(frame []byte) string {
 	decoded, err := base64.StdEncoding.DecodeString(string(frame))
 	if err != nil {
-		fmt.Println("Error decoding:", err)
+		log.Println("Error decoding:", err)
 		return ""
 	}
 	return string(decoded)
@@ -19,7 +19,7 @@ func DecodeString(frame []byte) string {
 func Decode64ToBytes(frame []byte) []byte {
 	decoded, err := base64.StdEncoding.DecodeString(string(frame))
 	if err != nil {
-		fmt.Println("Error decoding:", err)
+		log.Println("Error decoding:", err)
 		return []byte{}
 	}
 	return decoded
@@ -28,7 +28,7 @@ func Decode64ToBytes(frame []byte) []byte {
 func Decode64ToTlv(frame []byte) (*tlv.TlV, error) {
 	decoded, err := base64.StdEncoding.DecodeString(string(frame))
 	if err != nil {
-		fmt.Println("Error decoding:", err)
+		log.Println("Error decoding:", err)
 		return nil, err
 	}
 	tlv, err := tlv.NewFromFrame(decoded)

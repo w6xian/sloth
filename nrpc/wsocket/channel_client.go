@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -88,7 +89,7 @@ func (c *WsChannelClient) DefaultHeader() message.Header {
 }
 func (s *WsChannelClient) log(level logger.LogLevel, line string, args ...any) {
 	if s.Connect == nil {
-		fmt.Println("WsServer Connect is nil")
+		log.Println("WsServer Connect is nil")
 		return
 	}
 	s.Connect.Log(level, "[WsChannelClient]"+line, args...)
@@ -175,6 +176,13 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 	return
 }
 
+func (c *WsChannelClient) NetReply(id string, payload []byte, err error) error {
+	if err != nil {
+		return c.ReplyError(id, []byte(err.Error()))
+	}
+	return c.ReplySuccess(id, payload)
+}
+
 func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
@@ -200,6 +208,7 @@ func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
 	}
 	return nil
 }
+
 func (c *WsChannelClient) ReplyError(id string, err []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
@@ -280,8 +289,6 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	callId := msg.Id
 	ch.putCallObj(msg)
 
-	ch.log(logger.Debug, "Call WsClient------: id=%s method=%s", callId, mtd)
-
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
@@ -297,7 +304,6 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 		case <-ctx.Done():
 			return []byte{}, ctx.Err()
 		case <-ticker.C:
-			// fmt.Println("client call ticker.C:", ticker.C)
 			return []byte{}, fmt.Errorf("reply timeout")
 		case raw, ok := <-ch.rpcResult:
 			if !ok {
@@ -345,8 +351,6 @@ func (ch *WsChannelClient) CallAsync(ctx context.Context, header message.Header,
 	payload := utils.Serialize(msg)
 	callId := msg.Id
 	ch.putCallObj(msg)
-
-	ch.log(logger.Debug, "CallAsync WsClient------: id=%s method=%s", callId, mtd)
 
 	select {
 	case <-ticker.C:

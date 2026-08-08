@@ -70,10 +70,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
-	// fmt.Println("Call arg:", arg)
 	args := [][]byte{}
 	for _, v := range arg {
-		// fmt.Println(v)
 		b, err := c.Encoder(v)
 		if err != nil {
 			return nil, err
@@ -97,7 +95,6 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
-	// fmt.Println("Call arg:", arg)
 	args := [][]byte{}
 	for _, v := range arg {
 		b, err := c.Encoder(v)
@@ -106,7 +103,6 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 		}
 		args = append(args, b)
 	}
-	// fmt.Println("Call args:", args)
 
 	usePoolHeader := false
 	mergedHeader := header
@@ -125,7 +121,6 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 	}
 
 	resp, err := c.Listen.Call(ctx, mergedHeader, mtd, args...)
-	// fmt.Println("Call resp:", resp, err)
 	if err != nil {
 		return nil, err
 	}

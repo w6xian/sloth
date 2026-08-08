@@ -90,13 +90,29 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	}
 
 	resp, err := ch.Call(ctx, c.Header.Clone(), mtd, args...)
-	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("Call resp:", resp)
 	// 解码
 	resp, err = c.Decoder(resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// @call clientNet
+func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId string, msg []byte) ([]byte, error) {
+	if c.Serve == nil {
+		return nil, errors.New("server not found")
+	}
+	b := c.Serve.Bucket(proxyService)
+	ch := b.Channel(proxyService)
+	if ch == nil {
+		return nil, errors.New("channel not found")
+	}
+
+	resp, err := ch.CallNet(ctx, msgId, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +154,9 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 	}
 
 	resp, err := ch.Call(ctx, mergedHeader, mtd, args...)
-	// fmt.Println("Call resp::::::", resp, err)
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("Call resp:", resp)
 	// 解码
 	resp, err = c.Decoder(resp)
 	if err != nil {
@@ -168,7 +182,6 @@ func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data 
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
 	if err := ch.Push(ctx, msg); err != nil {
-		fmt.Println("Connect layer Push() error", err)
 	}
 }
 
@@ -190,7 +203,6 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 		Data:   data,
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
-	// fmt.Println("Connect layer Push() roomId", roomId)
 	room.Push(ctx, msg)
 }
 

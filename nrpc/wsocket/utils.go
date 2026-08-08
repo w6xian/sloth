@@ -43,7 +43,6 @@ func slicesTextSend(n string, conn *websocket.Conn, data []byte, sliceSize int) 
 	if err != nil {
 		return err
 	}
-	// fmt.Println("slicesSend:", string(data))
 	for _, slice := range slices {
 		w, err := conn.NextWriter(websocket.TextMessage)
 		if err != nil {
@@ -64,7 +63,6 @@ func slicesBinarySend(n string, conn *websocket.Conn, data []byte, sliceSize int
 	if err != nil {
 		return err
 	}
-	// fmt.Println("slicesSend:", string(data))
 	for _, slice := range slices {
 		w, err := conn.NextWriter(websocket.BinaryMessage)
 		if err != nil {
@@ -79,12 +77,10 @@ func slicesBinarySend(n string, conn *websocket.Conn, data []byte, sliceSize int
 }
 
 func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]byte, error) {
-	// fmt.Println("1receiveMessage:", messageType, string(message))
 	sc, err := frame.FromType(message, messageType)
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("2receiveMessage:", sc.N, sc.S, sc.I, sc.T, string(sc.D))
 	id := sc.N
 	dataSize := sc.S
 	// 接收完整数据
@@ -93,7 +89,6 @@ func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]b
 	if int(dataSize) <= len(data) && sc.I == sc.T-1 {
 		return data, nil
 	}
-	// fmt.Println("-----------")
 
 	for {
 		msgType, message, err := conn.ReadMessage()

@@ -9,6 +9,7 @@ import (
 type IChannel interface {
 	// Call performs an RPC call with the given method and arguments, returning the response or an error.
 	Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error)
+	CallNet(ctx context.Context, msgId string, payload []byte) ([]byte, error)
 	// Push sends a message to the channel without expecting a response.
 	Push(ctx context.Context, msg *message.Msg) error
 	ReplySuccess(id string, data []byte) error

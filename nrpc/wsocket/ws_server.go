@@ -94,7 +94,7 @@ func (s *WsServer) SetClientHandleMessage(handler handler.IClientHandleMessage) 
 
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
 	if s.Connect == nil {
-		fmt.Println("WsServer Connect is nil")
+		log.Println("WsServer Connect is nil")
 		return
 	}
 	s.Connect.Log(level, "[WsServer]"+line, args...)
@@ -229,7 +229,6 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		if release != nil {
 			release()
 		}
-		fmt.Println("serveWs err:", err.Error())
 		return
 	}
 	// 一个连接一个channel
@@ -379,14 +378,12 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 		// 实现分片接收的函数
 
 		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
-		// fmt.Println("2ws_server readPump messageType:", messageType, "msg:", string(m), err)
 		if err != nil {
 			if handler != nil {
 				handler.OnError(ctx, s, ch, err)
 			}
 			continue
 		}
-		// fmt.Println("4ws_server readPump messageType:", messageType, "msg:", m)
 		tlvFrame, err := tlv.Deserialize(m)
 		if err == nil {
 			m = tlvFrame.Value()
@@ -394,14 +391,21 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 
 		connReq = getJsonValue()
 		if reqErr := json.Unmarshal(m, connReq); reqErr == nil {
-			// fmt.Println("----------", connReq.Int64("action"))
 			action := int(connReq.Int64("action"))
 			protocol := int(connReq.Int64("protocol"))
 			idstr := connReq.String("id")
-			// fmt.Println("3ws_server readPump messageType:", "action:", action, "protocol:", protocol, "id:", idstr)
 			if action == actions.ACTION_CALL {
 				if atomic.LoadInt64(&ch.rpc_io) < 0 {
 					atomic.StoreInt64(&ch.rpc_io, 0)
+				}
+				method := connReq.String("method")
+				if !s.Connect.IsRegisteredService(method) {
+					resp, err := s.Connect.CallNetFunc(ctx, method, idstr, m)
+					if err != nil {
+						s.log(logger.Error, "server readPump，CallNetFunc err:%v", err)
+					}
+					ch.NetReply(idstr, resp, err)
+					continue
 				}
 				// 调用方法
 				hdr := message.GetHeader()
@@ -411,11 +415,10 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 					Protocol: protocol,
 					Action:   action,
 					Header:   hdr,
-					Method:   connReq.String("method"),
+					Method:   method,
 					Args:     connReq.BytesArray("args"),
 				}
 				// 调试Args
-				// fmt.Println("--------args:", args.Args)
 				b := connReq.Bytes("data")
 				if protocol == 1 {
 					args.Data = []byte(connReq.String("data"))
@@ -475,7 +478,6 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 				putJsonValue(connReq)
 				continue
 			}
-			// fmt.Println("ws_server readPump err action messageType:", connReq.Action)
 		} else {
 			log.Println("ws_server readPump err action messageType:", messageType, "msg:", string(m), reqErr)
 		}
@@ -506,8 +508,6 @@ func (s *WsServer) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
 			Args:    args,
 			Data:    msgReq.Data,
 		}
-		// fmt.Println("ws_server.HandleCall msg:", msg)
-		// fmt.Println("ws_server.HandleCall msg:", msg.Args)
 		rst, err := s.Connect.CallFunc(ctx, s, msg)
 		if err != nil {
 			return nil, err

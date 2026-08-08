@@ -42,7 +42,7 @@ func main() {
 	// Main loop for making RPC calls
 	func() {
 		for {
-			time.Sleep(time.Millisecond * 5000)
+			time.Sleep(time.Millisecond * 5)
 
 			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
@@ -66,15 +66,23 @@ func main() {
 				fmt.Println("v1.Sign Call success:")
 			}
 
+			// // Example RPC call with header and various arguments
+			// data, err := client.CallWithHeader(context.Background(), message.Header{
+			// 	"APP_ID":  "header_app_id",
+			// 	"USER_ID": "1",
+			// }, "v1.Test", &AB{A: 1, B: 2},
+			// )
+			// fmt.Println("v1.Test Call result:", data, err)
 			// Example RPC call with header and various arguments
-			data, err := client.CallWithHeader(context.Background(), message.Header{
+			data1, err := client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
 				"USER_ID": "1",
-			}, "v1.Test", &AB{A: 1, B: 2},
+			}, "shop1.Test1", []byte("abc"),
 			)
-			fmt.Println("v1.Test Call result:", data, err)
+			fmt.Println("shop1.Test1:", string(data1), err)
+			continue
 			// Example RPC call with header and various arguments
-			data, err = client.CallWithHeader(context.Background(), message.Header{
+			data, err := client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
 				"USER_ID": "1",
 			}, "pprof.Info", []byte("abc"),

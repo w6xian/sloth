@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -15,6 +16,12 @@ import (
 	"github.com/w6xian/sloth/v2/types/auth"
 	"github.com/w6xian/tlv"
 )
+
+var smap *sloth.SMap
+
+func init() {
+	smap = sloth.NewSMap()
+}
 
 // main entry point for the WebSocket server
 func main() {
@@ -33,7 +40,21 @@ func main() {
 		option.WithServerHandleMessage(&Handler{}))
 	drpc.Listen(ctx, "tcp", "localhost:8991")
 	drpc.Listen(ctx, "kcp", "localhost:8992")
+
+	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
+		sp := strings.Split(service, ".")
+		if len(sp) != 2 {
+			return 0, fmt.Errorf("service %s format error", service)
+		}
+		svrId, ok := smap.Get(sp[0])
+		if !ok {
+			return 0, fmt.Errorf("service %s not registered", service)
+		}
+		return svrId, nil
+	})
+
 	go func() {
+		return
 		for {
 			time.Sleep(time.Millisecond * 2000)
 			rst, err := server.Call(ctx, 2, "shop.Test", tlv.Json(&AB{A: 1, B: 2}))
@@ -161,6 +182,40 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 	// Register session in bucket
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
 	fmt.Println("Sign args:", string(data))
+	fmt.Println(tlv.Json(auth))
+	return tlv.Json(auth), nil
+}
+
+func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
+	h.Id = h.Id + 1
+
+	// Get channel from context
+	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
+	if !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+
+	// Get bucket server from context
+	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
+	if !ok {
+		return nil, fmt.Errorf("bucket not found")
+	}
+
+	svrId, err := smap.Reg(name, false)
+	fmt.Println("Reg svrId:", svrId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Simulate auth info extraction
+	auth := auth.AuthInfo{
+		UserId: svrId,
+		RoomId: -1,
+		Token:  "token_123", // Added fake token
+	}
+	// Register session in bucket
+	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
+	fmt.Println("Reg args:", name)
 	fmt.Println(tlv.Json(auth))
 	return tlv.Json(auth), nil
 }

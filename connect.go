@@ -78,6 +78,7 @@ type ServeHandler interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
+// implements [trpc.ICallRpc]
 type Connect struct {
 	// id         int64
 	ServerId   string
@@ -100,7 +101,33 @@ type Connect struct {
 	// 多协议监听器
 	listeners []ProtocolListener
 	// httpHandlers []ServeHandler // HTTP 处理函数列表
-	guard *tools.ConnGuard
+	guard        *tools.ConnGuard
+	proxyHandler func(ctx context.Context, service string) (int64, error)
+}
+
+func (c *Connect) CallNetFunc(ctx context.Context, service string, msgId string, msg []byte) ([]byte, error) {
+	if c.proxyHandler == nil {
+		return nil, errors.New("service not set")
+	}
+	proxyService, err := c.proxyHandler(ctx, service)
+	if err != nil {
+		return nil, err
+	}
+	return c.client.CallNet(ctx, proxyService, msgId, msg)
+}
+
+func (c *Connect) UseProxyHandler(proxyHandler func(ctx context.Context, service string) (int64, error)) error {
+	c.proxyHandler = proxyHandler
+	return nil
+}
+
+func (c *Connect) IsRegisteredService(service string) bool {
+	ns := strings.Split(service, ".")
+	if len(ns) != 2 {
+		return false
+	}
+	_, ok := c.serviceMap[ns[0]]
+	return ok
 }
 
 func (c *Connect) Options() *option.Options {
@@ -525,7 +552,6 @@ var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", 
 func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
-			// fmt.Println("------------")
 			c.Log(logger.Error, "connect.CallFunc %s recover err : %v", msgReq.Method, err)
 			c.Log(logger.Error, "connect.CallFunc %s recover stack : %s", msgReq.Method, string(debug.Stack()))
 		}
@@ -578,12 +604,10 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 		// Elem() 相当于 *T 取指针指向的类型
 		in2 := mtd.Type.In(2)
 		param, iErr := instance_params(in2, args)
-		// fmt.Println("param:", param, err)
 		if iErr != nil {
 			return nil, iErr
 		}
 		funcArgs = append(funcArgs, param)
-		// fmt.Println("funcArgs:", funcArgs)
 		if len(msgReq.Args) > 0 {
 			moreIn := mtd.Type.NumIn()
 			// more args
@@ -597,14 +621,10 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 				if iErr != nil {
 					return nil, iErr
 				}
-				// fmt.Println("more args  344444:", param, err)
 				funcArgs = append(funcArgs, param)
 			}
 		}
 	}
-	// fmt.Println("-----------------------")
-	// fmt.Println("funcArgs:", funcArgs)
-	// fmt.Println("-----------------------")
 	ret := mtd.Func.Call(funcArgs)
 	if len(ret) != 2 {
 		c.Log(logger.Info, "(%s) call func error", c.ServerId)
@@ -616,9 +636,6 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	}
 	// 调用成功，返回结果
 	data := ret[0].Interface()
-	// fmt.Println("---------result--------")
-	// fmt.Println(data)
-	// fmt.Println("-----------------------")
 	// textmessage 协议，1 no tlv
 	if msgReq.Protocol == wsocket.TextMessage {
 		// 调用成功，返回结果
@@ -630,10 +647,6 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	}
 	// 调用成功，返回结果
 	resp, err := c.Encoder(data)
-	// fmt.Println("---------result-- resp------")
-	// fmt.Println(resp)
-	// fmt.Println(err)
-	// fmt.Println("-----------------------")
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +667,6 @@ func instance_params(params reflect.Type, data []byte) (reflect.Value, error) {
 		return reflect.ValueOf(data), nil
 	} else if array.InArray(nameStr, commonTypes) {
 		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
-		// fmt.Println("nameStr:", nameStr)
 		r := tlv.GetType(isPtr, nameStr, data)
 		return r, nil
 	} else {

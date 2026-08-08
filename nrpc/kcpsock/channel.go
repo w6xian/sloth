@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v2/bucket"
@@ -47,10 +49,15 @@ type KcpChannelServer struct {
 	Connect     trpc.ICallRpc
 	releaseConn func()
 
-	rpc_io int
+	rpc_io int64
 
 	// 关闭信号
 	closeChan chan struct{}
+}
+
+// CallNet implements [nrpc.AuthChannel].
+func (ch *KcpChannelServer) CallNet(ctx context.Context, msgId string, payload []byte) ([]byte, error) {
+	panic("unimplemented")
 }
 
 func NewKcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *KcpServer) *KcpChannelServer {
@@ -62,8 +69,8 @@ func NewKcpChannelServer(connect trpc.ICallRpc, conn net.Conn, server *KcpServer
 		rpcCaller: make(chan *message.JsonCallObject, 10),
 		rpcBacker: make(chan *message.JsonBackObject, 10),
 		closeChan: make(chan struct{}),
-		rpc_io:    0,
 	}
+	atomic.StoreInt64(&ch.rpc_io, 0)
 	ch._next = nil
 	ch._prev = nil
 	return ch
@@ -113,6 +120,11 @@ func (ch *KcpChannelServer) Push(ctx context.Context, msg *message.Msg) (err err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	return nil
+}
+
+// NetReply 向客户端发送 RPC 调用成功回复。
+func (ch *KcpChannelServer) NetReply(id string, payload []byte, err error) error {
 	return nil
 }
 
@@ -194,7 +206,7 @@ func (ch *KcpChannelServer) Close() error {
 
 func (ch *KcpChannelServer) log(level logger.LogLevel, line string, args ...any) {
 	if ch.Connect == nil {
-		fmt.Println("KcpChannelServer Connect is nil")
+		log.Println("KcpChannelServer Connect is nil")
 		return
 	}
 	ch.Connect.Log(level, "[KcpChannel]"+line, args...)
@@ -268,6 +280,7 @@ func (ch *KcpChannelServer) writeLoop(ctx context.Context) {
 			}
 			data, err := json.Marshal(msg)
 			if err != nil {
+				log.Println(err)
 				continue
 			}
 			_ = WriteFrame(ch.conn, nrpc.FrameTypeReply, data, 10*time.Second)

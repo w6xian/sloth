@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,7 +147,7 @@ func (c *LocalClient) Use(middlewares ...middleware.Middleware) {
 }
 func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
 	if c.Connect == nil {
-		fmt.Println("LocalClient Connect is nil")
+		log.Println("LocalClient Connect is nil")
 		return
 	}
 	c.Connect.Log(level, "[LocalClient]"+line, args...)
@@ -366,7 +367,6 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				c.log(logger.Error, "slicesTextSend err = %v", err.Error())
 				return
 			}
-			// fmt.Println("rpcCaller message:", "message, ok := <-ch.rpcCaller")
 		case payload, ok := <-ch.rpcBacker:
 			/*
 			 * @reply  服务器返回调用结果
@@ -386,7 +386,6 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
 				return
 			}
-			// fmt.Println("rpcBacker message:", message)
 
 		case <-ticker.C:
 			if ch.conn == nil {
@@ -427,7 +426,6 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 	ch.conn.SetReadLimit(c.MaxMessageSize)
 	ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 	ch.conn.SetPongHandler(func(string) error {
-		// fmt.Println("pooooooooong")
 		ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
 		return nil
 	})
@@ -466,7 +464,6 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
 		m, err := receiveMessage(ch.conn, byte(messageType), msg)
-		// fmt.Println("Call LocalClient-44-:", messageType, msg)
 		if err != nil {
 			if handler != nil {
 				handler.OnError(ctx, c, ch, err)
@@ -477,7 +474,6 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		// fmt.Println("Call LocalClient-44-:", m)
 		connReq := getJsonValue()
 		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
 			action := int(connReq.Int64("action"))
@@ -493,7 +489,6 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 				// BinaryMessage 协议：data 是字节数组
 				data = connReq.Bytes("data")
 			}
-
 			if action == actions.ACTION_CALL {
 				if atomic.LoadInt64(&ch.rpc_io) < 0 {
 					atomic.StoreInt64(&ch.rpc_io, 0)
@@ -558,7 +553,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			}
 		} else {
 			// 处理其他消息类型
-			fmt.Println("Call LocalClient-44-:", err)
+			c.log(logger.Info, "readPump，messageType is not TextMessage or BinaryMessage")
 		}
 		putJsonValue(connReq)
 		if handler != nil {
@@ -576,7 +571,6 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
 	defer c.serviceMapMu.RUnlock()
 	defer func() {
 		if err := recover(); err != nil {
-			// fmt.Println("------------")
 			c.log(logger.Error, "ws_client.HandleCall recover err : %v", err)
 		}
 		// 处理完成后归还对象池
@@ -588,7 +582,6 @@ func (c *LocalClient) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
 			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
 			return
 		}
-		// fmt.Println("HandleCall ws_client rst:", rst)
 		msgReq.Channel.ReplySuccess(msgReq.Id, rst)
 		return
 	}

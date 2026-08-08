@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -83,13 +84,16 @@ type TcpClient struct {
 	authMu        sync.RWMutex
 	authInfo      *auth.AuthInfo
 	defaultHeader message.Header
+
+	// 服务端发起的调用处理器（可选）
+	serverCallHandler func(ctx context.Context, caller *trpc.RpcCaller) ([]byte, error)
 }
 
 // NewTcpClient 创建 TCP 客户端
 func NewTcpClient(connect trpc.ICallRpc) *TcpClient {
 	c := &TcpClient{
-		Connect:   connect,
-		closeChan: make(chan struct{}),
+		Connect:       connect,
+		closeChan:     make(chan struct{}),
 		defaultHeader: message.Header{},
 	}
 	c.rpcCallerPool = sync.Pool{
@@ -164,6 +168,20 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 		defer message.PutHeader(mergedHeader)
 	}
 
+	writeWait := 10 * time.Second
+	readWait := 10 * time.Second
+	if c.Connect != nil {
+		opt := c.Connect.Options()
+		if opt != nil {
+			if opt.WriteWait > 0 {
+				writeWait = opt.WriteWait
+			}
+			if opt.ReadWait > 0 {
+				readWait = opt.ReadWait
+			}
+		}
+	}
+
 	// 生成唯一 call id
 	c.callIdMu.Lock()
 	c.callId++
@@ -173,8 +191,8 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	// 构造 RpcCaller
 	callMsg := c.getRpcCaller()
 	callMsg.Id = id
-	callMsg.Protocol = 0 // TLV 协议（返回值/参数按框架默认编码，避免客户端 tlv decoder 失败）
-	callMsg.Action = 1   // ACTION_CALL
+	callMsg.Protocol = 0
+	callMsg.Action = 1
 	callMsg.Header = mergedHeader
 	callMsg.Method = mtd
 	callMsg.Data = nil
@@ -191,23 +209,27 @@ func (c *TcpClient) Call(ctx context.Context, header message.Header, mtd string,
 	c.pendingCalls.Store(id, replyChan)
 	defer c.pendingCalls.Delete(id)
 
-	// 序列化并发送
+	// 序列化并发送（使用写超时）
 	data, err := json.Marshal(callMsg)
 	c.putRpcCaller(callMsg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal call err: %w", err)
 	}
-	if err := c.WriteFrame(ctx, nrpc.FrameTypeCall, data, 10*time.Second); err != nil {
+	if err := c.WriteFrame(ctx, nrpc.FrameTypeCall, data, writeWait); err != nil {
 		return nil, fmt.Errorf("write frame err: %w", err)
 	}
 
 	// 等待回复或超时
+	ticker := time.NewTicker(readWait)
+	defer ticker.Stop()
 	select {
 	case reply := <-replyChan:
 		if reply.Error != "" {
 			return nil, fmt.Errorf("%s", reply.Error)
 		}
 		return reply.Data, nil
+	case <-ticker.C:
+		return nil, fmt.Errorf("reply timeout")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -247,11 +269,18 @@ func (c *TcpClient) Close() error {
 	return c.TcpConn.Close()
 }
 
+// SetServerCallHandler 设置服务端发起调用的回调处理器（可选）。
+// 当服务端通过 Call / CallNet 主动调用客户端方法时，会回调此 handler。
+// 如果未设置，服务端调用会收到 "no server call handler" 错误。
+func (c *TcpClient) SetServerCallHandler(fn func(ctx context.Context, caller *trpc.RpcCaller) ([]byte, error)) {
+	c.serverCallHandler = fn
+}
+
 // ── 内部方法 ─────────────────────────────────────────────────────
 
 func (c *TcpClient) log(level logger.LogLevel, line string, args ...any) {
 	if c.Connect == nil {
-		fmt.Println("TcpClient Connect is nil")
+		log.Println("TcpClient Connect is nil")
 		return
 	}
 	c.Connect.Log(level, "[TcpClient]"+line, args...)
