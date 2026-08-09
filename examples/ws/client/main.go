@@ -80,6 +80,13 @@ func main() {
 			}, "shop1.Test1", []byte("abc"),
 			)
 			fmt.Println("shop1.Test1:", string(data1), err)
+
+			data2, err := client.CallWithHeader(context.Background(), message.Header{
+				"APP_ID":  "header_app_id",
+				"USER_ID": "1",
+			}, "shop2.Test1", []byte("abc"),
+			)
+			fmt.Println("shop2.Test1:", string(data2), err)
 			continue
 			// Example RPC call with header and various arguments
 			data, err := client.CallWithHeader(context.Background(), message.Header{

@@ -403,6 +403,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 					resp, err := s.Connect.CallNetFunc(ctx, method, idstr, m)
 					if err != nil {
 						s.log(logger.Error, "server readPump，CallNetFunc err:%v", err)
+						continue
 					}
 					ch.NetReply(idstr, resp, err)
 					continue
@@ -478,8 +479,6 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 				putJsonValue(connReq)
 				continue
 			}
-		} else {
-			log.Println("ws_server readPump err action messageType:", messageType, "msg:", string(m), reqErr)
 		}
 		putJsonValue(connReq)
 		if handler != nil {

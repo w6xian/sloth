@@ -103,7 +103,6 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 			ch.Room().DeleteChannel(ch)
 		}
 	}
-	// fmt.Println("Put userId:", userId, "roomId:", roomId)
 	if roomId != NoRoom {
 		if room, ok = b.rooms[roomId]; !ok {
 			room = NewRoom(roomId)
