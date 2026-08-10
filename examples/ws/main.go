@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/option"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v3"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/tlv"
 )
 
@@ -170,8 +170,6 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("bucket not found")
 	}
 
-	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
-
 	// Simulate auth info extraction
 	auth := auth.AuthInfo{
 		UserId: 2,
@@ -181,8 +179,6 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 
 	// Register session in bucket
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
-	fmt.Println("Sign args:", string(data))
-	fmt.Println(tlv.Json(auth))
 	return tlv.Json(auth), nil
 }
 
@@ -202,7 +198,6 @@ func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
 	}
 
 	svrId, err := smap.Reg(name, false)
-	fmt.Println("Reg svrId:", svrId)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +210,6 @@ func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
 	}
 	// Register session in bucket
 	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
-	fmt.Println("Reg args:", name)
-	fmt.Println(tlv.Json(auth))
 	return tlv.Json(auth), nil
 }
 

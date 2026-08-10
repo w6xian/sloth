@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/w6xian/sloth/v2/internal/utils"
+	"github.com/w6xian/sloth/v3/message"
 )
 
 // Reset defines Reset method for pooled object.
@@ -62,20 +62,53 @@ func (p *typePools) Get(t reflect.Type) any {
 	return pool.Get()
 }
 
-// sync.Pool for JsonValue reuse
-var jsonValuePool = sync.Pool{
+var callObjPool sync.Pool = sync.Pool{
 	New: func() any {
-		return &utils.JsonValue{}
+		return &message.JsonCallObject{}
 	},
 }
 
-func getJsonValue() *utils.JsonValue {
-	return jsonValuePool.Get().(*utils.JsonValue)
+func getCallObj() *message.JsonCallObject {
+	req := callObjPool.Get()
+	if req == nil {
+		return &message.JsonCallObject{}
+	}
+	return req.(*message.JsonCallObject)
 }
 
-func putJsonValue(v *utils.JsonValue) {
-	if v != nil {
-		*v = utils.JsonValue{}
-		jsonValuePool.Put(v)
+func putCallObj(req *message.JsonCallObject) {
+	if req == nil {
+		return
 	}
+	req.Header = nil
+	req.Method = ""
+	req.Data = nil
+	req.Error = ""
+	req.Args = nil
+	callObjPool.Put(req)
+}
+
+var backObjPool sync.Pool = sync.Pool{
+	New: func() any {
+		return &message.JsonBackObject{}
+	},
+}
+
+func getBackObj() *message.JsonBackObject {
+	req := backObjPool.Get()
+	if req == nil {
+		return &message.JsonBackObject{}
+	}
+	return req.(*message.JsonBackObject)
+}
+
+func putBackObj(req *message.JsonBackObject) {
+	if req == nil {
+		return
+	}
+	req.Context = nil
+	req.Header = nil
+	req.Data = nil
+	req.Error = ""
+	backObjPool.Put(req)
 }

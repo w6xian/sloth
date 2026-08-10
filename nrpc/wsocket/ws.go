@@ -3,18 +3,13 @@ package wsocket
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v2/option"
-	"github.com/w6xian/sloth/v2/pprof"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/trpc"
 )
 
 func GetWsServer(ctx context.Context, c trpc.ICallRpc, options ...option.ConnectOption) types.IServer {
-	//set the maximum number of CPUs that can be executing
-	// runtime.GOMAXPROCS(c.cpuNum)
 	wsServer := NewWsServer(c, options...)
-	// c.client.Serve = wsServer
-	pprof.New(c.(pprof.IService)).UsePProf(wsServer)
 	wsServer.ListenAndServe(ctx)
 	return wsServer
 }

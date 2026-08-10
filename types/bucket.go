@@ -3,8 +3,8 @@ package types
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/message"
 )
 
 type IConnRpc interface {

@@ -2,16 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
-	"github.com/w6xian/tlv"
+	"github.com/w6xian/sloth/v3"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -48,20 +48,17 @@ func main() {
 			client.Header.Set("USER_ID", "1")
 			data, err := client.Call(context.Background(), "v1.Reg", name)
 			fmt.Println("------------")
-			fmt.Println("Reg result", data, err)
+			fmt.Println("Reg result", string(data), err)
 			fmt.Println("------------")
 			if err != nil {
-				fmt.Println("v1.Reg Call error:", err)
 				continue
 			}
 			auth := &auth.AuthInfo{}
-			err = tlv.Json2Struct(data, auth)
+			err = json.Unmarshal(data, auth)
 			if err != nil {
 				continue
 			}
-			fmt.Println(auth)
 			client.SetAuthInfo(auth)
-			fmt.Println("v1.Sign Call success:")
 			break
 		}
 	}

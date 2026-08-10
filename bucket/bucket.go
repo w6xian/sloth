@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v2/message"
+	"github.com/w6xian/sloth/v3/message"
 )
 
 type Bucket struct {
@@ -80,15 +80,18 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	defer b.cLock.Unlock()
 
 	if ch0, ch_ok := b.chs[ch.UserId()]; ch_ok {
-		// 只是更新 token
-		if ch0.UserId() == userId && ch0.Room().Id == roomId {
+		ch0Room := ch0.Room()
+		// 只是更新 token（userId 相同、roomId 相同、两者要么都没房间要么房间ID一致）
+		if ch0.UserId() == userId &&
+			((ch0Room == nil && roomId == NoRoom) ||
+				(ch0Room != nil && ch0Room.Id == roomId)) {
 			ch0.Token(token)
 			return
 		}
 
 		// 原来有房间，且不是当前房间，先退出房间
-		if ch0.Room().Id != roomId {
-			ch0.Room().DeleteChannel(ch0)
+		if ch0Room != nil && ch0Room.Id != roomId {
+			ch0Room.DeleteChannel(ch0)
 		}
 		// userId 改变，需要更新桶中的连接
 		if ch0.UserId() != userId && ch0.UserId() > 0 {
@@ -98,9 +101,9 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 		}
 	}
 	// 原来有房间，先退出房间
-	if ch.Room() != nil {
-		if ch.Room().Id != roomId {
-			ch.Room().DeleteChannel(ch)
+	if curRoom := ch.Room(); curRoom != nil {
+		if curRoom.Id != roomId {
+			curRoom.DeleteChannel(ch)
 		}
 	}
 	if roomId != NoRoom {

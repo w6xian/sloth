@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/decoder"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/tlv"
 )
 
@@ -102,7 +102,7 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 }
 
 // @call clientNet
-func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId string, msg []byte) ([]byte, error) {
+func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint64, data []byte) ([]byte, error) {
 	if c.Serve == nil {
 		return nil, errors.New("server not found")
 	}
@@ -112,7 +112,7 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId strin
 		return nil, errors.New("channel not found")
 	}
 
-	resp, err := ch.CallNet(ctx, msgId, msg)
+	resp, err := ch.CallNet(ctx, msgId, data)
 	if err != nil {
 		return nil, err
 	}

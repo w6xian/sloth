@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log"
 
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 	"github.com/w6xian/tlv"
 )
 

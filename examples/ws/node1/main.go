@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"

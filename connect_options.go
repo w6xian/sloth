@@ -34,24 +34,18 @@ func WithCpuNum(cpuNum int) ConnOption {
 func WithClientLogic(l *ClientRpc) ConnOption {
 	return func(c *Connect) {
 		c.client = l
-		c.Encoder = l.Encoder
-		c.Decoder = l.Decoder
 	}
 }
 
 func Client(l *ClientRpc) ConnOption {
 	return func(c *Connect) {
 		c.client = l
-		c.Encoder = l.Encoder
-		c.Decoder = l.Decoder
 	}
 }
 
 func Server(l *ServerRpc) ConnOption {
 	return func(c *Connect) {
 		c.server = l
-		c.Encoder = l.Encoder
-		c.Decoder = l.Decoder
 	}
 }
 

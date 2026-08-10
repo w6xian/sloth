@@ -4,26 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
+
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v2/actions"
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/internal/utils/id"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/nrpc/middleware"
-	"github.com/w6xian/sloth/v2/option"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/handler"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/actions"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils/id"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/handler"
+	"github.com/w6xian/sloth/v3/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/mux"
@@ -50,37 +48,9 @@ type LocalClient struct {
 	BroadcastSize   int
 	KeepAlive       bool
 
-	middlewares []middleware.Middleware
-
 	defaultHeader message.Header
 	// RpcCaller 对象池，减少 GC 压力
 	rpcCallerPool sync.Pool
-}
-
-// getRpcCaller 从池中获取 RpcCaller 对象
-func (c *LocalClient) getRpcCaller() *trpc.RpcCaller {
-	req := c.rpcCallerPool.Get()
-	if req == nil {
-		return &trpc.RpcCaller{}
-	}
-	return req.(*trpc.RpcCaller)
-}
-
-// putRpcCaller 归还 RpcCaller 对象到池中
-func (c *LocalClient) putRpcCaller(req *trpc.RpcCaller) {
-	// 重置字段
-	req.Id = ""
-	req.Protocol = 0
-	req.Action = 0
-	if req.Header != nil {
-		message.PutHeader(message.Header(req.Header))
-		req.Header = nil
-	}
-	req.Method = ""
-	req.Data = nil
-	req.Args = nil
-	req.Channel = nil
-	c.rpcCallerPool.Put(req)
 }
 
 // 实现 options.ConnectOption
@@ -134,23 +104,16 @@ func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *Loc
 	s.KeepAlive = opt.KeepAlive
 
 	s.handler = nil
-	s.middlewares = nil
+
 	for _, opt := range options {
 		opt(s)
 	}
 	return s
 }
 
-// Use 注册客户端中间件，可多次调用，按注册顺序执行。
-func (c *LocalClient) Use(middlewares ...middleware.Middleware) {
-	c.middlewares = append(c.middlewares, middlewares...)
-}
 func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
-	if c.Connect == nil {
-		log.Println("LocalClient Connect is nil")
-		return
-	}
-	c.Connect.Log(level, "[LocalClient]"+line, args...)
+	_ = level
+	log.Println("[LocalClient]", line, args)
 }
 
 func signalClose(closeChan chan struct{}) {
@@ -169,20 +132,8 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			c.log(logger.Error, "ListenAndServe recover err : %v", err)
 		}
 	}()
-	addr := ""
-	if strings.Contains(c.address, "://") {
-		u, err := url.Parse(c.address)
-		if err == nil {
-			if u.Path == "" || u.Path == "/" {
-				u.Path = c.uriPath
-			}
-			addr = u.String()
-		} else {
-			addr = c.address
-		}
-	} else {
-		addr = fmt.Sprintf("ws://%s%s", c.address, c.uriPath)
-	}
+	// 构建ws url
+	addr := utils.GetWsUrl(c.address, c.uriPath)
 	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
@@ -238,7 +189,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
-	wsConn := NewWsChannelClient(c.Connect)
+	wsConn := NewWsChannelClient(c.Connect, WithAddr(conn.RemoteAddr().String()))
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
@@ -290,11 +241,10 @@ func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd strin
 	}
 
 	// 使用中间件链包装调用
-	final := func(ctx context.Context, hdr message.Header, method string, args ...[]byte) ([]byte, error) {
+	handler := func(ctx context.Context, hdr message.Header, method string, args ...[]byte) ([]byte, error) {
 		return c.client.Call(ctx, hdr, method, args...)
 	}
 
-	handler := middleware.Chain(c.middlewares, final)
 	rst, err := handler(ctx, mergedHeader, mtd, data...)
 	if err != nil {
 		return nil, err
@@ -345,7 +295,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
+			if err := slicesBinarySend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
 				return
 			}
 		case payload, ok := <-ch.rpcCaller:
@@ -363,8 +313,8 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
-				c.log(logger.Error, "slicesTextSend err = %v", err.Error())
+			if err := slicesBinarySend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
+				c.log(logger.Error, "slicesBinarySend err = %v", err.Error())
 				return
 			}
 		case payload, ok := <-ch.rpcBacker:
@@ -415,12 +365,10 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		signalClose(closeChan)
 	}()
 	defer func() {
-
 		if ch.conn != nil {
 			ch.conn.Close()
 			ch.conn = nil
 		}
-
 	}()
 
 	ch.conn.SetReadLimit(c.MaxMessageSize)
@@ -474,116 +422,73 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		connReq := getJsonValue()
-		if reqErr := json.Unmarshal(m, &connReq); reqErr == nil {
-			action := int(connReq.Int64("action"))
-			protocol := int(connReq.Int64("protocol"))
-			idstr := connReq.String("id")
-
-			// 提取 data 字段（避免重复访问）
-			var data []byte
-			if protocol == 1 {
-				// TextMessage 协议：data 是字符串
-				data = []byte(connReq.String("data"))
-			} else {
-				// BinaryMessage 协议：data 是字节数组
-				data = connReq.Bytes("data")
+		if _, err := fn.Action(m); err == nil {
+			if err := c.HandleFn(ctx, ch, m); err != nil {
+				if handler != nil {
+					handler.OnError(ctx, c, ch, err)
+				}
 			}
-			if action == actions.ACTION_CALL {
-				if atomic.LoadInt64(&ch.rpc_io) < 0 {
-					atomic.StoreInt64(&ch.rpc_io, 0)
-				}
-				// 使用对象池获取 RpcCaller，减少 GC 压力
-				args := c.getRpcCaller()
-				args.Id = idstr
-				args.Protocol = protocol
-				args.Action = action
-				hdr := message.GetHeader()
-				connReq.MapStringInto("header", hdr)
-				args.Header = hdr
-				args.Method = connReq.String("method")
-				args.Data = data
-				args.Args = connReq.BytesArray("args")
-				args.Channel = ch
-				c.HandleCall(ctx, args)
-				putJsonValue(connReq)
-				// 注意：HandleCall 不负责归还对象，对象由调用方在处理完成后归还
-				continue
-			} else if action == actions.ACTION_REPLY {
-				if atomic.AddInt64(&ch.rpc_io, -1) < -50 {
-					atomic.StoreInt64(&ch.rpc_io, 0)
-					putJsonValue(connReq)
-					continue
-				}
-				errStr := connReq.String("error")
-				if errStr != "" {
-					backObj := ch.getBackObj()
-					backObj.Id = idstr
-					backObj.Action = actions.ACTION_REPLY
-					backObj.Type = message.TextMessage
-					backObj.Data = nil
-					backObj.Error = errStr
-					payload := utils.Serialize(backObj)
-					ch.putBackObj(backObj)
-					select {
-					case ch.rpcResult <- payload:
-					case <-ctx.Done():
-						putJsonValue(connReq)
-						return
-					}
-					putJsonValue(connReq)
-					continue
-				}
-				backObj := ch.getBackObj()
-				backObj.Id = idstr
-				backObj.Action = actions.ACTION_REPLY
-				backObj.Type = message.TextMessage
-				backObj.Data = data
-				backObj.Error = ""
-				payload := utils.Serialize(backObj)
-				ch.putBackObj(backObj)
-				select {
-				case ch.rpcResult <- payload:
-				case <-ctx.Done():
-					putJsonValue(connReq)
-					return
-				}
-				putJsonValue(connReq)
-				continue
-			}
-		} else {
-			// 处理其他消息类型
-			c.log(logger.Info, "readPump，messageType is not TextMessage or BinaryMessage")
+			continue
 		}
-		putJsonValue(connReq)
 		if handler != nil {
 			handler.OnData(ctx, c, ch, messageType, m)
 		}
 	}
 }
 
-// HandleMessage 处理来自服务器的消息
-// 有两种情况：
-// 1. 服务器主动推送消息，需要调用本地方法处理
-// 2. 服务器调用本地方法，需要返回结果
-func (c *LocalClient) HandleCall(ctx context.Context, msgReq *trpc.RpcCaller) {
-	c.serviceMapMu.RLock()
-	defer c.serviceMapMu.RUnlock()
-	defer func() {
-		if err := recover(); err != nil {
-			c.log(logger.Error, "ws_client.HandleCall recover err : %v", err)
-		}
-		// 处理完成后归还对象池
-		c.putRpcCaller(msgReq)
-	}()
-	if msgReq.Action == actions.ACTION_CALL {
-		rst, err := c.Connect.CallFunc(ctx, nil, msgReq)
+func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []byte) error {
+	action, err := fn.Action(data)
+	if err != nil {
+		return err
+	}
+	id := fn.Id(data)
+	body := fn.Data(data)
+	// 客户端IP和端口
+
+	switch action {
+	case actions.ACTION_CALL:
+		fx := getCallObj()
+		err := json.Unmarshal(body, fx)
 		if err != nil {
-			msgReq.Channel.ReplyError(msgReq.Id, []byte(err.Error()))
-			return
+			log.Println(logger.Error, "server readPump，json.Unmarshal err:%v", err)
+			return err
 		}
-		msgReq.Channel.ReplySuccess(msgReq.Id, rst)
-		return
+		if !c.Connect.IsRegisteredService(fx.Method) {
+			resp, err := c.Connect.CallNetFunc(ctx, fx.Method, id, data)
+			if err != nil {
+				log.Println(logger.Error, "server readPump，CallNetFunc err:%v", err)
+				return err
+			}
+			ch.NetReply(id, resp, err)
+			return nil
+		}
+
+		// 链接通道
+		// fx.Channel = ch
+		// 调用 connect.CallFunc 方法
+		rst, err := c.Connect.CallFunc(ctx, nil, &trpc.RpcCaller{
+			Method:  fx.Method,
+			Data:    body,
+			Channel: ch,
+			Header:  fx.Header,
+			Args:    fx.Args,
+		})
+		if err != nil {
+			ch.ReplyError(id, []byte(err.Error()))
+			return err
+		}
+		ch.ReplySuccess(id, rst)
+		return nil
+	case actions.ACTION_REPLY_SUCCESS, actions.ACTION_REPLY_ERROR:
+		select {
+		case ch.rpcResult <- data:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return nil
+	default:
+		log.Fatalln(logger.Error, "server readPump，action:%d is not valid", action)
+		return nil
 	}
 }
 

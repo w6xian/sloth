@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/w6xian/sloth/v2/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils"
 )
 
 const TextMessage byte = 0x01
@@ -77,7 +77,19 @@ func Encode(s *DataSlice, opts ...FrameOption) []byte {
 
 	buf := make([]byte, int(headerSize)+len(s.D))
 	buf[0] = tag
-	name := []byte(s.N)[:2]
+	var name [2]byte
+	raw := []byte(s.N)
+	switch len(raw) {
+	case 0:
+		name[0] = '0'
+		name[1] = '0'
+	case 1:
+		name[0] = '0'
+		name[1] = raw[0]
+	default:
+		name[0] = raw[0]
+		name[1] = raw[1]
+	}
 	buf[1] = name[0]
 	buf[2] = name[1]
 	buf[3] = byte(s.T)

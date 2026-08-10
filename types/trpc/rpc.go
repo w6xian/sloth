@@ -3,11 +3,10 @@ package trpc
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/option"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/auth"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/auth"
 )
 
 type RpcAction struct {
@@ -15,21 +14,17 @@ type RpcAction struct {
 }
 
 type RpcCaller struct {
-	Id       string            `json:"id"`
-	Protocol int               `json:"protocol"` // 1 string 0 tlv
-	Action   int               `json:"action"`
-	Method   string            `json:"method"`
-	Header   map[string]string `json:"header,omitempty"`
-	Data     []byte            `json:"data"`
-	Args     [][]byte          `json:"args,omitempty"`  // args
-	Error    string            `json:"error,omitempty"` // error message
-	Channel  IWsReply          `json:"-"`
+	Method  string            `json:"method"`
+	Header  map[string]string `json:"header,omitempty"`
+	Data    []byte            `json:"data"`
+	Args    [][]byte          `json:"args,omitempty"`  // args
+	Error   string            `json:"error,omitempty"` // error message
+	Channel IWsReply          `json:"-"`
 }
 
 type ICallRpc interface {
-	Log(level logger.LogLevel, line string, args ...any)
 	CallFunc(ctx context.Context, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
-	CallNetFunc(ctx context.Context, service string, msgId string, payload []byte) ([]byte, error)
+	CallNetFunc(ctx context.Context, service string, msgId uint64, payload []byte) ([]byte, error)
 	IsRegisteredService(service string) bool
 	Options() *option.Options
 }
@@ -43,9 +38,9 @@ type ICall interface {
 }
 
 type IWsReply interface {
-	NetReply(id string, payload []byte, err error) error
-	ReplySuccess(id string, data []byte) error
-	ReplyError(id string, err []byte) error
+	NetReply(id uint64, payload []byte, err error) error
+	ReplySuccess(id uint64, data []byte) error
+	ReplyError(id uint64, err []byte) error
 }
 
 type IChannel interface {

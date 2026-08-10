@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/decoder/frame"
-	"github.com/w6xian/sloth/v2/internal/tools"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder/frame"
+	"github.com/w6xian/sloth/v3/internal/tools"
+	"github.com/w6xian/sloth/v3/types/handler"
 
 	"github.com/gorilla/websocket"
 )
@@ -33,7 +34,7 @@ func getSliceName() string {
 	if ids > 99 {
 		atomic.StoreInt32(&ids, 0)
 	}
-	return fmt.Sprintf("%d", ids)
+	return fmt.Sprintf("%02d", ids)
 }
 
 // 分块发送数据
@@ -76,7 +77,16 @@ func slicesBinarySend(n string, conn *websocket.Conn, data []byte, sliceSize int
 	return nil
 }
 
-func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]byte, error) {
+type IReadConn interface {
+	ReadMessage() (int, []byte, error)
+}
+
+func dealData(ctx context.Context, m []byte, handler handler.IServerHandleMessage) error {
+
+	return nil
+}
+
+func receiveMessage(conn IReadConn, messageType byte, message []byte) ([]byte, error) {
 	sc, err := frame.FromType(message, messageType)
 	if err != nil {
 		return nil, err
@@ -97,8 +107,8 @@ func receiveMessage(conn *websocket.Conn, messageType byte, message []byte) ([]b
 				return nil, err
 			}
 		}
-		if message == nil || msgType == -1 {
-			return nil, fmt.Errorf("message is nil or msgType is -1")
+		if message == nil || msgType == CloseMessage || msgType == PingMessage || msgType == PongMessage {
+			return nil, fmt.Errorf("message is nil or msgType is close or ping or pong message")
 		}
 
 		slices, err := frame.FromType(message, byte(msgType))

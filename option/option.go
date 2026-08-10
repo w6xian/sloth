@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/v2/types/handler"
+	"github.com/w6xian/sloth/v3/types/handler"
 )
 
 type IConnectOption interface {

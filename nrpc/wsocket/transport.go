@@ -6,9 +6,9 @@ import (
 	"net"
 	"sync"
 
-	"github.com/w6xian/sloth/v2/nrpc"
-	"github.com/w6xian/sloth/v2/option"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/nrpc"
+	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/types/trpc"
 )
 
 // WsListener 是 WsServer 的 nrpc.Listener 适配器

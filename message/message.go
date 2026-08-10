@@ -2,116 +2,23 @@ package message
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/w6xian/sloth/v2/actions"
-	"github.com/w6xian/sloth/v2/decoder"
-	"github.com/w6xian/sloth/v2/internal/utils"
 )
 
 type JsonCallObject struct {
-	Id     string            `json:"id"`               // user id
-	Action int               `json:"action"`           // operation for request
-	Type   int               `json:"type"`             // message type 1 textMessage or 2 binaryMessage1
 	Header map[string]string `json:"header,omitempty"` // header
 	Method string            `json:"method"`           // service method name
-	Data   []byte            `json:"data,omitempty"`   // binary body bytes
-	Error  string            `json:"error,omitempty"`  // error message
 	Args   [][]byte          `json:"args,omitempty"`   // args
+	Data   []byte            `json:"data,omitempty"`   // hidden arg
+	Error  string            `json:"error,omitempty"`  // error message
 }
-
-func NewWsJsonCallObject(method string, data ...[]byte) *JsonCallObject {
-	//判断 msgType 是不是二进制
-	msgTypeVal := TextMessage
-	arg := []byte{}
-	if len(data) > 0 {
-		arg = data[0]
-	}
-	args := [][]byte{}
-	if len(data) > 1 {
-		args = data[1:]
-	}
-	return &JsonCallObject{
-		Id:     fmt.Sprintf("%d", decoder.NextId()),
-		Action: actions.ACTION_CALL,
-		Type:   msgTypeVal,
-		Method: method,
-		Data:   arg,
-		Args:   args,
-	}
-}
-
-func (j *JsonCallObject) IsBinary() bool {
-	return j.Type == BinaryMessage
-}
-
-// 转成二进制消息
-func (j *JsonCallObject) ToBytes() []byte {
-	if j.IsBinary() {
-		return utils.Serialize(j.Data)
-	}
-	return utils.Serialize(j)
-}
-
-// type IJsonCallObject interface {
-// 	Id() uint64
-// 	Action() int
-// 	Method() string
-// 	Data() []byte
-// 	Error() string
-// }
 
 type JsonBackObject struct {
-	Context context.Context
-	Id      string            `json:"id"`               // user id
-	Type    int               `json:"-"`                // message type 1 textMessage or 2 binaryMessage1
+	Context context.Context   `json:"-"`
 	Header  map[string]string `json:"header,omitempty"` // header
-	// action
-	Action int64 `json:"action"`
 	//data binary body bytes
 	Data []byte `json:"data,omitempty"`
 	// error
-	Error string   `json:"error,omitempty"` // error message
-	Args  [][]byte `json:"args,omitempty"`  // args
-}
-
-func (j *JsonBackObject) IsBinary() bool {
-	return j.Type == BinaryMessage
-}
-
-// 转成二进制消息
-func (j *JsonBackObject) ToBytes() []byte {
-	if j.IsBinary() {
-		return utils.Serialize(j.Data)
-	}
-	return utils.Serialize(j)
-}
-
-func NewWsJsonBackSuccess(id string, data []byte) *JsonBackObject {
-	//判断 msgType 是不是二进制
-	msgTypeVal := TextMessage
-
-	rst := &JsonBackObject{
-		Id:     id,
-		Action: actions.ACTION_REPLY,
-		Type:   msgTypeVal,
-	}
-
-	if data != nil {
-		rst.Data = data
-	}
-	return rst
-}
-func NewWsJsonBackError(id string, err []byte) *JsonBackObject {
-	rst := &JsonBackObject{
-		Id:     id,
-		Action: actions.ACTION_REPLY,
-	}
-	if err != nil {
-		rst.Type = TextMessage
-		rst.Error = string(err)
-	}
-	return rst
+	Error string `json:"error,omitempty"` // error message
 }
 
 const (

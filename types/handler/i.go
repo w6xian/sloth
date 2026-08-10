@@ -3,8 +3,8 @@ package handler
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/types"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/types"
 )
 
 type IServerHandleMessage interface {

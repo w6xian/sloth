@@ -16,21 +16,20 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 - 反射式服务注册：`Register("v1", &Svc{}, "")`，通过 `v1.Method` 直接调用
 - Header / Auth：header 透传、登录后可设置 `AuthInfo`
 - Bucket / Room：面向海量连接的分桶与房间广播
-- 中间件链：`middleware.Log / middleware.Recovery` 等
 - 安全：服务端 IP 黑名单 + 连接数限制（全局 / 分协议 / 单 IP）
 - 诊断：内置 `pprof.Info` 服务方法，返回内存/连接/room 等信息（含 `next_gc`）
 
 ## 安装
 
 ```bash
-go get github.com/w6xian/sloth/v2
+go get github.com/w6xian/sloth/v3
 ```
 
 ## 快速开始
 
 ### 启动服务端（WS + TCP + KCP）
 
-示例见 [examples/ws/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/main.go)：
+示例见 [examples/ws/main.go](file:///d:/var/o4p/github.com/sloth/v3/examples/ws/main.go)：
 
 ```go
 ctx := context.Background()
@@ -75,7 +74,7 @@ conn.UnbanIP("1.2.3.4")
 
 ### 启动客户端并调用
 
-示例见 [examples/ws/client/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/client/main.go)：
+示例见 [examples/ws/client/main.go](file:///d:/var/o4p/github.com/sloth/v3/examples/ws/client/main.go)：
 
 ```go
 client := sloth.DefaultClient()
@@ -116,4 +115,4 @@ go run ./examples/tcp
 go test ./...
 ```
 
-CI：见 [.github/workflows/go.yml](file:///d:/var/o4p/github.com/sloth/v2/.github/workflows/go.yml)。
+CI：见 [.github/workflows/go.yml](file:///d:/var/o4p/github.com/sloth/v3/.github/workflows/go.yml)。

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strconv"
 )
@@ -106,7 +105,6 @@ func (j JsonValue) MapSS(col string) map[string]string {
 	if j[col] != nil {
 		json.Unmarshal(*j[col], &m)
 	}
-	fmt.Printf("%v%v", m, j[col])
 	return m
 }
 

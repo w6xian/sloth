@@ -3,9 +3,9 @@ package nrpc
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 )
 
 // Transport 各协议实现此接口，统一服务端 Listen 和客户端 Dial。

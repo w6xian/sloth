@@ -4,19 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v2/actions"
-	"github.com/w6xian/sloth/v2/decoder"
-	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/actions"
+	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils/id"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -40,16 +39,14 @@ type WsChannelClient struct {
 	conn    *websocket.Conn
 	connTcp *net.TCPConn
 	Lock    sync.Mutex
-
+	addr    string
+	port    int64
 	// writeWait default eq 10s
 	writeWait time.Duration
 	// readWait default eq 10s
 	readWait time.Duration
 	// func
-	rpc_io int64
-
-	callObjPool sync.Pool
-	backObjPool sync.Pool
+	rpc_io atomic.Int64
 }
 
 func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
@@ -70,81 +67,20 @@ func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *
 	for _, opt := range opts {
 		opt(c)
 	}
-	atomic.StoreInt64(&c.rpc_io, 0)
-	c.callObjPool = sync.Pool{
-		New: func() any {
-			return &message.JsonCallObject{}
-		},
-	}
-	c.backObjPool = sync.Pool{
-		New: func() any {
-			return &message.JsonBackObject{}
-		},
-	}
+	c.rpc_io.Add(1)
 	return
 }
 
 func (c *WsChannelClient) DefaultHeader() message.Header {
 	return c.defaultHeader
 }
-func (s *WsChannelClient) log(level logger.LogLevel, line string, args ...any) {
-	if s.Connect == nil {
-		log.Println("WsServer Connect is nil")
-		return
-	}
-	s.Connect.Log(level, "[WsChannelClient]"+line, args...)
-}
-
-func (c *WsChannelClient) getCallObj() *message.JsonCallObject {
-	req := c.callObjPool.Get()
-	if req == nil {
-		return &message.JsonCallObject{}
-	}
-	return req.(*message.JsonCallObject)
-}
-
-func (c *WsChannelClient) putCallObj(req *message.JsonCallObject) {
-	if req == nil {
-		return
-	}
-	req.Id = ""
-	req.Action = 0
-	req.Type = 0
-	req.Header = nil
-	req.Method = ""
-	req.Data = nil
-	req.Error = ""
-	req.Args = nil
-	c.callObjPool.Put(req)
-}
-
-func (c *WsChannelClient) getBackObj() *message.JsonBackObject {
-	req := c.backObjPool.Get()
-	if req == nil {
-		return &message.JsonBackObject{}
-	}
-	return req.(*message.JsonBackObject)
-}
-
-func (c *WsChannelClient) putBackObj(req *message.JsonBackObject) {
-	if req == nil {
-		return
-	}
-	req.Context = nil
-	req.Id = ""
-	req.Type = 0
-	req.Header = nil
-	req.Action = 0
-	req.Data = nil
-	req.Error = ""
-	req.Args = nil
-	c.backObjPool.Put(req)
-}
 
 func (c *WsChannelClient) Logout() (err error) {
 	c.RoomId = 0
 	c.UserId = 0
 	c.Sign = ""
+	c.addr = ""
+	c.port = 0
 	return
 }
 func (c *WsChannelClient) Close() error {
@@ -158,6 +94,8 @@ func (c *WsChannelClient) Close() error {
 	}
 	c.UserId = 0
 	c.RoomId = 0
+	c.addr = ""
+	c.port = 0
 	c.Sign = ""
 	return nil
 }
@@ -176,29 +114,21 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 	return
 }
 
-func (c *WsChannelClient) NetReply(id string, payload []byte, err error) error {
+func (c *WsChannelClient) NetReply(id uint64, payload []byte, err error) error {
 	if err != nil {
 		return c.ReplyError(id, []byte(err.Error()))
 	}
 	return c.ReplySuccess(id, payload)
 }
 
-func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
+func (c *WsChannelClient) ReplySuccess(id uint64, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msg := c.getBackObj()
-	msg.Id = id
-	msg.Action = actions.ACTION_REPLY
-	msg.Type = message.TextMessage
-	msg.Data = data
-	msg.Error = ""
-	msg.Header = nil
-	msg.Args = nil
-
-	payload := utils.Serialize(msg)
-	c.putBackObj(msg)
-
+	payload, err := fn.Encode(actions.ACTION_REPLY_SUCCESS, id, data)
+	if err != nil {
+		return err
+	}
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
 	select {
@@ -209,26 +139,14 @@ func (c *WsChannelClient) ReplySuccess(id string, data []byte) error {
 	return nil
 }
 
-func (c *WsChannelClient) ReplyError(id string, err []byte) error {
+func (c *WsChannelClient) ReplyError(id uint64, payload []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	msg := c.getBackObj()
-	msg.Id = id
-	msg.Action = actions.ACTION_REPLY
-	msg.Type = message.TextMessage
-	msg.Data = nil
+	payload, err := fn.Encode(actions.ACTION_REPLY_ERROR, id, payload)
 	if err != nil {
-		msg.Error = string(err)
-	} else {
-		msg.Error = ""
+		return err
 	}
-	msg.Header = nil
-	msg.Args = nil
-
-	payload := utils.Serialize(msg)
-	c.putBackObj(msg)
-
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
 	select {
@@ -272,28 +190,22 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	defer ch.Lock.Unlock()
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-	msg := ch.getCallObj()
-	msg.Id = fmt.Sprintf("%d", decoder.NextId())
-	msg.Action = actions.ACTION_CALL
-	msg.Type = message.TextMessage
+	msg := getCallObj()
 	msg.Header = header
 	msg.Method = mtd
-	if len(args) > 0 {
-		msg.Data = args[0]
-	}
-	if len(args) > 1 {
-		msg.Args = args[1:]
-	}
-
+	msg.Args = args
 	payload := utils.Serialize(msg)
-	callId := msg.Id
-	ch.putCallObj(msg)
+	putCallObj(msg)
+	callId := uint64(id.NextId(1))
+	payload, err := fn.Encode(actions.ACTION_CALL, callId, payload)
+	if err != nil {
+		return nil, err
+	}
 
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- payload:
-		atomic.AddInt64(&ch.rpc_io, 1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -302,104 +214,35 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	for {
 		select {
 		case <-ctx.Done():
-			return []byte{}, ctx.Err()
+			return nil, ctx.Err()
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case raw, ok := <-ch.rpcResult:
 			if !ok {
 				return []byte{}, fmt.Errorf("rpc result closed")
 			}
-			back := ch.getBackObj()
-			if err := utils.Deserialize(raw, back); err != nil {
-				ch.putBackObj(back)
-				return []byte{}, err
+			action, err := fn.Action(raw)
+			if err != nil {
+				return nil, err
 			}
-			if back.Id != callId {
-				ch.putBackObj(back)
-				continue
+			switch action {
+			case actions.ACTION_REPLY_SUCCESS:
+				id := fn.Id(raw)
+				if id != callId {
+					return nil, fmt.Errorf("id not match")
+				}
+				data := fn.Data(raw)
+				return data, nil
+			case actions.ACTION_REPLY_ERROR:
+				id := fn.Id(raw)
+				if id != callId {
+					return nil, fmt.Errorf("id not match")
+				}
+				data := fn.Data(raw)
+				return nil, errors.New(string(data))
+			default:
+				return nil, fmt.Errorf("action not match")
 			}
-			if back.Error != "" {
-				errStr := back.Error
-				ch.putBackObj(back)
-				return []byte(""), errors.New(errStr)
-			}
-			data := back.Data
-			ch.putBackObj(back)
-			return data, nil
 		}
 	}
-}
-
-func (ch *WsChannelClient) CallAsync(ctx context.Context, header message.Header, mtd string, args ...[]byte) (chan *message.JsonBackObject, error) {
-	ch.Lock.Lock()
-	respChan := make(chan *message.JsonBackObject, 1)
-
-	ticker := time.NewTicker(ch.writeWait)
-
-	msg := ch.getCallObj()
-	msg.Id = fmt.Sprintf("%d", decoder.NextId())
-	msg.Action = actions.ACTION_CALL
-	msg.Type = message.TextMessage
-	msg.Header = header
-	msg.Method = mtd
-	if len(args) > 0 {
-		msg.Data = args[0]
-	}
-	if len(args) > 1 {
-		msg.Args = args[1:]
-	}
-	payload := utils.Serialize(msg)
-	callId := msg.Id
-	ch.putCallObj(msg)
-
-	select {
-	case <-ticker.C:
-		ticker.Stop()
-		ch.Lock.Unlock()
-		close(respChan)
-		return nil, fmt.Errorf("call timeout")
-	case ch.rpcCaller <- payload:
-		atomic.AddInt64(&ch.rpc_io, 1)
-	case <-ctx.Done():
-		ticker.Stop()
-		ch.Lock.Unlock()
-		close(respChan)
-		return nil, ctx.Err()
-	}
-
-	ticker.Reset(ch.readWait)
-
-	go func() {
-		defer ticker.Stop()
-		defer ch.Lock.Unlock()
-		defer close(respChan)
-
-		for {
-			select {
-			case <-ctx.Done():
-				respChan <- message.NewWsJsonBackError(callId, []byte(ctx.Err().Error()))
-				return
-			case <-ticker.C:
-				respChan <- message.NewWsJsonBackError(callId, []byte("reply timeout"))
-				return
-			case raw, ok := <-ch.rpcResult:
-				if !ok {
-					respChan <- message.NewWsJsonBackError(callId, []byte("rpc result closed"))
-					return
-				}
-				var back message.JsonBackObject
-				if err := utils.Deserialize(raw, &back); err != nil {
-					respChan <- message.NewWsJsonBackError(callId, []byte(err.Error()))
-					return
-				}
-				if back.Id != callId {
-					continue
-				}
-				respChan <- &back
-				return
-			}
-		}
-	}()
-
-	return respChan, nil
 }

@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/w6xian/sloth/v2"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/pprof"
-	"github.com/w6xian/sloth/v2/types"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
@@ -87,30 +86,6 @@ func main() {
 			}, "shop2.Test1", []byte("abc"),
 			)
 			fmt.Println("shop2.Test1:", string(data2), err)
-			continue
-			// Example RPC call with header and various arguments
-			data, err := client.CallWithHeader(context.Background(), message.Header{
-				"APP_ID":  "header_app_id",
-				"USER_ID": "1",
-			}, "pprof.Info", []byte("abc"),
-				int(utils.RandInt64(1, 0xFFFF)),
-				HelloReq{Name: "w6xian"}, &Hello{Name: "w6xian ptr"},
-				"w6xian_str",
-				&[]byte{0x01, 0x02, 0x03, 0x04},
-				[]string{"a", "b", "c"},
-				&[]string{"a", "b", "c"},
-			)
-			if err != nil {
-				fmt.Println("pprof.Info Call error:", err)
-				continue
-			}
-			info := &pprof.PProfInfo{}
-			err = utils.Deserialize(data, info)
-			if err != nil {
-				fmt.Println("Deserialize error:", err)
-				continue
-			}
-			fmt.Println("pprof.Info Call success:", info)
 		}
 	}()
 

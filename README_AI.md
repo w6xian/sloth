@@ -17,27 +17,27 @@ go run ./examples/ws/client
 ## 目录速览（从入口到实现）
 
 - 入口与核心反射调用
-  - [connect.go](file:///d:/var/o4p/github.com/sloth/v2/connect.go)：`Listen/Serve/Dial` 的协议分发、`CallFunc` 反射调用核心
-  - [call_server_func.go](file:///d:/var/o4p/github.com/sloth/v2/call_server_func.go)：服务端调用封装
-  - [call_client_func.go](file:///d:/var/o4p/github.com/sloth/v2/call_client_func.go)：客户端调用封装
+  - [connect.go](file:///d:/var/o4p/github.com/sloth/v3/connect.go)：`Listen/Serve/Dial` 的协议分发、`CallFunc` 反射调用核心
+  - [call_server_func.go](file:///d:/var/o4p/github.com/sloth/v3/call_server_func.go)：服务端调用封装
+  - [call_client_func.go](file:///d:/var/o4p/github.com/sloth/v3/call_client_func.go)：客户端调用封装
 - 连接组织（海量连接相关）
-  - [bucket/bucket.go](file:///d:/var/o4p/github.com/sloth/v2/bucket/bucket.go)、[bucket/room.go](file:///d:/var/o4p/github.com/sloth/v2/bucket/room.go)：Bucket/Room、Push/广播队列
+  - [bucket/bucket.go](file:///d:/var/o4p/github.com/sloth/v3/bucket/bucket.go)、[bucket/room.go](file:///d:/var/o4p/github.com/sloth/v3/bucket/room.go)：Bucket/Room、Push/广播队列
 - 传输层实现（每个协议一套 server/channel/client）
   - WebSocket：`nrpc/wsocket/*`
   - TCP：`nrpc/tcpsock/*`
   - KCP：`nrpc/kcpsock/*`
 - 诊断与服务发现
-  - [pprof/pprof.go](file:///d:/var/o4p/github.com/sloth/v2/pprof/pprof.go)：`pprof.Info`、`MemStats.NextGC` 等
+  - [pprof/pprof.go](file:///d:/var/o4p/github.com/sloth/v3/pprof/pprof.go)：`pprof.Info`、`MemStats.NextGC` 等
 - 消息模型
-  - [message/message.go](file:///d:/var/o4p/github.com/sloth/v2/message/message.go)、[message/header.go](file:///d:/var/o4p/github.com/sloth/v2/message/header.go)：`Msg`/`Header`（Header 已用 pool 复用）
+  - [message/message.go](file:///d:/var/o4p/github.com/sloth/v3/message/message.go)、[message/header.go](file:///d:/var/o4p/github.com/sloth/v3/message/header.go)：`Msg`/`Header`（Header 已用 pool 复用）
 
 ## 协议与数据流（非常重要）
 
 ### TCP/KCP：自定义 TLV 帧（不是 github.com/w6xian/tlv）
 
 - 帧格式在：
-  - TCP：[nrpc/tcpsock/frame.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/tcpsock/frame.go)
-  - KCP：[nrpc/kcpsock/frame.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/kcpsock/frame.go)
+  - TCP：[nrpc/tcpsock/frame.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/tcpsock/frame.go)
+  - KCP：[nrpc/kcpsock/frame.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/kcpsock/frame.go)
 - 格式固定：`[Type:1B][Length:4B BigEndian][Payload:LengthB]`
 - `Payload` 常见是 JSON（`trpc.RpcCaller` / ReplyMessage 等），而业务参数 `Data` 往往是另一层业务编码（示例里多用 `github.com/w6xian/tlv` 的 `tlv.Json(...)`）。
 
@@ -57,8 +57,8 @@ go run ./examples/ws/client
 ## KCP 现状与注意事项
 
 - KCP 使用 `kcp-go/v5`：
-  - 监听：[nrpc/kcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/kcpsock/server.go)
-  - 拨号：[nrpc/kcpsock/client.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/kcpsock/client.go)
+  - 监听：[nrpc/kcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/kcpsock/server.go)
+  - 拨号：[nrpc/kcpsock/client.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/kcpsock/client.go)
 - 当前加密 key/salt 是 demo 常量（`demo pass/demo salt`），如果要用于生产应抽到 option 里配置，并避免硬编码。
 
 ## 常见故障定位指引
@@ -71,16 +71,16 @@ go run ./examples/ws/client
 
 ## 连接黑名单与限制（已落地）
 
-- 实现文件：[conn_guard.go](file:///d:/var/o4p/github.com/sloth/v2/internal/tools/conn_guard.go)
-- Options 字段：[options.go](file:///d:/var/o4p/github.com/sloth/v2/option/options.go)
+- 实现文件：[conn_guard.go](file:///d:/var/o4p/github.com/sloth/v3/internal/tools/conn_guard.go)
+- Options 字段：[options.go](file:///d:/var/o4p/github.com/sloth/v3/option/options.go)
 - ConnOption：`WithMaxConnsGlobal/WithMaxConnsPerIP/WithMaxConnsWS/WithMaxConnsTCP/WithMaxConnsKCP/WithTrustProxyHeaders`
-  - 位置：[connect_options.go](file:///d:/var/o4p/github.com/sloth/v2/connect_options.go)
+  - 位置：[connect_options.go](file:///d:/var/o4p/github.com/sloth/v3/connect_options.go)
 - 接入点：
-  - WS 握手阶段拒绝（403/429）：[ws_server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/wsocket/ws_server.go#L204-L235)
-  - TCP/KCP accept 后拒绝（close conn）：[tcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/tcpsock/server.go) / [kcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v2/nrpc/kcpsock/server.go)
+  - WS 握手阶段拒绝（403/429）：[ws_server.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/wsocket/ws_server.go#L204-L235)
+  - TCP/KCP accept 后拒绝（close conn）：[tcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/tcpsock/server.go) / [kcpsock/server.go](file:///d:/var/o4p/github.com/sloth/v3/nrpc/kcpsock/server.go)
   - 计数释放在 Channel.Close：WS/TCP/KCP channel 文件内 `releaseConn()`
 
 ## 变更入口（AI 做需求/修 bug 的常用落点）
 
-- 增加新传输层：在 `nrpc/<newsock>` 实现 `server/client/channel/frame`，再在 [connect.go](file:///d:/var/o4p/github.com/sloth/v2/connect.go) 的 `Listen/Serve/Dial/Close` 加 `case` 分发
+- 增加新传输层：在 `nrpc/<newsock>` 实现 `server/client/channel/frame`，再在 [connect.go](file:///d:/var/o4p/github.com/sloth/v3/connect.go) 的 `Listen/Serve/Dial/Close` 加 `case` 分发
 - 优化分配：优先把热点通道改为 `chan []byte`，并用 `sync.Pool` 复用临时对象/Map（Header 已做）

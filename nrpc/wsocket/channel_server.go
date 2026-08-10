@@ -10,14 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v2/actions"
-	"github.com/w6xian/sloth/v2/bucket"
-	"github.com/w6xian/sloth/v2/decoder"
-	"github.com/w6xian/sloth/v2/internal/logger"
-	"github.com/w6xian/sloth/v2/internal/utils"
-	"github.com/w6xian/sloth/v2/message"
-	"github.com/w6xian/sloth/v2/types/auth"
-	"github.com/w6xian/sloth/v2/types/trpc"
+	"github.com/w6xian/sloth/v3/actions"
+	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils/id"
+	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v3/types/trpc"
 
 	"github.com/gorilla/websocket"
 )
@@ -25,20 +25,19 @@ import (
 // 服务器端对客户端的连接通道
 // in fact, Channel it's a user Connect session
 type WsChannelServer struct {
-	Lock        sync.Mutex
-	_room       *bucket.Room
-	_next       bucket.IChannel
-	_prev       bucket.IChannel
-	broadcast   chan *message.Msg
-	_userId     int64
-	_sign       string
-	Conn        *websocket.Conn
-	connTcp     *net.TCPConn
-	Connect     trpc.ICallRpc
-	releaseConn func()
-	rpcCaller   chan []byte
-	rpcBacker   chan []byte
-	rpcResult   chan []byte
+	Lock      sync.Mutex
+	_room     *bucket.Room
+	_next     bucket.IChannel
+	_prev     bucket.IChannel
+	broadcast chan *message.Msg
+	_userId   int64
+	_sign     string
+	Conn      *websocket.Conn
+	connTcp   *net.TCPConn
+	Connect   trpc.ICallRpc
+	rpcCaller chan []byte
+	rpcBacker chan []byte
+	rpcResult chan []byte
 
 	pongTimeout    time.Duration
 	writeWait      time.Duration
@@ -49,7 +48,7 @@ type WsChannelServer struct {
 	// error handler
 	errHandler func(err error)
 	// rpc_io 记录当前连接的rpc调用次数
-	rpc_io int64
+	rpc_io atomic.Int64
 
 	callObjPool sync.Pool
 	backObjPool sync.Pool
@@ -117,10 +116,7 @@ func (ch *WsChannelServer) Logout() {
 func (ch *WsChannelServer) Close() error {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	if ch.releaseConn != nil {
-		ch.releaseConn()
-		ch.releaseConn = nil
-	}
+
 	if ch.Conn != nil {
 		ch.Conn.Close()
 	}
@@ -129,14 +125,6 @@ func (ch *WsChannelServer) Close() error {
 	}
 	ch._userId = 0
 	return nil
-}
-
-func (s *WsChannelServer) log(level logger.LogLevel, line string, args ...any) {
-	if s.Connect == nil {
-		log.Println("WsServer Connect is nil")
-		return
-	}
-	s.Connect.Log(level, "[WsChannelServer]"+line, args...)
 }
 
 func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *WsChannelServer) {
@@ -161,7 +149,7 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	for _, opt := range opts {
 		opt(c)
 	}
-	atomic.StoreInt64(&c.rpc_io, 0)
+	c.rpc_io.Store(0)
 	c.callObjPool = sync.Pool{
 		New: func() any {
 			return &message.JsonCallObject{}
@@ -188,54 +176,8 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 	return
 }
 
-func (c *WsChannelServer) getCallObj() *message.JsonCallObject {
-	req := c.callObjPool.Get()
-	if req == nil {
-		return &message.JsonCallObject{}
-	}
-	return req.(*message.JsonCallObject)
-}
-
-func (c *WsChannelServer) putCallObj(req *message.JsonCallObject) {
-	if req == nil {
-		return
-	}
-	req.Id = ""
-	req.Action = 0
-	req.Type = 0
-	req.Header = nil
-	req.Method = ""
-	req.Data = nil
-	req.Error = ""
-	req.Args = nil
-	c.callObjPool.Put(req)
-}
-
-func (c *WsChannelServer) getBackObj() *message.JsonBackObject {
-	req := c.backObjPool.Get()
-	if req == nil {
-		return &message.JsonBackObject{}
-	}
-	return req.(*message.JsonBackObject)
-}
-
-func (c *WsChannelServer) putBackObj(req *message.JsonBackObject) {
-	if req == nil {
-		return
-	}
-	req.Context = nil
-	req.Id = ""
-	req.Type = 0
-	req.Header = nil
-	req.Action = 0
-	req.Data = nil
-	req.Error = ""
-	req.Args = nil
-	c.backObjPool.Put(req)
-}
-
 // @call ReplySuccess 回复调用成功
-func (c *WsChannelServer) NetReply(id string, payload []byte, err error) error {
+func (c *WsChannelServer) NetReply(id uint64, payload []byte, err error) error {
 	if err != nil {
 		return c.ReplyError(id, []byte(err.Error()))
 	}
@@ -243,22 +185,15 @@ func (c *WsChannelServer) NetReply(id string, payload []byte, err error) error {
 }
 
 // @call ReplySuccess 回复调用成功
-func (c *WsChannelServer) ReplySuccess(id string, data []byte) error {
+func (c *WsChannelServer) ReplySuccess(id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
 
-	msg := c.getBackObj()
-	msg.Id = id
-	msg.Action = actions.ACTION_REPLY
-	msg.Type = message.TextMessage
-	msg.Data = data
-	msg.Error = ""
-	msg.Header = nil
-	msg.Args = nil
-
-	payload := utils.Serialize(msg)
-	c.putBackObj(msg)
+	payload, err := fn.Encode(actions.ACTION_REPLY_SUCCESS, id, data)
+	if err != nil {
+		return err
+	}
 
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
@@ -269,26 +204,15 @@ func (c *WsChannelServer) ReplySuccess(id string, data []byte) error {
 	}
 	return nil
 }
-func (c *WsChannelServer) ReplyError(id string, err []byte) error {
+func (c *WsChannelServer) ReplyError(id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
 
-	msg := c.getBackObj()
-	msg.Id = id
-	msg.Action = actions.ACTION_REPLY
-	msg.Type = message.TextMessage
-	msg.Data = nil
+	payload, err := fn.Encode(actions.ACTION_REPLY_ERROR, id, data)
 	if err != nil {
-		msg.Error = string(err)
-	} else {
-		msg.Error = ""
+		return err
 	}
-	msg.Header = nil
-	msg.Args = nil
-
-	payload := utils.Serialize(msg)
-	c.putBackObj(msg)
 
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
@@ -304,32 +228,28 @@ func (c *WsChannelServer) ReplyError(id string, err []byte) error {
 func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	ch.log(logger.Debug, "Call mtd:%s, args:%v", mtd, args)
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
 
-	msg := ch.getCallObj()
-	msg.Id = fmt.Sprintf("%d", decoder.NextId())
-	msg.Action = actions.ACTION_CALL
-	msg.Type = message.TextMessage
+	msg := getCallObj()
 	msg.Header = header
 	msg.Method = mtd
-	if len(args) > 0 {
-		msg.Data = args[0]
-	}
-	if len(args) > 1 {
-		msg.Args = args[1:]
-	}
+	msg.Args = args
 	payload := utils.Serialize(msg)
-	callId := msg.Id
-	ch.putCallObj(msg)
+
+	putCallObj(msg)
+	callId := uint64(id.NextId(1))
+	payload, err := fn.Encode(actions.ACTION_CALL, callId, payload)
+	if err != nil {
+		return nil, err
+	}
 
 	// 发送调用请求
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- payload:
-		atomic.AddInt64(&ch.rpc_io, 1)
+		ch.rpc_io.Add(1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -345,32 +265,33 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 			if !ok {
 				return []byte{}, fmt.Errorf("rpc result closed")
 			}
-			back := ch.getBackObj()
-			if err := utils.Deserialize(raw, back); err != nil {
-				ch.putBackObj(back)
-				return []byte{}, err
+			action, aerr := fn.Action(raw)
+			if aerr != nil {
+				return []byte{}, aerr
 			}
-			if back.Id != callId {
-				ch.putBackObj(back)
-				continue
+			switch action {
+			case actions.ACTION_REPLY_SUCCESS:
+				if fn.Id(raw) != callId {
+					continue
+				}
+				return fn.Data(raw), nil
+			case actions.ACTION_REPLY_ERROR:
+				if fn.Id(raw) != callId {
+					continue
+				}
+				return []byte{}, errors.New(string(fn.Data(raw)))
+			default:
+				return []byte{}, fmt.Errorf("action not match")
 			}
-			if back.Error != "" {
-				errStr := back.Error
-				ch.putBackObj(back)
-				return []byte{}, errors.New(errStr)
-			}
-			data := back.Data
-			ch.putBackObj(back)
-			return data, nil
 		}
 	}
 }
 
 // 服务器调用客户端方法
-func (ch *WsChannelServer) CallNet(ctx context.Context, msgId string, payload []byte) ([]byte, error) {
+func (ch *WsChannelServer) CallNet(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-	ch.log(logger.Debug, "Call msgId:%s, payload:%v", msgId, payload)
+
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
 
@@ -379,7 +300,7 @@ func (ch *WsChannelServer) CallNet(ctx context.Context, msgId string, payload []
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- payload:
-		atomic.AddInt64(&ch.rpc_io, 1)
+		ch.rpc_io.Add(1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -395,23 +316,24 @@ func (ch *WsChannelServer) CallNet(ctx context.Context, msgId string, payload []
 			if !ok {
 				return []byte{}, fmt.Errorf("rpc result closed")
 			}
-			back := ch.getBackObj()
-			if err := utils.Deserialize(raw, back); err != nil {
-				ch.putBackObj(back)
-				return []byte{}, err
+			action, aerr := fn.Action(raw)
+			if aerr != nil {
+				return []byte{}, aerr
 			}
-			if back.Id != msgId {
-				ch.putBackObj(back)
-				continue
+			switch action {
+			case actions.ACTION_REPLY_SUCCESS:
+				if fn.Id(raw) != msgId {
+					continue
+				}
+				return fn.Data(raw), nil
+			case actions.ACTION_REPLY_ERROR:
+				if fn.Id(raw) != msgId {
+					continue
+				}
+				return []byte{}, errors.New(string(fn.Data(raw)))
+			default:
+				return []byte{}, fmt.Errorf("action not match")
 			}
-			if back.Error != "" {
-				errStr := back.Error
-				ch.putBackObj(back)
-				return []byte{}, errors.New(errStr)
-			}
-			data := back.Data
-			ch.putBackObj(back)
-			return data, nil
 		}
 	}
 }
