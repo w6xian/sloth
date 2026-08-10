@@ -82,7 +82,11 @@ func (c *Connect) CallNetFunc(ctx context.Context, service string, msgId uint64,
 	if err != nil {
 		return nil, err
 	}
-	return c.client.CallNet(ctx, proxyService, msgId, msg)
+	data, err := c.client.CallNet(ctx, proxyService, msgId, msg)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (c *Connect) UseProxyHandler(proxyHandler func(ctx context.Context, service string) (int64, error)) error {
@@ -374,8 +378,13 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	// more args
 	for i := range rArgsLen {
 		data := msgReq.Args[i]
+		// 解码参数
+		a, err := c.server.Decoder(data)
+		if err != nil {
+			a = data
+		}
 		inx := mtd.Type.In(i + 2)
-		param, iErr := instance_params(inx, data)
+		param, iErr := instance_params(inx, a)
 		if iErr != nil {
 			return nil, iErr
 		}

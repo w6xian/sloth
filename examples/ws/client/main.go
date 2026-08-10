@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
 )
@@ -41,7 +41,7 @@ func main() {
 	// Main loop for making RPC calls
 	func() {
 		for {
-			time.Sleep(time.Millisecond * 5)
+			time.Sleep(time.Millisecond * 2000)
 
 			// If not authenticated/signed in, do so
 			if client.UserId == 0 {
@@ -56,7 +56,7 @@ func main() {
 					continue
 				}
 				auth := &auth.AuthInfo{}
-				err = tlv.Json2Struct(data, auth)
+				err = json.Unmarshal(data, auth)
 				if err != nil {
 					continue
 				}

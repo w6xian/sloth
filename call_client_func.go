@@ -111,11 +111,11 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint6
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-
-	resp, err := ch.CallNet(ctx, msgId, data)
+	resp, err := ch.CallNetNode(ctx, msgId, data)
 	if err != nil {
 		return nil, err
 	}
+
 	return resp, nil
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
 )
@@ -47,18 +47,18 @@ func main() {
 			client.Header.Set("APP_ID", "1")
 			client.Header.Set("USER_ID", "1")
 			data, err := client.Call(context.Background(), "v1.Reg", name)
+			fmt.Println("------------")
+			fmt.Println("Reg result", string(data), err)
+			fmt.Println("------------")
 			if err != nil {
-				fmt.Println("v1.Reg Call error:", err)
 				continue
 			}
 			auth := &auth.AuthInfo{}
-			err = tlv.Json2Struct(data, auth)
+			err = json.Unmarshal(data, auth)
 			if err != nil {
 				continue
 			}
-			fmt.Println(auth)
 			client.SetAuthInfo(auth)
-			fmt.Println("v1.Sign Call success:")
 			break
 		}
 	}
@@ -119,6 +119,7 @@ type HelloService struct {
 
 // Test is a sample client-side method
 func (h *HelloService) Test1(ctx context.Context, b []byte) ([]byte, error) {
+	fmt.Println("Test1:", string(b))
 	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
@@ -127,7 +128,7 @@ func (h *HelloService) Test1(ctx context.Context, b []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	fmt.Println("Test:", string(b))
 	return utils.Serialize(map[string]string{"req": "local." + name + ".Test1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 

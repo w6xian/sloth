@@ -194,7 +194,6 @@ func (c *WsChannelServer) ReplySuccess(id uint64, data []byte) error {
 	if err != nil {
 		return err
 	}
-
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
 	select {
@@ -208,7 +207,6 @@ func (c *WsChannelServer) ReplyError(id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-
 	payload, err := fn.Encode(actions.ACTION_REPLY_ERROR, id, data)
 	if err != nil {
 		return err
@@ -288,7 +286,7 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 }
 
 // 服务器调用客户端方法
-func (ch *WsChannelServer) CallNet(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
+func (ch *WsChannelServer) CallNetNode(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 

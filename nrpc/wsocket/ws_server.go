@@ -230,7 +230,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesBinarySend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
 		case payload, ok := <-ch.rpcCaller:
@@ -243,7 +243,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesBinarySend(getSliceName(), ch.Conn, payload, 512); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, payload, 512); err != nil {
 				return
 			}
 		case payload, ok := <-ch.rpcBacker:
@@ -257,7 +257,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 				return
 			}
 
-			if err := slicesBinarySend(getSliceName(), ch.Conn, payload, 512); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, payload, 512); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -345,7 +345,6 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-
 		if _, err := fn.Action(m); err == nil {
 			if err := s.HandleFn(ctx, ch, m); err != nil {
 				if handler != nil {
@@ -376,12 +375,8 @@ func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byt
 			return err
 		}
 		if !s.Connect.IsRegisteredService(fx.Method) {
-			resp, err := s.Connect.CallNetFunc(ctx, fx.Method, id, data)
-			if err != nil {
-				log.Println(logger.Error, "server readPump，CallNetFunc err:%v", err)
-				return err
-			}
-			ch.NetReply(id, resp, err)
+			resp, lerr := s.Connect.CallNetFunc(ctx, fx.Method, id, data)
+			ch.NetReply(id, resp, lerr)
 			return nil
 		}
 

@@ -63,6 +63,9 @@ func EncodeFn(f *FnFrame) ([]byte, error) {
 	return buf, nil
 }
 func Encode(action uint8, id uint64, data []byte) ([]byte, error) {
+	if IsFn(data) {
+		data = Data(data)
+	}
 	dataLen := len(data)
 	if dataLen > FnMaxDataSize {
 		return nil, ErrFnDataTooLarge
@@ -146,8 +149,8 @@ func Action(b []byte) (uint8, error) {
 
 // call getAction first, then getData,no check again
 func Data(b []byte) []byte {
-	if len(b) <= FnHeaderSize {
-		return nil
+	if !IsFn(b) {
+		return b
 	}
 	return b[FnHeaderSize:]
 }

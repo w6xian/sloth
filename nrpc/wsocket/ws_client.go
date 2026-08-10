@@ -189,7 +189,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	// 链接session
 	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
-	wsConn := NewWsChannelClient(c.Connect, WithAddr(conn.RemoteAddr().String()))
+	wsConn := NewWsChannelClient(c.Connect)
 	c.client = wsConn
 	//default broadcast size eq 512
 	wsConn.conn = conn
@@ -295,7 +295,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesBinarySend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
 				return
 			}
 		case payload, ok := <-ch.rpcCaller:
@@ -313,7 +313,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesBinarySend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
 				c.log(logger.Error, "slicesBinarySend err = %v", err.Error())
 				return
 			}
@@ -455,10 +455,6 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 		}
 		if !c.Connect.IsRegisteredService(fx.Method) {
 			resp, err := c.Connect.CallNetFunc(ctx, fx.Method, id, data)
-			if err != nil {
-				log.Println(logger.Error, "server readPump，CallNetFunc err:%v", err)
-				return err
-			}
 			ch.NetReply(id, resp, err)
 			return nil
 		}

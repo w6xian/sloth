@@ -190,7 +190,6 @@ func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
-
 	// Get bucket server from context
 	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
 	if !ok {

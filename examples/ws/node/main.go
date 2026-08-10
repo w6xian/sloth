@@ -115,19 +115,27 @@ func (h *Handler) OnOpen(ctx context.Context, c types.IConnRpc, ch types.IConnIn
 
 // HelloService implements client-side service methods
 type HelloService struct {
+	index int
 }
 
 // Test is a sample client-side method
 func (h *HelloService) Test1(ctx context.Context, b []byte) ([]byte, error) {
+	fmt.Println("Test1:", string(b))
 	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
+	}
+	h.index++
+	fmt.Println("Test1:", h.index)
+	if h.index%2 == 0 {
+		fmt.Println("--err-")
+		return nil, fmt.Errorf("error %d", h.index)
 	}
 	_, err := ch.GetAuthInfo()
 	if err != nil {
 		return nil, err
 	}
-
+	fmt.Println("Test:", string(b))
 	return utils.Serialize(map[string]string{"req": "local." + name + ".Test1", "time": time.Now().Format("2006-01-02 15:04:05")}), nil
 }
 

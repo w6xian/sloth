@@ -84,11 +84,11 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		return nil, err
 	}
 	// 解码
-	resp, err = c.Decoder(resp)
+	data, err := c.Decoder(resp)
 	if err != nil {
-		return nil, err
+		return resp, nil
 	}
-	return resp, nil
+	return data, nil
 }
 
 func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, mtd string, arg ...any) ([]byte, error) {
@@ -125,11 +125,11 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 		return nil, err
 	}
 	// 解码
-	resp, err = c.Decoder(resp)
+	data, err := c.Decoder(resp)
 	if err != nil {
-		return nil, err
+		return resp, nil
 	}
-	return resp, nil
+	return data, nil
 }
 
 func (c *ServerRpc) Send(ctx context.Context, data any) error {
