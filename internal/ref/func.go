@@ -200,15 +200,20 @@ func call_instance_func(mtd reflect.Method, params []reflect.Value, args ...[]by
 	}
 	ret := mtd.Func.Call(params)
 	if len(ret) != 2 {
-		return nil, errors.New("call func error")
+		return nil, fmt.Errorf("call func  error, expect 2 return values, but got %d", len(ret))
 	}
 
 	iErr, ok := ret[1].Interface().(error)
 	if ok && iErr != nil {
 		return nil, iErr
 	}
+
 	// 调用成功，返回结果
 	data := ret[0].Interface()
-	resp := data.([]byte)
+	// 调用成功，返回结果
+	resp, err := utils.AnyToBytes(data)
+	if err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
