@@ -27,7 +27,7 @@ go get github.com/w6xian/sloth/v3
 
 ## 快速开始
 
-### 启动服务端（WS + TCP + KCP）
+### 启动服务端（WS）
 
 示例见 [examples/ws/main.go](file:///d:/var/o4p/github.com/sloth/v3/examples/ws/main.go)：
 
@@ -46,10 +46,7 @@ conn := sloth.ServerConn(
 )
 
 _ = conn.Register("v1", &HelloService{}, "")
-
 _ = conn.Listen(ctx, "ws",  "localhost:8990", option.WithServerHandleMessage(&Handler{}))
-_ = conn.Listen(ctx, "tcp", "localhost:8991")
-_ = conn.Listen(ctx, "kcp", "localhost:8992")
 
 if err := conn.Serve(); err != nil {
 	panic(err)
