@@ -2,13 +2,47 @@ package ref
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
 	"strings"
+
+	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils/array"
+	"github.com/w6xian/tlv"
 )
 
-func SuitableMethods(typ reflect.Type) (map[string]reflect.Method, map[string]FuncStruct) {
+// Register 注册服务
+// rcvr 服务实例
+// @example
+//
+//	var service struct {
+//		Name string
+//	}
+//
+// ref.Register(&service)
+func Register(rcvr any) *ServiceFuncs {
+	service := new(ServiceFuncs)
+	getType := reflect.TypeOf(rcvr)
+	service.V = reflect.ValueOf(rcvr)
+	k := getType.Kind()
+	if k == reflect.Pointer {
+		el := getType.Elem()
+		sname := fmt.Sprintf("%s.%s", el.PkgPath(), el.Name())
+		service.N = sname
+	} else {
+		sname := fmt.Sprintf("%s.%s", getType.PkgPath(), getType.Name())
+		service.N = sname
+	}
+	// Install the methods
+	m, a := suitable_methods(getType)
+	service.M = m
+	service.A = a
+	return service
+}
+
+func suitable_methods(typ reflect.Type) (map[string]reflect.Method, map[string]FuncStruct) {
 	methods := make(map[string]reflect.Method)
 	// 方法 及定义的参数
 	iface := make(map[string]FuncStruct)
@@ -77,22 +111,104 @@ func SuitableMethods(typ reflect.Type) (map[string]reflect.Method, map[string]Fu
 	return methods, iface
 }
 
-func Register(rcvr any) *ServiceFuncs {
-	service := new(ServiceFuncs)
-	getType := reflect.TypeOf(rcvr)
-	service.V = reflect.ValueOf(rcvr)
-	k := getType.Kind()
-	if k == reflect.Pointer {
-		el := getType.Elem()
-		sname := fmt.Sprintf("%s.%s", el.PkgPath(), el.Name())
-		service.N = sname
-	} else {
-		sname := fmt.Sprintf("%s.%s", getType.PkgPath(), getType.Name())
-		service.N = sname
+func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
+	isPtr := params.Kind() == reflect.Pointer
+	structType := params
+	if isPtr {
+		structType = params.Elem()
 	}
-	// Install the methods
-	m, a := SuitableMethods(getType)
-	service.M = m
-	service.A = a
-	return service
+	nameStr := structType.String()
+	if nameStr == "[]byte" || nameStr == "[]uint8" {
+		if isPtr {
+			return reflect.ValueOf(&data), nil
+		}
+		return reflect.ValueOf(data), nil
+	} else if array.InArray(nameStr, commonTypes) {
+		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
+		r := tlv.GetType(isPtr, nameStr, data)
+		return r, nil
+	} else {
+		// 转换参数类型为reflect.Value
+		if instance, cErr := new_instance_reflect(structType); cErr == nil {
+			utils.Deserialize(data, instance.Interface())
+			// 根据需要返回对应的类型
+			if !isPtr {
+				return instance.Elem(), nil
+			}
+			return instance, nil
+		}
+	}
+	return reflect.Value{}, fmt.Errorf("unknown type: %s", params.String())
+}
+
+// 根据type生成新的实例
+func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
+	if typ == nil {
+		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.String())
+	}
+	instance := reflect.New(typ)
+	return instance, nil
+}
+
+func CallFuncWithContext(ctx context.Context, Fns *ServiceFuncs, method string, args ...[]byte) ([]byte, error) {
+	mtd, ok := Fns.M[method]
+	if !ok {
+		return nil, errors.New("method not found")
+	}
+	funcArgs := []reflect.Value{
+		Fns.V,                // 需要第一个为方法所属对象，【必须】这个是反射参数要求
+		reflect.ValueOf(ctx), // 这个是context.Context参数，是习惯传递第一个参数，不是反射参数要求
+	}
+	return call_instance_func(mtd, funcArgs, args...)
+}
+
+// CallFunc 调用方法
+// @param ctx 上下文
+// @param Fns 方法
+// @param method 方法名，反射参（第一个默认是方法所属对象）
+// @param args 传参
+// @return []byte, error
+func CallFunc(fns *ServiceFuncs, method string, args ...[]byte) ([]byte, error) {
+	mtd, ok := fns.M[method]
+	if !ok {
+		return nil, errors.New("method not found")
+	}
+	funcArgs := []reflect.Value{
+		fns.V, // 需要第一个为方法所属对象，【必须】这个是反射参数要求
+	}
+	return call_instance_func(mtd, funcArgs, args...)
+}
+
+func call_instance_func(mtd reflect.Method, params []reflect.Value, args ...[]byte) ([]byte, error) {
+	defArgsNum := len(params)
+	// func f(ctx)
+	rArgsLen := len(args)
+	maxArgs := mtd.Type.NumIn() - defArgsNum
+	if rArgsLen > maxArgs {
+		return nil, fmt.Errorf("too many arguments: got %d, want at most %d", rArgsLen, maxArgs)
+	}
+	// Elem() 相当于 *T 取指针指向的类型
+	// more args
+	for i := range rArgsLen {
+		data := args[i]
+		inx := mtd.Type.In(i + defArgsNum)
+		param, iErr := InstanceParams(inx, data)
+		if iErr != nil {
+			return nil, iErr
+		}
+		params = append(params, param)
+	}
+	ret := mtd.Func.Call(params)
+	if len(ret) != 2 {
+		return nil, errors.New("call func error")
+	}
+
+	iErr, ok := ret[1].Interface().(error)
+	if ok && iErr != nil {
+		return nil, iErr
+	}
+	// 调用成功，返回结果
+	data := ret[0].Interface()
+	resp := data.([]byte)
+	return resp, nil
 }

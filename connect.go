@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -17,7 +16,6 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/ref"
-	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
@@ -25,7 +23,6 @@ import (
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 )
 
 type ContextType string
@@ -131,6 +128,9 @@ func newConnect(opts ...ConnOption) *Connect {
 	svr.server = LinkServerFunc()
 	svr.Option = option.NewOptions()
 	svr.listeners = make([]ProtocolListener, 0)
+	svr.proxyHandler = func(ctx context.Context, service string) (int64, error) {
+		return 0, nil
+	}
 
 	for _, opt := range opts {
 		opt(svr)
@@ -320,8 +320,6 @@ func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
 	return c.server.Listen.SetAuthInfo(auth)
 }
 
-var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
-
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
 func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
 	defer func() {
@@ -330,23 +328,17 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 			c.Log(logger.Error, "connect.CallFunc %s recover stack : %s", msgReq.Method, string(debug.Stack()))
 		}
 	}()
-	parts := strings.Split(msgReq.Method, ".")
-	if len(parts) != 2 {
+	node, err := GetNode(msgReq.Method)
+	if err != nil {
 		c.Log(logger.Info, "(%s) method format error", c.ServerId)
 		return nil, errors.New("method format error")
 	}
-	serviceName := parts[0]
-	methodName := parts[1]
-	serviceFns, ok := c.serviceMap[serviceName]
+	serviceFns, ok := c.serviceMap[node.Service]
 	if !ok {
 		c.Log(logger.Info, "(%s) service not found", c.ServerId)
 		return nil, errors.New("service not found")
 	}
-	mtd, ok := serviceFns.M[methodName]
-	if !ok {
-		c.Log(logger.Info, "(%s) method not found", c.ServerId)
-		return nil, errors.New("method not found")
-	}
+
 	if svr != nil {
 		ctx = context.WithValue(ctx, BucketKey, svr)
 		if ch, cok := msgReq.Channel.(bucket.IChannel); cok {
@@ -364,84 +356,14 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	}
 	ctx = context.WithValue(ctx, HeaderKey, message.Header(header))
 
-	funcArgs := []reflect.Value{
-		serviceFns.V,
-		reflect.ValueOf(ctx),
-	}
-	// func f(ctx)
-	rArgsLen := len(msgReq.Args)
-	maxArgs := mtd.Type.NumIn() - 2
-	if rArgsLen > maxArgs {
-		return nil, fmt.Errorf("too many arguments: got %d, want at most %d", rArgsLen, maxArgs)
-	}
-	// Elem() 相当于 *T 取指针指向的类型
-	// more args
-	for i := range rArgsLen {
-		data := msgReq.Args[i]
-		// 解码参数
-		a, err := c.server.Decoder(data)
+	funArgs := array.Map(msgReq.Args, func(a []byte) []byte {
+		b, err := c.server.Decoder(a)
 		if err != nil {
-			a = data
+			return a
 		}
-		inx := mtd.Type.In(i + 2)
-		param, iErr := instance_params(inx, a)
-		if iErr != nil {
-			return nil, iErr
-		}
-		funcArgs = append(funcArgs, param)
-	}
-	ret := mtd.Func.Call(funcArgs)
-	if len(ret) != 2 {
-		c.Log(logger.Info, "(%s) call func error", c.ServerId)
-		return nil, errors.New("call func error")
-	}
-	iErr, ok := ret[1].Interface().(error)
-	if ok && iErr != nil {
-		return nil, iErr
-	}
-	// 调用成功，返回结果
-	data := ret[0].Interface()
-	resp := data.([]byte)
-	return resp, nil
-}
-
-func instance_params(params reflect.Type, data []byte) (reflect.Value, error) {
-	isPtr := params.Kind() == reflect.Pointer
-	structType := params
-	if isPtr {
-		structType = params.Elem()
-	}
-	nameStr := structType.String()
-	if nameStr == "[]byte" || nameStr == "[]uint8" {
-		if isPtr {
-			return reflect.ValueOf(&data), nil
-		}
-		return reflect.ValueOf(data), nil
-	} else if array.InArray(nameStr, commonTypes) {
-		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
-		r := tlv.GetType(isPtr, nameStr, data)
-		return r, nil
-	} else {
-		// 转换参数类型为reflect.Value
-		if instance, cErr := new_instance_reflect(structType); cErr == nil {
-			utils.Deserialize(data, instance.Interface())
-			// 根据需要返回对应的类型
-			if !isPtr {
-				return instance.Elem(), nil
-			}
-			return instance, nil
-		}
-	}
-	return reflect.Value{}, fmt.Errorf("unknown type: %s", params.String())
-}
-
-// 根据type生成新的实例
-func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
-	if typ == nil {
-		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.String())
-	}
-	instance := reflect.New(typ)
-	return instance, nil
+		return b
+	})
+	return ref.CallFuncWithContext(ctx, serviceFns, node.Method, funArgs...)
 }
 
 func (w *Connect) Log(lvl logger.LogLevel, line string, args ...any) {

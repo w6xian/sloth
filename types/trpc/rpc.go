@@ -38,9 +38,7 @@ type ICall interface {
 }
 
 type IWsReply interface {
-	NetReply(id uint64, payload []byte, err error) error
-	ReplySuccess(id uint64, data []byte) error
-	ReplyError(id uint64, err []byte) error
+	Reply(id uint64, data []byte, err error) error
 }
 
 type IChannel interface {

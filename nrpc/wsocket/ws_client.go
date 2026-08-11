@@ -455,7 +455,7 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 		}
 		if !c.Connect.IsRegisteredService(fx.Method) {
 			resp, err := c.Connect.CallNetFunc(ctx, fx.Method, id, data)
-			ch.NetReply(id, resp, err)
+			ch.Reply(id, resp, err)
 			return nil
 		}
 
@@ -469,11 +469,7 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 			Header:  fx.Header,
 			Args:    fx.Args,
 		})
-		if err != nil {
-			ch.ReplyError(id, []byte(err.Error()))
-			return err
-		}
-		ch.ReplySuccess(id, rst)
+		ch.Reply(id, rst, err)
 		return nil
 	case actions.ACTION_REPLY_SUCCESS, actions.ACTION_REPLY_ERROR:
 		select {

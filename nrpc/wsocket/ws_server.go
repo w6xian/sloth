@@ -302,9 +302,7 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 	if handler != nil {
 		err := handler.OnOpen(ctx, s, ch)
 		if err != nil {
-			if handler != nil {
-				handler.OnError(ctx, s, ch, err)
-			}
+			handler.OnError(ctx, s, ch, err)
 			return
 		}
 	}
@@ -376,10 +374,9 @@ func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byt
 		}
 		if !s.Connect.IsRegisteredService(fx.Method) {
 			resp, lerr := s.Connect.CallNetFunc(ctx, fx.Method, id, data)
-			ch.NetReply(id, resp, lerr)
+			ch.Reply(id, resp, lerr)
 			return nil
 		}
-
 		// 链接通道
 		// fx.Channel = ch
 		// 调用 connect.CallFunc 方法
@@ -390,11 +387,7 @@ func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byt
 			Header:  fx.Header,
 			Args:    fx.Args,
 		})
-		if err != nil {
-			ch.ReplyError(id, []byte(err.Error()))
-			return err
-		}
-		ch.ReplySuccess(id, rst)
+		ch.Reply(id, rst, err)
 		return nil
 	case actions.ACTION_REPLY_SUCCESS, actions.ACTION_REPLY_ERROR:
 		select {

@@ -114,18 +114,18 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 	return
 }
 
-func (c *WsChannelClient) NetReply(id uint64, payload []byte, err error) error {
+func (c *WsChannelClient) Reply(id uint64, payload []byte, err error) error {
 	if err != nil {
-		return c.ReplyError(id, []byte(err.Error()))
+		return c.result(actions.ACTION_REPLY_ERROR, id, []byte(err.Error()))
 	}
-	return c.ReplySuccess(id, payload)
+	return c.result(actions.ACTION_REPLY_SUCCESS, id, payload)
 }
 
-func (c *WsChannelClient) ReplySuccess(id uint64, data []byte) error {
+func (c *WsChannelClient) result(action byte, id uint64, data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-	payload, err := fn.Encode(actions.ACTION_REPLY_SUCCESS, id, data)
+	payload, err := fn.Encode(action, id, data)
 	if err != nil {
 		return err
 	}
@@ -186,10 +186,7 @@ func (ch *WsChannelClient) GetRoomId() int64 {
 
 // Call 客户端 调用远程方法 同步调用
 func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
-	ch.Lock.Lock()
-	defer ch.Lock.Unlock()
-	ticker := time.NewTicker(ch.writeWait)
-	defer ticker.Stop()
+
 	msg := getCallObj()
 	msg.Header = header
 	msg.Method = mtd
@@ -201,11 +198,23 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	if err != nil {
 		return nil, err
 	}
+	return ch.SendData(ctx, callId, payload)
 
+}
+
+// 服务器调用客户端方法
+func (ch *WsChannelClient) SendData(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
+	ch.Lock.Lock()
+	defer ch.Lock.Unlock()
+	ticker := time.NewTicker(ch.writeWait)
+	defer ticker.Stop()
+	defer ch.rpc_io.Add(-1)
+	// 发送调用请求
 	select {
 	case <-ticker.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case ch.rpcCaller <- payload:
+		ch.rpc_io.Add(1)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -214,34 +223,30 @@ func (ch *WsChannelClient) Call(ctx context.Context, header message.Header, mtd 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return []byte{}, ctx.Err()
 		case <-ticker.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case raw, ok := <-ch.rpcResult:
 			if !ok {
 				return []byte{}, fmt.Errorf("rpc result closed")
 			}
-			action, err := fn.Action(raw)
-			if err != nil {
-				return nil, err
+			action, aerr := fn.Action(raw)
+			if aerr != nil {
+				return []byte{}, aerr
 			}
 			switch action {
 			case actions.ACTION_REPLY_SUCCESS:
-				id := fn.Id(raw)
-				if id != callId {
-					return nil, fmt.Errorf("id not match")
+				if fn.Id(raw) != msgId {
+					continue
 				}
-				data := fn.Data(raw)
-				return data, nil
+				return fn.Data(raw), nil
 			case actions.ACTION_REPLY_ERROR:
-				id := fn.Id(raw)
-				if id != callId {
-					return nil, fmt.Errorf("id not match")
+				if fn.Id(raw) != msgId {
+					continue
 				}
-				data := fn.Data(raw)
-				return nil, errors.New(string(data))
+				return []byte{}, errors.New(string(fn.Data(raw)))
 			default:
-				return nil, fmt.Errorf("action not match")
+				return []byte{}, fmt.Errorf("action not match")
 			}
 		}
 	}

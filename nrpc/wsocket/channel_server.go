@@ -177,37 +177,18 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 }
 
 // @call ReplySuccess 回复调用成功
-func (c *WsChannelServer) NetReply(id uint64, payload []byte, err error) error {
+func (c *WsChannelServer) Reply(id uint64, data []byte, err error) error {
 	if err != nil {
-		return c.ReplyError(id, []byte(err.Error()))
+		return c.result(actions.ACTION_REPLY_ERROR, id, []byte(err.Error()))
 	}
-	return c.ReplySuccess(id, payload)
+	return c.result(actions.ACTION_REPLY_SUCCESS, id, data)
 }
 
-// @call ReplySuccess 回复调用成功
-func (c *WsChannelServer) ReplySuccess(id uint64, data []byte) error {
+func (c *WsChannelServer) result(action byte, id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
-
-	payload, err := fn.Encode(actions.ACTION_REPLY_SUCCESS, id, data)
-	if err != nil {
-		return err
-	}
-	timer := time.NewTimer(c.writeWait)
-	defer timer.Stop()
-	select {
-	case c.rpcBacker <- payload:
-	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
-	}
-	return nil
-}
-func (c *WsChannelServer) ReplyError(id uint64, data []byte) error {
-	if c.Conn == nil {
-		return fmt.Errorf("conn is nil")
-	}
-	payload, err := fn.Encode(actions.ACTION_REPLY_ERROR, id, data)
+	payload, err := fn.Encode(action, id, data)
 	if err != nil {
 		return err
 	}
@@ -224,10 +205,6 @@ func (c *WsChannelServer) ReplyError(id uint64, data []byte) error {
 
 // 服务器调用客户端方法
 func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
-	ch.Lock.Lock()
-	defer ch.Lock.Unlock()
-	ticker := time.NewTicker(ch.writeWait)
-	defer ticker.Stop()
 
 	msg := getCallObj()
 	msg.Header = header
@@ -241,58 +218,16 @@ func (ch *WsChannelServer) Call(ctx context.Context, header message.Header, mtd 
 	if err != nil {
 		return nil, err
 	}
-
-	// 发送调用请求
-	select {
-	case <-ticker.C:
-		return []byte{}, fmt.Errorf("call timeout")
-	case ch.rpcCaller <- payload:
-		ch.rpc_io.Add(1)
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	ticker.Reset(ch.readWait)
-	// 等待调用结果
-	for {
-		select {
-		case <-ctx.Done():
-			return []byte{}, ctx.Err()
-		case <-ticker.C:
-			return []byte{}, fmt.Errorf("reply timeout")
-		case raw, ok := <-ch.rpcResult:
-			if !ok {
-				return []byte{}, fmt.Errorf("rpc result closed")
-			}
-			action, aerr := fn.Action(raw)
-			if aerr != nil {
-				return []byte{}, aerr
-			}
-			switch action {
-			case actions.ACTION_REPLY_SUCCESS:
-				if fn.Id(raw) != callId {
-					continue
-				}
-				return fn.Data(raw), nil
-			case actions.ACTION_REPLY_ERROR:
-				if fn.Id(raw) != callId {
-					continue
-				}
-				return []byte{}, errors.New(string(fn.Data(raw)))
-			default:
-				return []byte{}, fmt.Errorf("action not match")
-			}
-		}
-	}
+	return ch.SendData(ctx, callId, payload)
 }
 
 // 服务器调用客户端方法
-func (ch *WsChannelServer) CallNetNode(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
+func (ch *WsChannelServer) SendData(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
-
 	ticker := time.NewTicker(ch.writeWait)
 	defer ticker.Stop()
-
+	defer ch.rpc_io.Add(-1)
 	// 发送调用请求
 	select {
 	case <-ticker.C:

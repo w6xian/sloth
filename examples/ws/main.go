@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -34,21 +33,19 @@ func main() {
 	drpc := sloth.ServerConn(server)
 	r := mux.NewRouter()
 	// Register services
-	drpc.Register("v1", &HelloService{}, "")
+	drpc.Register("v1", &HelloService{}, "metadata")
 	drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithRouter(r, "/ws"),
 		option.WithServerHandleMessage(&Handler{}))
-	drpc.Listen(ctx, "tcp", "localhost:8991")
-	drpc.Listen(ctx, "kcp", "localhost:8992")
 
 	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
-		sp := strings.Split(service, ".")
-		if len(sp) != 2 {
-			return 0, fmt.Errorf("service %s format error", service)
+		node, err := sloth.GetNode(service)
+		if err != nil {
+			return 0, err
 		}
-		svrId, ok := smap.Get(sp[0])
+		svrId, ok := smap.Get(node.Service)
 		if !ok {
-			return 0, fmt.Errorf("service %s not registered", service)
+			return 0, fmt.Errorf("service %s not registered", node.Service)
 		}
 		return svrId, nil
 	})
