@@ -74,7 +74,6 @@ _ = err
 ```bash
 go run ./examples/ws
 go run ./examples/ws/client
-go run ./examples/tcp
 ```
 
 ## 编码/协议说明（实用向）
@@ -95,5 +94,3 @@ go run ./examples/tcp
 ```bash
 go test ./...
 ```
-
-CI：见 [.github/workflows/go.yml](file:///d:/var/o4p/github.com/sloth/v3/.github/workflows/go.yml)。
