@@ -53,22 +53,6 @@ if err := conn.Serve(); err != nil {
 }
 ```
 
-## 黑名单与连接限制（服务端）
-
-- 配置入口（ConnOption）：
-  - `WithMaxConnsGlobal / WithMaxConnsWS / WithMaxConnsTCP / WithMaxConnsKCP / WithMaxConnsPerIP`
-  - `WithTrustProxyHeaders(true)`：WS 场景下信任 `X-Forwarded-For` 解析真实 IP
-- 自动封禁（AutoBan）：
-  - 配置项：`WithAutoBan(true)` + `WithAutoBanWindow/WithAutoBanThreshold/WithAutoBanTTL`
-  - 计数规则：仅在“拒绝路径”才计数（命中连接限制/被封禁等导致拒绝）
-  - 连续失败：一旦该 IP 成功建立连接，会清空该 IP 的失败计数（打断连续失败）
-- 动态封禁：
-
-```go
-conn.BanIP("1.2.3.4", 10*time.Minute, "attack")
-conn.UnbanIP("1.2.3.4")
-```
-
 ### 启动客户端并调用
 
 示例见 [examples/ws/client/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/client/main.go)：
@@ -77,7 +61,7 @@ conn.UnbanIP("1.2.3.4")
 client := sloth.DefaultClient()
 conn := sloth.ClientConn(client)
 
-go conn.Dial(ctx, "kcp", "localhost:8992")
+go conn.Dial(ctx, "ws", "localhost:8992")
 
 time.Sleep(time.Second)
 data, err := client.Call(ctx, "v1.Sign", []byte("sign"))
