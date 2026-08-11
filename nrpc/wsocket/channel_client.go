@@ -67,7 +67,6 @@ func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *
 	for _, opt := range opts {
 		opt(c)
 	}
-	c.rpc_io.Add(1)
 	return
 }
 
@@ -126,24 +125,6 @@ func (c *WsChannelClient) result(action byte, id uint64, data []byte) error {
 		return fmt.Errorf("conn is nil")
 	}
 	payload, err := fn.Encode(action, id, data)
-	if err != nil {
-		return err
-	}
-	timer := time.NewTimer(c.writeWait)
-	defer timer.Stop()
-	select {
-	case c.rpcBacker <- payload:
-	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
-	}
-	return nil
-}
-
-func (c *WsChannelClient) ReplyError(id uint64, payload []byte) error {
-	if c.conn == nil {
-		return fmt.Errorf("conn is nil")
-	}
-	payload, err := fn.Encode(actions.ACTION_REPLY_ERROR, id, payload)
 	if err != nil {
 		return err
 	}

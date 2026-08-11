@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -11,6 +12,7 @@ import (
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v3/slots"
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/tlv"
@@ -75,43 +77,16 @@ type Hello struct {
 	Name string `json:"name"`
 }
 
-// Handler implements WebSocket event handling
 type Handler struct {
+	slots.Server
 }
 
-// OnClose is called when a WebSocket connection is closed
-func (h *Handler) OnClose(ctx context.Context, s types.IBucket, ch bucket.IChannel) error {
-	fmt.Println("OnClose1")
-	return nil
-}
+func (h *Handler) OnConnect(ctx context.Context, r *http.Request) error {
+	h.Server.OnConnect(ctx, r)
+	fmt.Println("OnConnect Handler1", r.RemoteAddr)
+	fmt.Println("OnConnect Handler1", r.RequestURI)
+	fmt.Println("OnConnect Handler1")
 
-// OnError is called when a WebSocket error occurs
-func (h *Handler) OnError(ctx context.Context, s types.IBucket, ch bucket.IChannel, err error) error {
-	fmt.Println("OnError1:", err)
-	return nil
-}
-
-// OnOpen is called when a new WebSocket connection is established
-func (h *Handler) OnOpen(ctx context.Context, s types.IBucket, ch bucket.IChannel) error {
-	fmt.Println("OnOpen1")
-	return nil
-}
-
-// OnData is called when data is received from a WebSocket connection
-func (h *Handler) OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, msg []byte) error {
-	// Simple authentication/bucketing logic
-	fmt.Println("OnData:1", string(msg))
-	// if ch.UserId() == 0 {
-	// 	userId := int64(2)
-	// 	roomId := int64(1)
-	// 	// Assign user to a bucket (room)
-	// 	b := s.Bucket(userId)
-	// 	err := b.Put(userId, roomId, "token", ch)
-	// 	if err != nil {
-	// 		fmt.Println("Put error:", err)
-	// 		return err
-	// 	}
-	// }
 	return nil
 }
 

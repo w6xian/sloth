@@ -56,7 +56,7 @@ func (r *Room) Push(ctx context.Context, msg *message.Msg) {
 	if ch != nil {
 		firstUserId = ch.UserId()
 		if err := ch.Push(ctx, msg); err != nil {
-			log.Fatalln("push msg err:%s", err.Error())
+			log.Printf("push msg err:%s", err.Error())
 		}
 	}
 	for ch = ch.Next(); ch != nil; ch = ch.Next() {
@@ -65,11 +65,11 @@ func (r *Room) Push(ctx context.Context, msg *message.Msg) {
 		}
 		if firstUserId == ch.UserId() {
 			// 重复用户，不推送。防止出现重复推送
-			log.Fatalln("重复用户，不推送。防止出现重复推送")
+			log.Printf("重复用户，不推送。防止出现重复推送")
 			break
 		}
 		if err := ch.Push(ctx, msg); err != nil {
-			log.Fatalln("push msg err:%s", err.Error())
+			log.Printf("push msg err:%s", err.Error())
 		}
 	}
 }

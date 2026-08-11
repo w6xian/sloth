@@ -61,6 +61,7 @@ type WsServer struct {
 	WriteBufferSize int
 	BroadcastSize   int
 	SliceSize       int64
+	header          map[string]string
 }
 
 // 实现 options.ConnectOption
@@ -75,6 +76,10 @@ func (s *WsServer) SetUriPath(path string) error {
 }
 func (s *WsServer) SetAddress(address string) error {
 	panic("SetAddress is not implemented")
+	return nil
+}
+func (s *WsServer) SetHeader(key string, value string) error {
+	s.header[key] = value
 	return nil
 }
 
@@ -122,6 +127,7 @@ func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 		WriteBufferSize: opt.WriteBufferSize,
 		BroadcastSize:   opt.BroadcastSize,
 		SliceSize:       opt.SliceSize,
+		header:          make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -175,7 +181,15 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 		}
 	}()
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
-		s.log(logger.Info, "new client connect")
+		if s.handler != nil {
+			if err := s.handler.OnConnect(ctx, r); err != nil {
+				log.Printf("OnConnect err %v", err)
+				w.WriteHeader(http.StatusUnauthorized)
+				// 关闭连接，返回401错误
+				w.Write([]byte(err.Error()))
+				return
+			}
+		}
 		s.serveWs(ctx, w, r)
 	})
 	return nil
@@ -185,8 +199,14 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		ReadBufferSize:  s.ReadBufferSize,
 		WriteBufferSize: s.WriteBufferSize,
 	}
+	// 构建header
+	header := make(http.Header)
+	for k, v := range s.header {
+		header[k] = []string{v}
+	}
+
 	upGrader.CheckOrigin = allowWebSocketOrigin
-	conn, err := upGrader.Upgrade(w, r, nil)
+	conn, err := upGrader.Upgrade(w, r, header)
 	if err != nil {
 		return
 	}
@@ -195,14 +215,14 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	//default broadcast size eq 512
 	ch.Conn = conn
 	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
-	go s.readPump(ctx, ch, s.handler)
+	go s.readPump(ctx, r, ch)
 	//send data to websocket conn
-	go s.writePump(ctx, ch)
+	go s.writePump(ctx, r, ch)
 	//get data from websocket conn
 
 }
 
-func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
+func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "writePump 111 recover err : %v", err)
@@ -275,7 +295,7 @@ func (s *WsServer) writePump(ctx context.Context, ch *WsChannelServer) {
 	}
 }
 
-func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler handler.IServerHandleMessage) {
+func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(logger.Error, "readPump recover err : %v", err)
@@ -298,26 +318,22 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 		return nil
 	})
 
-	// OnOpen
-	if handler != nil {
-		err := handler.OnOpen(ctx, s, ch)
-		if err != nil {
-			handler.OnError(ctx, s, ch, err)
-			return
-		}
+	// OnOpen  可以发送消息了
+	if s.handler != nil {
+		go s.handler.OnReady(ctx, r, s, ch)
 	}
 
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				if handler != nil {
-					handler.OnError(ctx, s, ch, err)
+				if s.handler != nil {
+					s.handler.OnError(ctx, r, s, ch, err)
 				}
 				return
 			} else {
-				if handler != nil {
-					handler.OnClose(ctx, s, ch)
+				if s.handler != nil {
+					s.handler.OnClose(ctx, r, s, ch)
 				}
 			}
 			s.log(logger.Error, "server readPump，ch.conn.ReadMessage return")
@@ -334,8 +350,8 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 
 		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
 		if err != nil {
-			if handler != nil {
-				handler.OnError(ctx, s, ch, err)
+			if s.handler != nil {
+				s.handler.OnError(ctx, r, s, ch, err)
 			}
 			continue
 		}
@@ -345,14 +361,14 @@ func (s *WsServer) readPump(ctx context.Context, ch *WsChannelServer, handler ha
 		}
 		if _, err := fn.Action(m); err == nil {
 			if err := s.HandleFn(ctx, ch, m); err != nil {
-				if handler != nil {
-					handler.OnError(ctx, s, ch, err)
+				if s.handler != nil {
+					s.handler.OnError(ctx, r, s, ch, err)
 				}
 			}
 			continue
 		}
-		if handler != nil {
-			handler.OnData(ctx, s, ch, messageType, m)
+		if s.handler != nil {
+			s.handler.OnData(ctx, r, s, ch, messageType, m)
 		}
 	}
 }
@@ -397,7 +413,7 @@ func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byt
 		}
 		return nil
 	default:
-		log.Fatalln(logger.Error, "server readPump，action:%d is not valid", action)
+		log.Printf("server readPump，action:%d is not valid", action)
 		return nil
 	}
 }

@@ -2,21 +2,24 @@ package handler
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/types"
 )
 
 type IServerHandleMessage interface {
-	OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msgType int, message []byte) error
-	OnClose(ctx context.Context, s types.IBucket, ch bucket.IChannel) error
-	OnError(ctx context.Context, s types.IBucket, ch bucket.IChannel, err error) error
-	OnOpen(ctx context.Context, s types.IBucket, ch bucket.IChannel) error
+	OnConnect(ctx context.Context, r *http.Request) error
+	OnReady(ctx context.Context, r *http.Request, s types.IBucket, ch bucket.IChannel) error
+	OnClose(ctx context.Context, r *http.Request, s types.IBucket, ch bucket.IChannel) error
+	OnData(ctx context.Context, r *http.Request, s types.IBucket, ch bucket.IChannel, msgType int, message []byte) error
+	OnError(ctx context.Context, r *http.Request, s types.IBucket, ch bucket.IChannel, err error) error
 }
 
 type IClientHandleMessage interface {
-	OnData(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, msgType int, message []byte) error
-	OnClose(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error
-	OnError(ctx context.Context, c types.IConnRpc, ch types.IConnInfo, err error) error
-	OnOpen(ctx context.Context, c types.IConnRpc, ch types.IConnInfo) error
+	OnConnect(ctx context.Context, resp *http.Response) error
+	OnReady(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo) error
+	OnData(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo, msgType int, message []byte) error
+	OnClose(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo) error
+	OnError(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo, err error) error
 }

@@ -192,6 +192,10 @@ func (c *WsChannelServer) result(action byte, id uint64, data []byte) error {
 	if err != nil {
 		return err
 	}
+	return c.Send(payload)
+}
+
+func (c *WsChannelServer) Send(payload []byte) error {
 
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()

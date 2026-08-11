@@ -13,6 +13,7 @@ type IConnectOption interface {
 	SetAddress(address string) error
 	SetServerHandleMessage(handler handler.IServerHandleMessage) error
 	SetClientHandleMessage(handler handler.IClientHandleMessage) error
+	SetHeader(key string, value string) error
 }
 
 type ConnectOption func(s IConnectOption)
@@ -55,5 +56,10 @@ func WithServerHandleMessage(handler handler.IServerHandleMessage) ConnectOption
 func WithClientHandleMessage(handler handler.IClientHandleMessage) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetClientHandleMessage(handler)
+	}
+}
+func WithRequestHeader(key string, value string) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetHeader(key, value)
 	}
 }

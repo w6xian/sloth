@@ -49,8 +49,7 @@ type LocalClient struct {
 	KeepAlive       bool
 
 	defaultHeader message.Header
-	// RpcCaller 对象池，减少 GC 压力
-	rpcCallerPool sync.Pool
+	header        map[string]string
 }
 
 // 实现 options.ConnectOption
@@ -84,13 +83,6 @@ func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *Loc
 
 	s.serviceMapMu = sync.RWMutex{}
 
-	// 初始化 RpcCaller 对象池
-	s.rpcCallerPool = sync.Pool{
-		New: func() any {
-			return &trpc.RpcCaller{}
-		},
-	}
-
 	opt := s.Connect.Options()
 	s.WriteWait = opt.WriteWait
 	s.ReadWait = opt.ReadWait
@@ -102,7 +94,7 @@ func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *Loc
 	s.BroadcastSize = opt.BroadcastSize
 	s.SliceSize = opt.SliceSize
 	s.KeepAlive = opt.KeepAlive
-
+	s.header = make(map[string]string)
 	s.handler = nil
 
 	for _, opt := range options {
@@ -126,6 +118,11 @@ func signalClose(closeChan chan struct{}) {
 	}
 }
 
+func (s *LocalClient) SetHeader(key string, value string) error {
+	s.header[key] = value
+	return nil
+}
+
 func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 	defer func() {
 		if err := recover(); err != nil {
@@ -137,13 +134,18 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 	c.log(logger.Info, "new client connect %s", addr)
 	_, err := url.ParseRequestURI(addr)
 	if err == nil {
-		conn, _, err := websocket.DefaultDialer.Dial(addr, http.Header{
-			"app_id": []string{id.ShortStringID()},
-		})
+		// 构建header
+		header := make(http.Header)
+		header["app_id"] = []string{id.ShortStringID()}
+		for k, v := range c.header {
+			header[k] = []string{v}
+		}
+
+		conn, resp, err := websocket.DefaultDialer.Dial(addr, header)
 		if err != nil && c.KeepAlive {
 			// 1-30 秒重试
 			retry := utils.RandInt64(1, 30)
-			c.log(logger.Error, "connect server %s err : %v, retry after %d seconds", addr, err, retry)
+			log.Printf("connect server %s err : %v, retry after %d seconds", addr, err, retry)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -154,7 +156,14 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			}
 			return err
 		}
-		c.ClientWs(ctx, conn)
+		// 调用OnConnect
+		if c.handler != nil {
+			if err := c.handler.OnConnect(ctx, resp); err != nil {
+				log.Printf("OnConnect err %v", err)
+				return err
+			}
+		}
+		c.ClientWs(ctx, conn, resp)
 	}
 	return nil
 }
@@ -178,14 +187,13 @@ func (c *LocalClient) GetAuthInfo() (*auth.AuthInfo, error) {
 }
 
 // ClientWs 客户端连接
-func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
+func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn, resp *http.Response) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "ClientWs recover err : %v", err)
 		}
 
 	}()
-
 	// 链接session
 	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
@@ -197,7 +205,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn) {
 	parentCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	//get data from websocket conn
-	go c.readPump(ctx, wsConn, closeChan, c.handler)
+	go c.readPump(ctx, wsConn, closeChan, resp)
 	//send data to websocket conn
 	go c.writePump(ctx, wsConn, closeChan)
 	// 等待关闭信号
@@ -353,7 +361,7 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}
 }
 
-func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, handler handler.IClientHandleMessage) {
+func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, resp *http.Response) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.log(logger.Error, "readPump recover err : %v", err)
@@ -378,8 +386,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		return nil
 	})
 	// 要防止OnOpen阻塞，导致readPump阻塞
-	if handler != nil {
-		go handler.OnOpen(ctx, c, ch)
+	if c.handler != nil {
+		go c.handler.OnReady(ctx, resp, c, ch)
 	}
 	for {
 		// 主动关闭
@@ -394,12 +402,12 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		if err != nil {
 			c.log(logger.Error, err.Error())
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				if handler != nil {
-					handler.OnError(ctx, c, ch, err)
+				if c.handler != nil {
+					c.handler.OnError(ctx, resp, c, ch, err)
 				}
 			} else {
-				if handler != nil {
-					handler.OnClose(ctx, c, ch)
+				if c.handler != nil {
+					c.handler.OnClose(ctx, resp, c, ch)
 				}
 			}
 			c.log(logger.Error, "readPump，ch.conn.ReadMessage return")
@@ -413,8 +421,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		// 实现分片接收的函数
 		m, err := receiveMessage(ch.conn, byte(messageType), msg)
 		if err != nil {
-			if handler != nil {
-				handler.OnError(ctx, c, ch, err)
+			if c.handler != nil {
+				c.handler.OnError(ctx, resp, c, ch, err)
 			}
 			continue
 		}
@@ -424,14 +432,14 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		}
 		if _, err := fn.Action(m); err == nil {
 			if err := c.HandleFn(ctx, ch, m); err != nil {
-				if handler != nil {
-					handler.OnError(ctx, c, ch, err)
+				if c.handler != nil {
+					c.handler.OnError(ctx, resp, c, ch, err)
 				}
 			}
 			continue
 		}
-		if handler != nil {
-			handler.OnData(ctx, c, ch, messageType, m)
+		if c.handler != nil {
+			c.handler.OnData(ctx, resp, c, ch, messageType, m)
 		}
 	}
 }
@@ -479,7 +487,7 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 		}
 		return nil
 	default:
-		log.Fatalln(logger.Error, "server readPump，action:%d is not valid", action)
+		log.Printf("server readPump，action:%d is not valid", action)
 		return nil
 	}
 }
