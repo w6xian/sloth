@@ -2,7 +2,6 @@ package message
 
 import (
 	"encoding/json"
-	"maps"
 	"sync"
 
 	"github.com/w6xian/tlv"
@@ -47,8 +46,10 @@ func (h Header) Keys(k ...string) Header {
 
 // Copy 复制头信息
 func (h Header) Clone() Header {
-	clone := make(Header)
-	maps.Copy(clone, h)
+	clone := make(Header, len(h))
+	for k, v := range h {
+		clone[k] = v
+	}
 	return clone
 }
 

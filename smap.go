@@ -2,7 +2,7 @@ package sloth
 
 import (
 	"fmt"
-	"iter"
+	"strings"
 	"sync"
 )
 
@@ -20,21 +20,14 @@ func NewSMap() *SMap {
 	}
 }
 
-// 提供给 for range 遍历 map所有 key
-//
-//	for k,v := range smap.Range(){
-//		fmt.Println(k,v)
-//	}
-func (s *SMap) Range() iter.Seq2[string, int64] {
-	return func(yield func(string, int64) bool) {
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		for k, v := range s.m {
-			if !yield(k, v) {
-				return
-			}
-		}
+func (s *SMap) Range() map[string]int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]int64, len(s.m))
+	for k, v := range s.m {
+		out[k] = v
 	}
+	return out
 }
 
 func (s *SMap) Len() int {
@@ -44,6 +37,7 @@ func (s *SMap) Len() int {
 }
 
 func (s *SMap) Get(key string) (int64, bool) {
+	key = strings.TrimSpace(key)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	v, ok := s.m[key]
@@ -51,16 +45,15 @@ func (s *SMap) Get(key string) (int64, bool) {
 }
 
 func (s *SMap) Del(key string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.m[key]
-	if ok {
-		delete(s.m, key)
-	}
+	key = strings.TrimSpace(key)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.m, key)
 	return nil
 }
 
 func (s *SMap) Reg(key string, check bool) (int64, error) {
+	key = strings.TrimSpace(key)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if idx, ok := s.m[key]; ok {
