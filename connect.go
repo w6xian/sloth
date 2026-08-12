@@ -14,9 +14,9 @@ import (
 	"sync"
 
 	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/ref"
-	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/option"
@@ -356,13 +356,7 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	}
 	ctx = context.WithValue(ctx, HeaderKey, message.Header(header))
 
-	funArgs := array.Map(msgReq.Args, func(a []byte) []byte {
-		b, err := c.server.Decoder(a)
-		if err != nil {
-			return a
-		}
-		return b
-	})
+	funArgs := decoder.DecodeArgs(msgReq.Args, c.server.Decoder)
 	return ref.CallFuncWithContext(ctx, serviceFns, node.Method, funArgs...)
 }
 

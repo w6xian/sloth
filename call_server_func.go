@@ -5,10 +5,10 @@ import (
 	"errors"
 	"log"
 
+	"github.com/w6xian/sloth/v3/decoder/ag"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 )
 
 type ServerRpc struct {
@@ -50,8 +50,8 @@ func (c *ServerRpc) GetAuthInfo() (*auth.AuthInfo, error) {
 
 func DefaultClient(opts ...IRpcOption) *ServerRpc {
 	svr := &ServerRpc{
-		Encoder: tlv.DefaultEncoder,
-		Decoder: tlv.DefaultDecoder,
+		Encoder: ag.Encoder,
+		Decoder: ag.Decoder,
 		Header:  message.Header{},
 	}
 	for _, opt := range opts {

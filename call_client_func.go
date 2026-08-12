@@ -8,9 +8,9 @@ import (
 
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
+	"github.com/w6xian/sloth/v3/decoder/ag"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/tlv"
 )
 
 type ClientRpc struct {
@@ -29,8 +29,8 @@ func LinkClientFunc(opts ...IRpcOption) *ClientRpc {
 func DefaultServer(opts ...IRpcOption) *ClientRpc {
 
 	cli := &ClientRpc{
-		Encoder: tlv.DefaultEncoder,
-		Decoder: tlv.DefaultDecoder,
+		Encoder: ag.Encoder,
+		Decoder: ag.Decoder,
 		Header:  message.Header{},
 	}
 	for _, opt := range opts {
@@ -80,13 +80,9 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-	args := [][]byte{}
-	for _, v := range arg {
-		b, err := c.Encoder(v)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, b)
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := ch.Call(ctx, c.Header.Clone(), mtd, args...)
@@ -123,13 +119,9 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
-	args := [][]byte{}
-	for _, v := range arg {
-		b, err := c.Encoder(v)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, b)
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
 	}
 
 	usePoolHeader := false
