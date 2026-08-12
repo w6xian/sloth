@@ -93,11 +93,6 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	if err != nil {
 		return nil, err
 	}
-	// 解码
-	resp, err = c.Decoder(resp)
-	if err != nil {
-		return nil, err
-	}
 	return resp, nil
 }
 
@@ -154,11 +149,6 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 	}
 
 	resp, err := ch.Call(ctx, mergedHeader, mtd, args...)
-	if err != nil {
-		return nil, err
-	}
-	// 解码
-	resp, err = c.Decoder(resp)
 	if err != nil {
 		return nil, err
 	}
