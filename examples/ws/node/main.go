@@ -111,12 +111,14 @@ func (h *Handler) OnConnect(ctx context.Context, r *http.Response) error {
 
 // Test is a sample client-side method
 // []byte{1}, 655360, true, &AB{A: 1, B: 2)
-func (h *HelloService) Test(ctx context.Context, auth *auth.AuthInfo, a []byte, b int64, c bool, ab *AB) ([]byte, error) {
+func (h *HelloService) Test(ctx context.Context, auth *auth.AuthInfo, a []byte, b int64, c bool, ab *AB, d rune, e uint16) ([]byte, error) {
 	fmt.Println("Test0:", auth)
 	fmt.Println("Test1:", a)
 	fmt.Println("Test2:", b)
 	fmt.Println("Test3:", c)
 	fmt.Println("Test4:", ab)
+	fmt.Println("Test5 rune:", d)
+	fmt.Println("Test6 uint16:", e)
 
 	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
