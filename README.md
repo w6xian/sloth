@@ -1,4 +1,4 @@
-# Sloth v2
+# Sloth v3
 
 Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传统 RPC 一样调用远端方法，也可以像 IM/网关一样按 Room 做广播/推送。
 
