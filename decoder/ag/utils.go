@@ -20,9 +20,7 @@ func zeroExtend2byte(b []byte) []byte { return zeroExtendN(b, 2) }
 func to_int8(b []byte) int8 {
 	return int8(zeroExtendN(b, 1)[0])
 }
-func to_uint8(b []byte) uint8 {
-	return uint8(zeroExtendN(b, 1)[0])
-}
+
 func to_int16(b []byte) int16 {
 	return int16(binary.BigEndian.Uint16(zeroExtend2byte(b)))
 }
@@ -33,12 +31,6 @@ func to_int64(b []byte) int64 {
 	return int64(binary.BigEndian.Uint64(zeroExtend8byte(b)))
 }
 
-func to_uint16(b []byte) uint16 {
-	return binary.BigEndian.Uint16(zeroExtend2byte(b))
-}
-func to_uint32(b []byte) uint32 {
-	return binary.BigEndian.Uint32(zeroExtend4byte(b))
-}
 func to_uint64(b []byte) uint64 {
 	return binary.BigEndian.Uint64(zeroExtend8byte(b))
 }

@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
+
+	"github.com/w6xian/sloth/v3/internal/utils"
 )
 
 /**
@@ -58,6 +59,7 @@ const (
 	ArgumentTypeSlice
 	ArgumentTypeMap
 	ArgumentTypeStruct
+	ArgumentTypeCustom
 )
 
 var (
@@ -68,12 +70,6 @@ var (
 	ErrAgUnknownType    = errors.New("ag: unknown type tag")
 	ErrAgInvalidHeader  = errors.New("ag: invalid header")
 )
-
-type Argument struct {
-	T uint8
-	L uint16
-	V []byte
-}
 
 // IsArgument O(1) 校验帧完整性（magic + length 匹配）
 func IsArgument(b []byte) bool {
@@ -118,13 +114,13 @@ func get_data(b []byte) []byte {
 	copy(out, b[ArgumentHeaderSize:ArgumentHeaderSize+int(length)])
 	t := b[2]
 	switch t {
-	case ArgumentTypeUint8:
+	case ArgumentTypeUint8, ArgumentTypeInt8:
 		return zeroExtendN(out, 1)
 	case ArgumentTypeUint16, ArgumentTypeInt16:
 		return zeroExtend2byte(out)
-	case ArgumentTypeUint32, ArgumentTypeInt32, ArgumentTypeFloat32:
+	case ArgumentTypeUint32, ArgumentTypeInt32:
 		return zeroExtend4byte(out)
-	case ArgumentTypeUint64, ArgumentTypeInt64, ArgumentTypeFloat64, ArgumentTypeInt:
+	case ArgumentTypeUint64, ArgumentTypeInt64, ArgumentTypeInt, ArgumentTypeUint, ArgumentTypeUintptr:
 		return zeroExtend8byte(out)
 	}
 	return out
@@ -148,17 +144,6 @@ func Validate(b []byte) error {
 	return nil
 }
 
-// Parse 解码整帧
-func Parse(b []byte) (*Argument, error) {
-	if err := Validate(b); err != nil {
-		return nil, err
-	}
-	t := b[2]
-	length := binary.BigEndian.Uint16(b[3:5])
-	v := get_data(b)
-	return &Argument{T: t, L: length, V: v}, nil
-}
-
 func get_frame(b []byte) (byte, []byte, error) {
 	if err := Validate(b); err != nil {
 		return 0, nil, err
@@ -171,75 +156,75 @@ func get_frame(b []byte) (byte, []byte, error) {
 // Bytes 把任意值按类型编码为一帧 AG；标量走原语编码，复合走 json fallback 映射成 String 帧。
 func Encode(arg any) ([]byte, error) {
 	if arg == nil {
-		return encoder(ArgumentTypeNil, nil)
+		return encode_ag(ArgumentTypeNil, nil)
 	}
 	t := typeof(arg)
 	switch t {
 	case ArgumentTypeBool:
 		if arg.(bool) {
-			return encoder(t, []byte{1})
+			return encode_ag(t, []byte{1})
 		}
-		return encoder(t, []byte{0})
+		return encode_ag(t, []byte{0})
 
 	case ArgumentTypeInt:
-		return encoder(t, int_to_byte(int64(arg.(int))))
+		return encode_ag(t, int_to_byte(int64(arg.(int))))
 	case ArgumentTypeInt8:
-		return encoder(t, int_to_byte(int64(arg.(int8))))
+		return encode_ag(t, int_to_byte(int64(arg.(int8))))
 	case ArgumentTypeInt16:
-		return encoder(t, int_to_byte(int64(arg.(int16))))
+		return encode_ag(t, int_to_byte(int64(arg.(int16))))
 	case ArgumentTypeInt32:
-		return encoder(t, int_to_byte(int64(arg.(int32))))
+		return encode_ag(t, int_to_byte(int64(arg.(int32))))
 	case ArgumentTypeInt64:
-		return encoder(t, int_to_byte(arg.(int64)))
+		return encode_ag(t, int_to_byte(arg.(int64)))
 
 	case ArgumentTypeUint:
-		return encoder(t, uint_to_byte(uint64(arg.(uint))))
+		return encode_ag(t, uint_to_byte(uint64(arg.(uint))))
 	case ArgumentTypeUint8:
-		return encoder(t, uint_to_byte(uint64(arg.(uint8))))
+		return encode_ag(t, uint_to_byte(uint64(arg.(uint8))))
 	case ArgumentTypeUint16:
-		return encoder(t, uint_to_byte(uint64(arg.(uint16))))
+		return encode_ag(t, uint_to_byte(uint64(arg.(uint16))))
 	case ArgumentTypeUint32:
-		return encoder(t, uint_to_byte(uint64(arg.(uint32))))
+		return encode_ag(t, uint_to_byte(uint64(arg.(uint32))))
 	case ArgumentTypeUint64:
-		return encoder(t, uint_to_byte(arg.(uint64)))
+		return encode_ag(t, uint_to_byte(arg.(uint64)))
 	case ArgumentTypeUintptr:
-		return encoder(t, uint_to_byte(uint64(arg.(uintptr))))
+		return encode_ag(t, uint_to_byte(uint64(arg.(uintptr))))
 
 	case ArgumentTypeFloat32:
-		return encoder(t, binary.LittleEndian.AppendUint32(nil, math.Float32bits(arg.(float32))))
+		return encode_ag(t, binary.LittleEndian.AppendUint32(nil, math.Float32bits(arg.(float32))))
 	case ArgumentTypeFloat64:
-		return encoder(t, binary.LittleEndian.AppendUint64(nil, math.Float64bits(arg.(float64))))
+		return encode_ag(t, binary.LittleEndian.AppendUint64(nil, math.Float64bits(arg.(float64))))
 
 	case ArgumentTypeComplex64:
 		c := arg.(complex64)
 		buf := make([]byte, 8)
 		binary.LittleEndian.PutUint32(buf[0:4], math.Float32bits(real(c)))
 		binary.LittleEndian.PutUint32(buf[4:8], math.Float32bits(imag(c)))
-		return encoder(t, buf)
+		return encode_ag(t, buf)
 	case ArgumentTypeComplex128:
 		c := arg.(complex128)
 		buf := make([]byte, 16)
 		binary.LittleEndian.PutUint64(buf[0:8], math.Float64bits(real(c)))
 		binary.LittleEndian.PutUint64(buf[8:16], math.Float64bits(imag(c)))
-		return encoder(t, buf)
+		return encode_ag(t, buf)
 
 	case ArgumentTypeString:
-		return encoder(t, []byte(arg.(string)))
+		return encode_ag(t, []byte(arg.(string)))
 	case ArgumentTypeBytes:
 		b := arg.([]byte)
 		out := make([]byte, len(b))
 		copy(out, b)
-		return encoder(t, out)
+		return encode_ag(t, out)
 
 	case ArgumentTypeSlice, ArgumentTypeMap, ArgumentTypeStruct:
 		s, err := jsonMarshalFallback(arg)
 		if err != nil {
 			return nil, err
 		}
-		return encoder(ArgumentTypeString, []byte(s))
+		return encode_ag(ArgumentTypeString, []byte(s))
 	}
-	// 兜底：fmt %v 字符串化
-	return encoder(ArgumentTypeString, fmt.Append(nil, arg))
+	// 兜底：json 字符串化
+	return encode_ag(ArgumentTypeCustom, utils.Serialize(arg))
 }
 
 func Decode(b []byte) (any, error) {
@@ -249,15 +234,14 @@ func Decode(b []byte) (any, error) {
 	return get_value(b)
 }
 
-func Encoder(arg any) ([]byte, error) {
-	return Encode(arg)
-}
-
 func Decoder(b []byte) ([]byte, error) {
 	if !IsArgument(b) {
 		return b, nil
 	}
 	return get_data(b), nil
+}
+func Encoder(arg any) ([]byte, error) {
+	return Encode(arg)
 }
 
 // typeof 穷举 Go 原语，返回 ArgumentType* 常量；标量之外走 AnyToBytes 的 JSON 路径映射成 String/Bytes。
@@ -312,11 +296,11 @@ func typeof(arg any) uint8 {
 	case reflect.Struct:
 		return ArgumentTypeStruct
 	}
-	return ArgumentTypeString
+	return ArgumentTypeCustom
 }
 
 // Encode 写一帧；Length 超 65535 返回 ErrAgDataTooLarge
-func encoder(t uint8, data []byte) ([]byte, error) {
+func encode_ag(t uint8, data []byte) ([]byte, error) {
 	if len(data) > ArgumentMaxDataSize {
 		return nil, ErrAgDataTooLarge
 	}
@@ -409,55 +393,4 @@ func get_value(b []byte) (any, error) {
 		return out, nil
 	}
 	return nil, ErrAgUnknownType
-}
-
-// TypeName 返回 type tag 的可读名称（便于日志）
-func TypeName(t uint8) string {
-	switch t {
-	case ArgumentTypeNil:
-		return "nil"
-	case ArgumentTypeBool:
-		return "bool"
-	case ArgumentTypeInt:
-		return "int"
-	case ArgumentTypeInt8:
-		return "int8"
-	case ArgumentTypeInt16:
-		return "int16"
-	case ArgumentTypeInt32:
-		return "int32"
-	case ArgumentTypeInt64:
-		return "int64"
-	case ArgumentTypeUint:
-		return "uint"
-	case ArgumentTypeUint8:
-		return "uint8"
-	case ArgumentTypeUint16:
-		return "uint16"
-	case ArgumentTypeUint32:
-		return "uint32"
-	case ArgumentTypeUint64:
-		return "uint64"
-	case ArgumentTypeUintptr:
-		return "uintptr"
-	case ArgumentTypeFloat32:
-		return "float32"
-	case ArgumentTypeFloat64:
-		return "float64"
-	case ArgumentTypeComplex64:
-		return "complex64"
-	case ArgumentTypeComplex128:
-		return "complex128"
-	case ArgumentTypeString:
-		return "string"
-	case ArgumentTypeBytes:
-		return "bytes"
-	case ArgumentTypeSlice:
-		return "slice"
-	case ArgumentTypeMap:
-		return "map"
-	case ArgumentTypeStruct:
-		return "struct"
-	}
-	return "unknown(" + strconv.FormatUint(uint64(t), 10) + ")"
 }

@@ -55,7 +55,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(time.Millisecond * 2000)
-			rst, err := server.Call(ctx, 2, "shop.Test", nil, []byte{1}, 655360, true, tlv.Json(&AB{A: 1, B: 2}))
+			rst, err := server.Call(ctx, 2, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2})
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue

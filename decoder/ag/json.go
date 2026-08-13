@@ -13,7 +13,3 @@ func jsonMarshalFallback(v any) (string, error) {
 	}
 	return string(b), nil
 }
-
-func jsonUnmarshal(b []byte, out any) error {
-	return json.Unmarshal(b, out)
-}

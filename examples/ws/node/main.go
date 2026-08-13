@@ -111,17 +111,13 @@ func (h *Handler) OnConnect(ctx context.Context, r *http.Response) error {
 
 // Test is a sample client-side method
 // []byte{1}, 655360, true, &AB{A: 1, B: 2)
-func (h *HelloService) Test(ctx context.Context, auth *auth.AuthInfo, a []byte, b int64, c bool, d []byte) ([]byte, error) {
+func (h *HelloService) Test(ctx context.Context, auth *auth.AuthInfo, a []byte, b int64, c bool, ab *AB) ([]byte, error) {
 	fmt.Println("Test0:", auth)
 	fmt.Println("Test1:", a)
 	fmt.Println("Test2:", b)
 	fmt.Println("Test3:", c)
-	fmt.Println("Test4:", string(d))
-	var ab AB
-	err := tlv.Json2Struct(d, &ab)
-	if err != nil {
-		return nil, err
-	}
+	fmt.Println("Test4:", ab)
+
 	ch := ctx.Value(sloth.ChannelKey).(trpc.IChannel)
 	if ch == nil {
 		return nil, errors.New("channel not found")
@@ -132,7 +128,7 @@ func (h *HelloService) Test(ctx context.Context, auth *auth.AuthInfo, a []byte, 
 		fmt.Println("--err-")
 		return nil, fmt.Errorf("error %d", h.index)
 	}
-	_, err = ch.GetAuthInfo()
+	_, err := ch.GetAuthInfo()
 	if err != nil {
 		return nil, err
 	}

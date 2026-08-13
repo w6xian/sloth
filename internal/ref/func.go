@@ -10,7 +10,6 @@ import (
 
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
-	"github.com/w6xian/tlv"
 )
 
 // Register 注册服务
@@ -111,7 +110,7 @@ func suitable_methods(typ reflect.Type) (map[string]reflect.Method, map[string]F
 	return methods, iface
 }
 
-func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
+func instance_params(params reflect.Type, data []byte) (reflect.Value, error) {
 	isPtr := params.Kind() == reflect.Pointer
 	structType := params
 	if isPtr {
@@ -125,7 +124,7 @@ func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
 		return reflect.ValueOf(data), nil
 	} else if array.InArray(nameStr, commonTypes) {
 		// 检查参数类型，根据参数类型进行转换（[]byte改成 “name“对应的类型）
-		r := tlv.GetType(isPtr, nameStr, data)
+		r := get_param_type(isPtr, nameStr, data)
 		return r, nil
 	} else {
 		// 转换参数类型为reflect.Value
@@ -144,7 +143,7 @@ func InstanceParams(params reflect.Type, data []byte) (reflect.Value, error) {
 // 根据type生成新的实例
 func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
 	if typ == nil {
-		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.String())
+		return reflect.Value{}, fmt.Errorf("unknown type: %s", typ.Name())
 	}
 	instance := reflect.New(typ)
 	return instance, nil
@@ -192,7 +191,7 @@ func call_instance_func(mtd reflect.Method, params []reflect.Value, args ...[]by
 	for i := range rArgsLen {
 		data := args[i]
 		inx := mtd.Type.In(i + defArgsNum)
-		param, iErr := InstanceParams(inx, data)
+		param, iErr := instance_params(inx, data)
 		if iErr != nil {
 			return nil, iErr
 		}

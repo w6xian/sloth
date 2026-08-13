@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -46,6 +47,57 @@ type fullA struct {
 	Arrayb     []byte
 	Float32s   []float32
 	Float64s   []float64
+}
+
+// TypeName 返回 type tag 的可读名称（便于日志）
+func typeName(t uint8) string {
+	switch t {
+	case ArgumentTypeNil:
+		return "nil"
+	case ArgumentTypeBool:
+		return "bool"
+	case ArgumentTypeInt:
+		return "int"
+	case ArgumentTypeInt8:
+		return "int8"
+	case ArgumentTypeInt16:
+		return "int16"
+	case ArgumentTypeInt32:
+		return "int32"
+	case ArgumentTypeInt64:
+		return "int64"
+	case ArgumentTypeUint:
+		return "uint"
+	case ArgumentTypeUint8:
+		return "uint8"
+	case ArgumentTypeUint16:
+		return "uint16"
+	case ArgumentTypeUint32:
+		return "uint32"
+	case ArgumentTypeUint64:
+		return "uint64"
+	case ArgumentTypeUintptr:
+		return "uintptr"
+	case ArgumentTypeFloat32:
+		return "float32"
+	case ArgumentTypeFloat64:
+		return "float64"
+	case ArgumentTypeComplex64:
+		return "complex64"
+	case ArgumentTypeComplex128:
+		return "complex128"
+	case ArgumentTypeString:
+		return "string"
+	case ArgumentTypeBytes:
+		return "bytes"
+	case ArgumentTypeSlice:
+		return "slice"
+	case ArgumentTypeMap:
+		return "map"
+	case ArgumentTypeStruct:
+		return "struct"
+	}
+	return "unknown(" + strconv.FormatUint(uint64(t), 10) + ")"
 }
 
 // sampleA 返回 examples/ag/main.go L56-87 的同值实例
@@ -96,7 +148,7 @@ func assertFrame(t *testing.T, label string, raw []byte, wantType uint8, wantVal
 	}
 	if raw[2] != wantType {
 		t.Fatalf("%s: TYPE=0x%02x(%s), want 0x%02x(%s)",
-			label, raw[2], TypeName(raw[2]), wantType, TypeName(wantType))
+			label, raw[2], typeName(raw[2]), wantType, typeName(wantType))
 	}
 	l := int(binary.BigEndian.Uint16(raw[3:5]))
 	if l != wantValueLen {
@@ -549,19 +601,19 @@ func TestDecode_RoundTrip(t *testing.T) {
 	// 4. Decode 对 float/complex 短输入 → ErrAgLengthMismatch（通过构造坏帧触发）
 	t.Run("Decode_FloatComplexShort", func(t *testing.T) {
 		// float32 只给 1B value
-		bad, _ := encoder(ArgumentTypeFloat32, []byte{0x01})
+		bad, _ := encode_ag(ArgumentTypeFloat32, []byte{0x01})
 		_, err := Decode(bad)
 		if !errors.Is(err, ErrAgLengthMismatch) {
 			t.Fatalf("short float32 err=%v, want ErrAgLengthMismatch", err)
 		}
 		// complex64 给 4B 而不是 8B
-		bad2, _ := encoder(ArgumentTypeComplex64, make([]byte, 4))
+		bad2, _ := encode_ag(ArgumentTypeComplex64, make([]byte, 4))
 		_, err = Decode(bad2)
 		if !errors.Is(err, ErrAgLengthMismatch) {
 			t.Fatalf("short complex64 err=%v", err)
 		}
 		// Unknown type
-		bad3, _ := encoder(uint8(99), nil)
+		bad3, _ := encode_ag(uint8(99), nil)
 		_, err = Decode(bad3)
 		if !errors.Is(err, ErrAgUnknownType) {
 			t.Fatalf("unknown tag err=%v, want ErrAgUnknownType", err)

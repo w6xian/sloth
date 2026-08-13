@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-var commonTypes = []string{"int", "int32", "int64", "uint", "uint32", "uint64", "float32", "float64", "string", "uint8", "bool"}
+var commonTypes = []string{"int", "int8", "int16", "int32", "int64", "uint", "uint16", "uint32", "uint64", "float32", "float64", "string", "uint8", "byte", "rune", "bool"}
 
 // Precompute the reflect type for context.
 var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
