@@ -12,7 +12,7 @@ import (
 )
 
 /**
- * @brief AG 协议 (Argument Grid) 自描述 TLV 参数帧
+ * @brief AG 协议 (Argument Grid) 参数帧格式
  *
  * MAGIC  :p   2 byte   0x3A 0x70  (ASCII ":p")
  * TYPE   t    1 byte   ArgumentType* 枚举

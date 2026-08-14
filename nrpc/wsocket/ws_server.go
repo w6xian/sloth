@@ -17,6 +17,7 @@ import (
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/handler"
@@ -41,7 +42,7 @@ func allowWebSocketOrigin(r *http.Request) bool {
 	if err != nil || strings.TrimSpace(u.Host) == "" {
 		return false
 	}
-	return strings.EqualFold(u.Host, r.Host)
+	return array.InArray(u.Host, []string{"localhost:8081", r.Host})
 }
 
 type WsServer struct {
@@ -343,7 +344,6 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 			s.log(logger.Info, "server readPump，message is nil or messageType is -1")
 			continue
 		}
-
 		//@call HandleCall 处理调用方法
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数

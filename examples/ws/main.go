@@ -84,8 +84,6 @@ func (h *Handler) OnConnect(ctx context.Context, r *http.Request) error {
 	h.Server.OnConnect(ctx, r)
 	fmt.Println("OnConnect Handler1", r.RemoteAddr)
 	fmt.Println("OnConnect Handler1", r.RequestURI)
-	fmt.Println("OnConnect Handler1")
-
 	return nil
 }
 
@@ -146,6 +144,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 		UserId: 2,
 		RoomId: 1,
 		Token:  "token_123", // Added fake token
+		Ts:     time.Now().Unix(),
 	}
 
 	// Register session in bucket

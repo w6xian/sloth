@@ -128,7 +128,7 @@ const crc16_l = new Uint8Array([
     0x43, 0x83, 0x41, 0x81, 0x80, 0x40
 ]);
 
-function GetCrC(buff) {
+function getCRC(buff) {
     let hi = 0x00ff;
     let low = 0x00ff;
 
@@ -152,7 +152,7 @@ function IsComplete(src, dst) {
 }
 
 function CheckCRC(src, crc) {
-    return IsComplete(GetCrC(src), crc);
+    return IsComplete(getCRC(src), crc);
 }
 
 // Encode function
@@ -207,7 +207,7 @@ function Encode(s, opts = []) {
 
     // Write CRC if needed
     if (checkCRC) {
-        const crc = GetCrC(s.D);
+        const crc = getCRC(s.D);
         buf[headerSize - 2] = crc[0];
         buf[headerSize - 1] = crc[1];
     }

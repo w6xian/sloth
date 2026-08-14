@@ -7,7 +7,11 @@
 <body>
     <h1>WS Client</h1>
     <script src="./sock_rpc.js?11221"></script>
+    <script src="./tools.js?11"></script>
     <script src="./slice.js?112"></script>
+    <script src="./ag.js?112"></script>
+    <script src="./fn.js?112"></script>
+    
     <script>
 
       
@@ -21,8 +25,8 @@
                 console.log('onError', evt)
             }
         });
-        rpc.OnOpen(evt => {
-            console.log('onOpen', evt)
+        rpc.OnConnect(evt => {
+            console.log('onConnect', evt)
             const timestamp = Date.now()
             const auth = '123456'
             const authMsg = {
@@ -30,7 +34,7 @@
                 room_id: 1,
                 user_id: 2,
                 server_id: 'local',
-                action: 0xFE,
+                action: ACTION_CALL,
                 type: "h5",
             }
             rpc.Send(authMsg)

@@ -7,12 +7,25 @@ import (
 )
 
 /**
-@F 2bytes fix head   →  Magic  = 0x464E  (ASCII "FN")
-action   1 byte      →  Action = uint8   (offset 2)
-id  8 byte           →  ID     = uint64  (offset 4, BigEndian)
-Length  4 byte       →  Length = uint32  (offset 8, BigEndian)
-data  variable byte  →  Data   = []byte  (offset 12, 长度=Length)
-*/
+ * ============================================================
+ * FN 协议帧编解码器 (Go 版本)
+ * ============================================================
+ *
+ * 【协议帧结构】
+ *
+ *  偏移量   长度    字段名      类型             说明
+ *  ------  ------  ----------  ---------------  ---------------------------
+ *   0       2      Magic       uint8[2]         魔术字 = 0x40 0x46 ("@F")
+ *   2       1      Action      uint8            动作类型 (不可为0)
+ *   3       8      ID          uint64 BE        消息ID (大端序)
+ *  11       4      Length      uint32 BE        Data 字段的字节长度 (大端序)
+ *  15       N      Data        uint8[N]         数据载荷，长度 = Length
+ *
+ *  总头部长度 (HeaderSize) = 2 + 1 + 8 + 4 = 15 字节
+ *  最大数据长度 (MaxDataSize) = 1 << 30 = 1,073,741,824 字节 (~1GB)
+ *
+ * ============================================================
+ */
 
 const (
 	FnMagic1 byte = 0x40
@@ -192,5 +205,17 @@ func ParseFnHeader(b []byte) (action uint8, id uint64, length uint32, err error)
 }
 
 func IsFn(b []byte) bool {
-	return len(b) >= 2 && b[0] == FnMagic1 && b[1] == FnMagic2
+	// 不仅要验证协议头，还需要验证数据长度也能正常解析
+	if len(b) < FnHeaderSize || b[0] != FnMagic1 || b[1] != FnMagic2 {
+		return false
+	}
+	length := binary.BigEndian.Uint32(b[11:15])
+	if length > FnMaxDataSize {
+		return false
+	}
+	totalLen := FnHeaderSize + int(length)
+	if len(b) < totalLen {
+		return false
+	}
+	return true
 }

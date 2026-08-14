@@ -16,15 +16,39 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./index.html")
+		http.ServeFile(w, r, "./index_v3.html")
 	})
-	http.HandleFunc("/sock_rpc.js", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/min", func(w http.ResponseWriter, r *http.Request) {
 		// 直接输入index.html，返回index.html
-		http.ServeFile(w, r, "./sock_rpc.js")
+		http.ServeFile(w, r, "./index_v3_min.html")
+	})
+	http.HandleFunc("/sock_rpc_v3.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./sock_rpc_v3.js")
 	})
 	http.HandleFunc("/slice.js", func(w http.ResponseWriter, r *http.Request) {
 		// 直接输入index.html，返回index.html
 		http.ServeFile(w, r, "./slice.js")
+	})
+	http.HandleFunc("/ag.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./ag.js")
+	})
+	http.HandleFunc("/fn.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./fn.js")
+	})
+	http.HandleFunc("/tools.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./tools.js")
+	})
+	http.HandleFunc("/sloth_v3_min.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./sloth_v3_min.js")
+	})
+	http.HandleFunc("/sloth_v3_bundle.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接输入index.html，返回index.html
+		http.ServeFile(w, r, "./sloth_v3_bundle.js")
 	})
 
 	fmt.Println("Server is running on http://localhost:8081")

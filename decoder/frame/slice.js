@@ -168,7 +168,7 @@ function Encode(s, opts = []) {
     let tag = s.P & 0x3F;
     let checkCRC = (s.P & CRC) === CRC;
     const l = s.D.length;
-    
+
     // Determine if long message tag is needed based on length
     if (l <= 0xFFFF) {
         opt.LengthSize = 2;
@@ -176,23 +176,29 @@ function Encode(s, opts = []) {
         tag |= LongMessage;
         opt.LengthSize = 4;
     }
-    
+
     if (opt.CheckCRC || checkCRC) {
         checkCRC = true;
         tag |= CRC;
     }
-    
-    console.log(tag, opt.LengthSize, checkCRC);
-    
+
     const headerSize = get_header_size(opt.LengthSize, checkCRC);
     const buf = new Uint8Array(headerSize + l);
-    
+
     buf[0] = tag;
-    
-    // Write name (2 bytes)
-    const nameBytes = new TextEncoder().encode(s.N);
-    buf[1] = nameBytes[0] || 0;
-    buf[2] = nameBytes[1] || 0;
+
+    // Write name (2 bytes) - same padding strategy as Go: empty -> "00", 1 byte -> "0" + raw
+    const raw = new TextEncoder().encode(s.N);
+    let n0 = 0x30, n1 = 0x30; // '0', '0'
+    if (raw.length === 1) {
+        n0 = 0x30;
+        n1 = raw[0];
+    } else if (raw.length >= 2) {
+        n0 = raw[0];
+        n1 = raw[1];
+    }
+    buf[1] = n0;
+    buf[2] = n1;
     
     buf[3] = s.T;
     buf[4] = s.I;

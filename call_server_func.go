@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 
+	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/decoder/ag"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -70,13 +71,9 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
-	args := [][]byte{}
-	for _, v := range arg {
-		b, err := c.Encoder(v)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, b)
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
 	}
 	// 调用服务器方法,这里对应的是 channel_client.go 中的Call方法
 	resp, err := c.Listen.Call(ctx, c.Header.Clone(), mtd, args...)
@@ -90,13 +87,9 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 	if c.Listen == nil {
 		return nil, errors.New("server not found")
 	}
-	args := [][]byte{}
-	for _, v := range arg {
-		b, err := c.Encoder(v)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, b)
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
 	}
 
 	usePoolHeader := false

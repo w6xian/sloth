@@ -1,0 +1,174 @@
+<html>
+
+<head>
+    <title>WS Client V3</title>
+</head>
+
+<body>
+    <h1>WS Client V3 (AG + Fn + DataSlice)</h1>
+    <p>打开浏览器 DevTools → Console 查看 RPC 往返日志。</p>
+    <ul>
+        <li>脚本加载顺序: tools.js → slice.js → ag.js → fn.js → sock_rpc_v3.js</li>
+        <li>每 3s 执行一次 <code>Call("v1.Sign", []byte("sign"))</code>（对齐 Go examples/ws/node/main.go L76）</li>
+        <li>本地 Bind 服务: <code>shop.Test(arg)</code>，服务器反向 CALL 时会触发。</li>
+    </ul>
+
+    <!-- 必须按此顺序加载：tools 提供 Uint64 读写工具 → slice 二进制帧 → AG 参数帧 → Fn 传输帧 → SockRpcV3 客户端 -->
+    <script src="./tools.js"></script>
+    <script src="./slice.js"></script>
+    <script src="./ag.js"></script>
+    <script src="./fn.js"></script>
+    <script src="./sock_rpc_v3.js"></script>
+
+    <script>
+        // 1. 初始化（可传 URL 字符串，也可传 {addr, timeoutMs, sliceSize, onOpen/onClose/onMessage/onError, autoReconnect...}）
+        //    重连策略参数（都有默认值，不传也能用）：
+        //      autoReconnect        : true  默认 true
+        //      reconnectDelay(ms)   : 1000  首次失败 1s 后重试
+        //      backoffMax(ms)       : 20000 最大间隔 20s（每次失败 *1.5 指数退避，cap 到这里）
+        //      maxReconnectAttempts : 0     <=0 表示无限重试
+        const addr = `ws://localhost:8990/ws`;
+        const rpc = new SockRpcV3({
+            addr: addr,
+            timeoutMs: 10000,   // 单次 Call 超时（对齐 Go ws_client.writeWait/readWait）
+            sliceSize: 512,     // 与 V2 sock_rpc_v2.js + Go 客户端保持一致
+            autoReconnect: true,            // 默认 true：断线后自动指数退避重连
+            reconnectDelay: 1000,           // 首次重试延迟 1s
+            backoffMax: 20000,              // 最长重试间隔 20s
+            maxReconnectAttempts: 0,        // 0 = 无限重试
+            onMessage: (evt) => {
+                console.log('[V3] onMessage (broadcast / raw)', evt);
+            },
+            onError: (evt) => {
+                console.error('[V3] onError', evt);
+            }
+        });
+
+        // ---------- 额外事件：重连进行中/取消（V3 新增回调）----------
+        rpc.AddEvent('onreconnecting', (info) => {
+            console.warn(`[V3] onReconnecting #${info.attempts}, next after ${info.delayMs}ms (reason=${info.reason})`);
+        });
+        rpc.AddEvent('onreconnectcancelled', (info) => {
+            console.log('[V3] onReconnectCancelled:', info && info.reason ? info.reason : 'n/a');
+        });
+
+        // 2. 连接就绪（对应 Go examples/ws/node/main.go L74-L75：SetHeader APP_ID/USER_ID）
+        let onOpenCount = 0;  // 用于演示"恢复后重新 setheader + tick（每次 onOpen 都会执行）"
+        rpc.OnOpen(evt => {
+            onOpenCount++;
+            console.log('[V3] onOpen connected (times=' + onOpenCount + ')', evt);
+            rpc.SetHeader('APP_ID', '1');
+            rpc.SetHeader('USER_ID', '1');
+
+            // 重连成功：如果之前有定时器就先清掉，避免多个 tick 并发
+            if (typeof window.__v3Timer !== 'undefined' && window.__v3Timer) {
+                clearInterval(window.__v3Timer);
+                window.__v3Timer = null;
+            }
+
+            // 定时 Call v1.Sign（对应 Go 示例 L76 client.Call(ctx, "v1.Sign", []byte("sign"))）
+            const signPayload = new TextEncoder().encode('sign'); // []byte("sign")
+            const tick = () => {
+                console.log('[V3] → Call("v1.Sign", Uint8Array("sign"))');
+                rpc.Call(
+                    'v1.Sign',
+                    signPayload,
+                    (data, extra, rawFnBytes) => {
+                        // data: 已经自动 AG.Decode 后的值；裸字节返回 Uint8Array
+                        //
+                        // 关键：对齐 Go examples/ws/node/main.go L84 `data = tlv.Value(data)` 用法——
+                        //       v1.Sign 服务端返回的是 tlv.Json(auth) 编码后的 []byte
+                        //       （auth 结构体 JSON 再包一层 TLV_TYPE_JSON tag，见 tlv/types.go L33-L43）
+                        //       所以浏览器端：先剥外层 TLV 取 Value，再转 JSON / Text
+                        // console.log('[V3] ← v1.Sign reply success (raw bytes):', data);
+                        if (data instanceof Uint8Array) {
+                            // 1) 等价 Go: data = tlv.Value(data) —— 剥外层 TLV，失败返回原 bytes
+                            const peeled = window.TlvValue(data);
+                            // 2) Text 显示
+                            console.log('[V3]   TlvValue as text :', decode_string(peeled));
+                            // 3) JSON 解析（服务端写入的是 tlv.Json(auth)，value 本身就是 JSON 串）
+                            try {
+                                console.log('[V3]   TlvValue as json :', decode_bytes(peeled));
+                            } catch (e) {
+                                console.warn('[V3]   TlvValue parse json failed:', e);
+                            }
+                        }
+                    },
+                    (err, extra, rawFnBytes) => {
+                        console.error('[V3] ← v1.Sign reply error:', err && err.message ? err.message : err);
+                    },
+                    /* extra: */ { ts: Date.now() }
+                );
+
+                // 同时演示 Promise 版
+                rpc.CallPromise('v1.Sign', signPayload) 
+                    .then(v => {
+                         const peeled = window.TlvValue(v);
+                        console.log('[V3]   TlvValue as text :', decode_string(peeled));
+                    })
+                    .catch(e =>{
+                        console.error('[V3] Promise err:', e && e.message ? e.message : e);
+                         // 2. 重连
+                        rpc.Reconnect();
+                    });
+
+                // -------- 新增：TlvJson 用法（对齐 Go 端 tlv.Json(auth) 构造 []byte）--------
+                // 场景：JS 作为客户端，把一个对象先 JSON 序列化，再包一层 TLV_TYPE_JSON 的 TLV，
+                //       作为 Call 参数发送；服务端 handler 收到后用 `tlv.Value(arg)` 剥外层，再 json.Unmarshal
+                //       ——完全对称于 examples/ws/main.go L152 服务端 tlv.Json(auth) 给客户端回包的方式。
+                try {
+                    const jsAuth = { UserId: 42, RoomId: 9, Token: 'token_from_browser', Ts: Math.floor(Date.now() / 1000) };
+                    // 1) 编码：等价 Go: b := tlv.Json(jsAuth)
+                    const tlvJsonPayload = window.TlvJson(jsAuth);
+                    console.log('[V3] TlvJson(auth) bytes.len =', tlvJsonPayload.length, 'hex =', Array.from(tlvJsonPayload).slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join(' '));
+                    // 2) 验证解码（往返）：剥 TLV + JSON.parse，应和原对象一致
+                    const roundTrip = window.TlvValueAsJson(tlvJsonPayload);
+                    console.log('[V3] TlvJson → TlvValueAsJson (round trip) =', roundTrip);
+
+                    // 3) 用这份 payload 调一次 v1.Sign（或你新注册的"接收 tlv.Json"接口）
+                    rpc.Call(
+                        'v1.Sign',
+                        tlvJsonPayload,
+                        (data) => {
+                            const peeled = window.TlvValue(data);
+                            console.log('[V3]   TlvValue as text :', decode_string(peeled));
+                        },
+                        (err)  => console.warn('[V3] ← v1.Sign (TlvJson arg) reply err:', err && err.message ? err.message : err),
+                    );
+                } catch (e) {
+                    console.error('[V3] TlvJson encode failed:', e);
+                }
+            };
+            tick();
+            window.__v3Timer = setInterval(tick, 3000);
+        });
+       
+        rpc.OnClose(evt => {
+            console.warn('[V3] onClose', evt);
+            // onClose 清空定时器（下次 onOpen 又会重新启动——断线重连恢复后自动恢复 tick）
+            if (window.__v3Timer) { clearInterval(window.__v3Timer); window.__v3Timer = null; }
+        });
+
+        // 3. 注册本地服务：服务器反向 CALL "shop.Test" 时触发
+        //    参数会被自动 AG.Decode（服务器 Args[i] → JS 值）
+        //    返回值会被自动 AG.Encode（JS 值 → Fn reply Data → 服务器收到 []byte）
+        rpc.Bind('shop', {
+            /**
+             * 示例方法：服务器发 Args = [anyValue] 时
+             * @param {any} arg - 来自服务器 Args[0] 的 AG.Decode 结果
+             * @returns {any} 会被 AG.Encode 后回给服务器
+             */
+            Test: function (arg, extra,aint,abool,ajson) {
+                console.log('[V3] 服务器 CALL shop.Test, arg =', arg, 'extra =', extra, 'aint =', aint, 'abool =', abool);
+                const reply = 'helo' + Date.now();
+                console.log('[V3] shop.Test 返回 =', reply);
+                return reply;
+            }
+        });
+
+        // 4. 启动连接
+        rpc.Connect();
+    </script>
+</body>
+
+</html>
