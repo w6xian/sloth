@@ -64,7 +64,13 @@ func (c *LocalClient) SetAddress(address string) error {
 	c.address = address
 	return nil
 }
-
+func (c *LocalClient) SetHeader(key string, value string) error {
+	c.header[key] = value
+	return nil
+}
+func (c *LocalClient) SetOrigin(origins ...string) error {
+	return nil
+}
 func (s *LocalClient) SetServerHandleMessage(handler handler.IServerHandleMessage) error {
 	// 空方法
 	panic("SetClientHandleMessage is not implemented")
@@ -116,11 +122,6 @@ func signalClose(closeChan chan struct{}) {
 	case closeChan <- struct{}{}:
 	default:
 	}
-}
-
-func (s *LocalClient) SetHeader(key string, value string) error {
-	s.header[key] = value
-	return nil
 }
 
 func (c *LocalClient) ListenAndServe(ctx context.Context) error {

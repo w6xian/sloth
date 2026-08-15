@@ -39,9 +39,21 @@ func main() {
 		// 直接输入index.html，返回index.html
 		http.ServeFile(w, r, "./tools.js")
 	})
+	http.HandleFunc("/sloth_rpc_v3.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接请求 bundle，返回生成的单体 JS 文件
+		http.ServeFile(w, r, "./sloth_rpc_v3.js")
+	})
+	http.HandleFunc("/sloth_rpc_v3.min.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接请求压缩版 bundle
+		http.ServeFile(w, r, "./sloth_rpc_v3.min.js")
+	})
+	http.HandleFunc("/sloth_v3_min.js", func(w http.ResponseWriter, r *http.Request) {
+		// 直接请求压缩版 bundle
+		http.ServeFile(w, r, "./sloth_v3_min.js")
+	})
 
-	fmt.Println("Server is running on http://localhost:8081")
-	http.ListenAndServe(":8081", nil)
+	fmt.Println("Server is running on http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
 }
 
 type Handler struct {

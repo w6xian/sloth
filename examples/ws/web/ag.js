@@ -167,12 +167,12 @@ function Validate(b) {
  * @param {Uint8Array} b
  * @returns {{t: number, v: Uint8Array}}
  */
-function get_frame(b) {
+function ag_get_frame(b) {
   const err = Validate(b);
   if (err) throw err;
   const buf = _asU8(b);
   const t = buf[2];
-  const v = get_data(buf);
+  const v =  ag_get_data(buf);
   return { t, v };
 }
 
@@ -187,7 +187,7 @@ function get_frame(b) {
  * @param {Uint8Array} b
  * @returns {Uint8Array|null}
  */
-function get_data(b) {
+function ag_get_data(b) {
   const buf = _asU8(b);
   const length = (buf[3] << 8) | buf[4];
   if (length === 0) return null;
@@ -221,7 +221,7 @@ function get_data(b) {
  */
 function Data(b) {
   if (!IsArgument(b)) return b;
-  return get_data(b);
+  return ag_get_data(b);
 }
 
 /** Value = Data 别名 */
@@ -235,7 +235,7 @@ function Value(b) { return Data(b); }
  */
 function Decoder(b) {
   if (!IsArgument(b)) return b;
-  return get_data(b);
+  return ag_get_data(b);
 }
 
 /* ============================================================
@@ -287,7 +287,7 @@ function typeofTag(arg) {
 }
 
 /* ============================================================
- *  编码：Encode / Encoder / Json
+ *  编码：EncodeArg / Encoder / Json
  * ============================================================ */
 
 /**
@@ -298,7 +298,7 @@ function typeofTag(arg) {
  * @returns {Uint8Array}
  * @throws {ErrAgDataTooLarge}
  */
-function Encode(arg) {
+function EncodeArg(arg) {
   if (arg === null || arg === undefined) {
     return encode_ag(ArgumentTypeNil, null);
   }
@@ -371,8 +371,8 @@ function Encode(arg) {
   return encode_ag(ArgumentTypeCustom, _serialize(arg));
 }
 
-/** Encoder = Encode 别名 */
-function Encoder(arg) { return Encode(arg); }
+/** Encoder = EncodeArg 别名 */
+function Encoder(arg) { return EncodeArg(arg); }
 
 /**
  * 优先用 Encode；若失败（理论上不会）则回退为 JSON String 帧
@@ -382,7 +382,7 @@ function Encoder(arg) { return Encode(arg); }
  */
 function Json(v) {
   try {
-    return Encode(v);
+    return EncodeArg(v);
   } catch (_e) {
     const s = JSON.stringify(v);
     try {
@@ -485,7 +485,7 @@ function get_value_from(t, v) {
  * @returns {any}
  */
 function get_value(b) {
-  const { t, v } = get_frame(b);
+  const { t, v } = ag_get_frame(b);
   return get_value_from(t, v);
 }
 
@@ -495,7 +495,7 @@ function get_value(b) {
  * @returns {any}
  * @throws {ErrAgInvalidHeader} 非合法 AG 帧
  */
-function Decode(b) {
+function DecodeArg(b) {
   if (!IsArgument(b)) {
     throw ErrAgInvalidHeader;
   }
@@ -565,12 +565,12 @@ function typeName(t) {
  * ============================================================ */
 
 /**
- * 用显式类型标签包装值，使 Encode 按指定类型而非自动推断编码
+ * 用显式类型标签包装值，使 EncodeArg 按指定类型而非自动推断编码
  *
  * 示例：
- *   Encode(AsInt8(12))      → ArgumentTypeInt8
- *   Encode(AsFloat32(3.14)) → ArgumentTypeFloat32
- *   Encode(AsComplex64(1,2))→ ArgumentTypeComplex64
+ *   EncodeArg(AsInt8(12))      → ArgumentTypeInt8
+ *   EncodeArg(AsFloat32(3.14)) → ArgumentTypeFloat32
+ *   EncodeArg(AsComplex64(1,2))→ ArgumentTypeComplex64
  *
  * @param {number} tag ArgumentType*
  * @param {any} val
@@ -613,12 +613,12 @@ const _patchedTypeofTag = function (arg) {
   return _origTypeofTag(arg);
 };
 
-const _origEncode = Encode;
+const _origEncode = EncodeArg;
 const _patchedEncode = function (arg) {
   if (arg && typeof arg === 'object' && '__ag_tag' in arg && '__ag_val' in arg) {
     const tag = arg.__ag_tag | 0;
     const val = arg.__ag_val;
-    // 复用原 Encode 的分支逻辑，但用显式 tag
+    // 复用原 EncodeArg 的分支逻辑，但用显式 tag
     if (val === null || val === undefined) {
       return encode_ag(tag, null);
     }
@@ -742,17 +742,17 @@ const AGExports = {
   encode_ag,
   IsArgument,
   Validate,
-  get_frame,
-  get_data,
+  ag_get_frame,
+  ag_get_data,
   Data,
   Value,
   Decoder,
 
   // 编码/解码
   typeofTag: _patchedTypeofTag,
-  Encode: _patchedEncode,
+  EncodeArg: _patchedEncode,
   Encoder: _patchedEncode,
-  Decode,
+  DecodeArg,
   Json,
   get_value,
   get_value_from,
@@ -793,7 +793,7 @@ if (typeof exports !== 'undefined') {
              : Function('return this')();
     if (root && typeof root.AG === 'undefined') root.AG = AGExports;
     // 把内部常用的辅助函数也顺便提一下（避免 terser 认为是内部变量 mangling 改名）
-    var leak = ['Encode','Decode','Type','zeroExtendN','zeroExtend2byte','zeroExtend4byte','zeroExtend8byte'];
+    var leak = ['EncodeArg','EncodeArg','Type','zeroExtendN','zeroExtend2byte','zeroExtend4byte','zeroExtend8byte'];
     for (var i = 0; i < leak.length; i++) {
       var k = leak[i];
       if (typeof root[k] === 'undefined' && typeof AGExports[k] !== 'undefined') root[k] = AGExports[k];

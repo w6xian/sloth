@@ -38,8 +38,8 @@ func main() {
 	drpc.Register("v1", &HelloService{}, "metadata")
 	drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithRouter(r, "/ws"),
+		option.WithOrigin("*"),
 		option.WithServerHandleMessage(&Handler{}))
-
 	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
 		node, err := sloth.GetNode(service)
 		if err != nil {

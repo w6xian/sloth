@@ -13,12 +13,13 @@
         <li>本地 Bind 服务: <code>shop.Test(arg)</code>，服务器反向 CALL 时会触发。</li>
     </ul>
 
-    <!-- 必须按此顺序加载：tools 提供 Uint64 读写工具 → slice 二进制帧 → AG 参数帧 → Fn 传输帧 → SockRpcV3 客户端 -->
-    <script src="./tools.js"></script>
-    <script src="./slice.js"></script>
-    <script src="./ag.js"></script>
-    <script src="./fn.js"></script>
-    <script src="./sock_rpc_v3.js"></script>
+    <!-- 生成单体文件：node build.js --install-terser -> sloth_rpc_v3.js -->
+    <script src="./sloth_rpc_v3.min.js"></script>
+    <!-- <script src="./tools.js?v=20251201"></script>
+    <script src="./slice.js?v=20251201"></script>
+    <script src="./ag.js?v=20251201"></script>
+    <script src="./fn.js?v=20251201"></script>
+    <script src="./sock_rpc_v3.js?v=20251201"></script> -->
 
     <script>
         // 1. 初始化（可传 URL 字符串，也可传 {addr, timeoutMs, sliceSize, onOpen/onClose/onMessage/onError, autoReconnect...}）
@@ -74,7 +75,7 @@
                     'v1.Sign',
                     signPayload,
                     (data, extra, rawFnBytes) => {
-                        // data: 已经自动 AG.Decode 后的值；裸字节返回 Uint8Array
+                        // data: 已经自动 AG.DecodeArg 后的值；裸字节返回 Uint8Array
                         //
                         // 关键：对齐 Go examples/ws/node/main.go L84 `data = tlv.Value(data)` 用法——
                         //       v1.Sign 服务端返回的是 tlv.Json(auth) 编码后的 []byte
@@ -150,13 +151,13 @@
         });
 
         // 3. 注册本地服务：服务器反向 CALL "shop.Test" 时触发
-        //    参数会被自动 AG.Decode（服务器 Args[i] → JS 值）
-        //    返回值会被自动 AG.Encode（JS 值 → Fn reply Data → 服务器收到 []byte）
+        //    参数会被自动 AG.DecodeArg（服务器 Args[i] → JS 值）
+        //    返回值会被自动 AG.EncodeArg（JS 值 → Fn reply Data → 服务器收到 []byte）
         rpc.Bind('shop', {
             /**
              * 示例方法：服务器发 Args = [anyValue] 时
-             * @param {any} arg - 来自服务器 Args[0] 的 AG.Decode 结果
-             * @returns {any} 会被 AG.Encode 后回给服务器
+             * @param {any} arg - 来自服务器 Args[0] 的 AG.DecodeArg 结果
+             * @returns {any} 可能自行编码，与服务统一就好
              */
             Test: function (arg, extra,aint,abool,ajson) {
                 console.log('[V3] 服务器 CALL shop.Test, arg =', arg, 'extra =', extra, 'aint =', aint, 'abool =', abool);

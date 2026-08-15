@@ -14,6 +14,7 @@ type IConnectOption interface {
 	SetServerHandleMessage(handler handler.IServerHandleMessage) error
 	SetClientHandleMessage(handler handler.IClientHandleMessage) error
 	SetHeader(key string, value string) error
+	SetOrigin(origins ...string) error
 }
 
 type ConnectOption func(s IConnectOption)
@@ -58,8 +59,15 @@ func WithClientHandleMessage(handler handler.IClientHandleMessage) ConnectOption
 		s.SetClientHandleMessage(handler)
 	}
 }
+
 func WithRequestHeader(key string, value string) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetHeader(key, value)
+	}
+}
+
+func WithOrigin(origins ...string) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetOrigin(origins...)
 	}
 }

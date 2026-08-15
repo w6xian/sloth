@@ -30,21 +30,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func allowWebSocketOrigin(r *http.Request) bool {
-	if r == nil {
-		return false
-	}
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || strings.TrimSpace(u.Host) == "" {
-		return false
-	}
-	return array.InArray(u.Host, []string{"localhost:8081", r.Host})
-}
-
 type WsServer struct {
 	Buckets         []*bucket.Bucket
 	bucketIdx       uint32
@@ -63,6 +48,7 @@ type WsServer struct {
 	BroadcastSize   int
 	SliceSize       int64
 	header          map[string]string
+	originDomain    []string
 }
 
 // 实现 options.ConnectOption
@@ -76,11 +62,14 @@ func (s *WsServer) SetUriPath(path string) error {
 	return nil
 }
 func (s *WsServer) SetAddress(address string) error {
-	panic("SetAddress is not implemented")
 	return nil
 }
 func (s *WsServer) SetHeader(key string, value string) error {
 	s.header[key] = value
+	return nil
+}
+func (s *WsServer) SetOrigin(args ...string) error {
+	s.originDomain = append(s.originDomain, args...)
 	return nil
 }
 
@@ -89,8 +78,6 @@ func (s *WsServer) SetServerHandleMessage(handler handler.IServerHandleMessage) 
 	return nil
 }
 func (s *WsServer) SetClientHandleMessage(handler handler.IClientHandleMessage) error {
-	// 空方法
-	panic("SetClientHandleMessage is not implemented")
 	return nil
 }
 
@@ -206,7 +193,27 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 		header[k] = []string{v}
 	}
 
-	upGrader.CheckOrigin = allowWebSocketOrigin
+	upGrader.CheckOrigin = func(r *http.Request) bool {
+		if r == nil {
+			return false
+		}
+		if len(s.originDomain) == 0 {
+			return false
+		}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil || strings.TrimSpace(u.Host) == "" {
+			return false
+		}
+		// originDomain 中* 表示允许所有域名
+		if array.InArray("*", s.originDomain) {
+			return true
+		}
+		return array.InArray(u.Host, s.originDomain)
+	}
 	conn, err := upGrader.Upgrade(w, r, header)
 	if err != nil {
 		return

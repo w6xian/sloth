@@ -1,3 +1,2052 @@
+/*!
+ * sloth_v3_bundle.js  /  sloth_v3_min.js
+ *
+ * Concatenated & built from:
+ *   1. tools.js
+ *   2. slice.js
+ *   3. ag.js
+ *   4. fn.js
+ *   5. sock_rpc_v3.js
+ *
+ * Build order exactly matches: examples/ws/web/index_v3.html L17-L21
+ * Generated at: 2026-08-15T08:02:41.539Z
+ */
+(function () {
+"use strict";
+
+/* ============================================================
+ * source: tools.js
+ * ============================================================ */
+/* ============================================================
+ *  工具函数：BigInt 支持检测（真实可调用性检测）
+ *
+ *  为什么要"真实调用 1 次"检测，而不是 typeof BigInt==='function'？
+ *  用户环境里常见 installHook.js / Chrome DevTools 插件 / 某些
+ *  JS 沙箱会 mock BigInt = function() { throw new Error(...) }，
+ *  或 Object.defineProperty(window,'BigInt') 给出假的构造器。
+ *  单纯 typeof 会判断为可用，然后 writeUint64BE 的 BigInt(value)
+ *  抛错，降级到 Number 分支但 Number(value) 对某些值又不够，
+ *  最终抛出："fn: invalid uint64 value (no BigInt support in this environment)"
+ *  误导用户以为环境没 BigInt，实际上只是 mock 的 BigInt 不可用。
+ *
+ *  这里真实跑一次 BigInt(1) 成功才算 _HAS_BIGINT = true；失败就
+ *  一律 Number 降级（保证不抛错）。同样检测也给 sock_rpc_v3.js
+ *  和 fn.js 的兜底 IIFE 复用，三者保持一致。
+ * ============================================================ */
+
+function __probeBigInt() {
+    if (typeof BigInt !== "function") return false;
+    try {
+        const probe = BigInt(1);
+        if (typeof DataView.prototype.setBigUint64 === "function") {
+            const buf = new ArrayBuffer(8);
+            const v   = new DataView(buf);
+            v.setBigUint64(0, probe, false);
+            const r = v.getBigUint64(0, false);
+            if (r === probe) return true; // 读回一致才认为完整支持
+        }
+        return false;
+    } catch (_e) { return false; }
+}
+const _HAS_BIGINT = __probeBigInt();
+
+
+function encode_bytes(v) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(v));
+  } catch (err) {
+    return new Uint8Array(0);
+  }
+}
+
+function decode_bytes(b) {
+  try {
+    return JSON.parse(new TextDecoder().decode(b));
+  } catch (err) {
+    return null;
+  }
+}
+
+function decode_string(b) {
+  try {
+    return new TextDecoder().decode(b);
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 将数字转换为 BigInt（若支持），否则退化为 Number
+ * @param {number|string|bigint} n
+ * @returns {bigint|number}
+ */
+function _toBig(n) {
+  return _HAS_BIGINT ? BigInt(n) : Number(n);
+}
+
+/**
+ * 两个 BigInt/Number 的位与运算
+ */
+function _bitAnd(a, b) {
+  if (_HAS_BIGINT) return a & BigInt(b);
+  return a & b;
+}
+
+/**
+ * 左移
+ */
+function _lshift(a, n) {
+  if (_HAS_BIGINT) return a << BigInt(n);
+  // Number 左移超 32 位会出问题，这里用乘法兜底
+  if (n < 31) return a << n;
+  return a * Math.pow(2, n);
+}
+
+/**
+ * 右移（逻辑/算术统一用 BigInt >>> 对无符号，对有符号用 BigInt >>）
+ */
+function _urshift(a, n) {
+  if (_HAS_BIGINT) return a >> BigInt(n);
+  if (n < 31) return a >>> n;
+  return Math.floor(a / Math.pow(2, n));
+}
+
+/* ============================================================
+ *  辅助函数：字节处理
+ * ============================================================ */
+
+/**
+ * 将字节数组零扩展/截断到 n 字节（大端语义：高位在左）
+ *   - 长度 >= n：取最右侧 n 字节（低位）
+ *   - 长度 <  n：左侧补 0
+ * @param {Uint8Array} b
+ * @param {number} n
+ * @returns {Uint8Array}
+ */
+function zeroExtendN(b, n) {
+  const l = b.length;
+  const out = new Uint8Array(n);
+  if (l >= n) {
+    out.set(b.subarray(l - n, l), 0);
+    return out;
+  }
+  out.set(b, n - l);
+  return out;
+}
+
+/** 零扩展到 2 字节 */
+function zeroExtend2byte(b) {
+  return zeroExtendN(b, 2);
+}
+/** 零扩展到 4 字节 */
+function zeroExtend4byte(b) {
+  return zeroExtendN(b, 4);
+}
+/** 零扩展到 8 字节 */
+function zeroExtend8byte(b) {
+  return zeroExtendN(b, 8);
+}
+
+/**
+ * int64 → 大端字节数组（简易压缩：去除前导 0，但不 trim 负数的 FF 高位）
+ *   [0 0 0 0 0 0 128 0] → [128,0]
+ *   [0 0 0 0 0 0 1 1]   → [1,1]
+ *   [0 0 0 0 0 0 0 0]   → [0]
+ *   [FF FF FF FF FF FF FF FF] (-1) → 保留 8 字节（首字节是 FF 不能 trim）
+ * @param {bigint|number} i
+ * @returns {Uint8Array}
+ */
+function int_to_byte(i) {
+  const bi = _toBig(i);
+  // 写入 8 字节 BigEndian
+  const b = new Uint8Array(8);
+  const mask = _toBig(0xff);
+  for (let idx = 7; idx >= 0; idx--) {
+    b[idx] = Number(_bitAnd(bi, 0xff));
+    // 注意：无符号右移 8 位
+    if (_HAS_BIGINT) {
+      // BigInt 右移对负数是算术右移，正好取补码高位
+      bi_holder(bi >> BigInt(8));
+    } else {
+      // Number：手动模拟补码右移
+      bi_holder(Math.floor(Number(bi) / 256));
+    }
+  }
+  // -- 下面重新实现（因上面 bi 不可变） --
+  return _intToByteImpl(_toBig(i));
+}
+
+/**
+ * holder 占位，实际使用闭包变量实现
+ * @ignore
+ */
+function bi_holder(_v) {
+  /* no-op, replaced by closure in real impl */
+}
+
+/**
+ * int64 → 大端字节数组 + 压缩（真实实现）
+ * @param {bigint|number} val
+ * @returns {Uint8Array}
+ */
+function _intToByteImpl(val) {
+  const b = new Uint8Array(8);
+  let v = val;
+  const ff = _toBig(0xff);
+  for (let idx = 7; idx >= 0; idx--) {
+    b[idx] = Number(_bitAnd(v, 0xff));
+    if (_HAS_BIGINT) {
+      v = v >> BigInt(8);
+    } else {
+      // Number 模拟算术右移 8 位（处理负数补码）
+      if (v >= 0) {
+        v = Math.floor(v / 256);
+      } else {
+        v = Math.ceil(v / 256);
+      }
+    }
+  }
+  // 简易压缩：从前向后找第一个不必保留的字节
+  // 规则：
+  //   - 如果首字节 b[0] 高位是 0（正数），则可以 trim 掉连续的前导 0 字节（但至少保留 1B）
+  //   - 如果首字节高位是 1（负数），则不能 trim（保持符号扩展）
+  let pos = 0;
+  const isPositive = (b[0] & 0x80) === 0;
+  if (isPositive) {
+    while (pos < 7 && b[pos] === 0) {
+      pos++;
+    }
+  }
+  if (pos === 0) {
+    return b;
+  }
+  const outLen = 8 - pos;
+  const out = new Uint8Array(outLen);
+  out.set(b.subarray(pos, 8), 0);
+  return out;
+}
+
+/** uint64 → 字节数组（复用 int_to_byte，补码一致） */
+function uint_to_byte(u) {
+  return _intToByteImpl(_toBig(u));
+}
+
+/**
+ * 字节数组（大端） → uint64（Go 版逻辑：先无符号解析）
+ *   Go 版 to_int64 = int64(binary.BigEndian.Uint64(zeroExtend8byte(b)))
+ *   这里 to_int64 复用 to_uint64 的位模式，通过窄化函数得到有符号语义
+ * @param {Uint8Array} b
+ * @returns {bigint|number}
+ */
+function to_uint64(b) {
+  const padded = zeroExtend8byte(b);
+  const dv = new DataView(padded.buffer, padded.byteOffset, padded.byteLength);
+  if (_HAS_BIGINT && typeof dv.getBigUint64 === "function") {
+    return dv.getBigUint64(0, false); // big-endian 无符号
+  }
+  const hi =
+    ((padded[0] << 24) | (padded[1] << 16) | (padded[2] << 8) | padded[3]) >>>
+    0;
+  const lo =
+    ((padded[4] << 24) | (padded[5] << 16) | (padded[6] << 8) | padded[7]) >>>
+    0;
+  return hi * 0x100000000 + lo;
+}
+
+/**
+ * 字节数组（大端） → int64（位模式同 uint64，只是按有符号解释）
+ *   注意：与 Go 版一致，先按 uint64 解析位模式，再按二补码解释
+ * @param {Uint8Array} b
+ * @returns {bigint|number}
+ */
+function to_int64(b) {
+  const u = to_uint64(b);
+  if (_HAS_BIGINT) {
+    // uint64 bit pattern → int64: 超过 INT64_MAX 时减去 2^64
+    const max = BigInt("9223372036854775807");
+    const two64 = BigInt("18446744073709551616");
+    return u > max ? u - two64 : u;
+  }
+  // Number: 当高位 >= 0x80000000 时为负数
+  if (u >= 0x8000000000000000) {
+    return u - 0x10000000000000000;
+  }
+  return u;
+}
+
+/* -------- 窄化辅助：对齐 Go 的 uint8/int8 等强制窄化语义 -------- */
+
+/** 按 int8 窄化（wrap around）：int8(248) = -8 */
+function narrowInt8(n) {
+  const v = Number(n) & 0xff;
+  return v >= 0x80 ? v - 0x100 : v;
+}
+/** 按 int16 窄化 */
+function narrowInt16(n) {
+  const v = Number(n) & 0xffff;
+  return v >= 0x8000 ? v - 0x10000 : v;
+}
+/** 按 int32 窄化 */
+function narrowInt32(n) {
+  return Number(n) | 0;
+}
+/** 按 uint8 窄化 */
+function narrowUint8(n) {
+  return Number(n) & 0xff;
+}
+/** 按 uint16 窄化 */
+function narrowUint16(n) {
+  return Number(n) & 0xffff;
+}
+/** 按 uint32 窄化 */
+function narrowUint32(n) {
+  return Number(n) >>> 0;
+}
+
+/* ============================================================
+ *  辅助函数：JSON Fallback
+ * ============================================================ */
+
+/**
+ * Slice/Map/Struct 等复合类型用 JSON 转成字符串
+ * 作为 AG String 帧 payload；调用方再用 JSON.parse(Data(frame)) 还原
+ * @param {any} v
+ * @returns {string}
+ */
+function jsonMarshalFallback(v) {
+  return JSON.stringify(v);
+}
+
+/**
+ * Custom 类型兜底序列化：优先 JSON，失败则 String()
+ * @param {any} v
+ * @returns {Uint8Array}
+ */
+function _serialize(v) {
+  const enc = new TextEncoder();
+  try {
+    return enc.encode(JSON.stringify(v));
+  } catch (_e) {
+    return enc.encode(String(v));
+  }
+}
+
+// ============================================================
+// 内部辅助: 64位整数读写 (兼容有无 BigInt 的环境)
+// 关键：此处 _HAS_BIGINT 已由顶部 __probeBigInt() 做过"真实可调用"检测
+//       （不是 typeof BigInt==='function' 这种纸面判断，避免 installHook.js
+//       mock 出的假 BigInt 把代码带进 try→catch→降级→Number(NaN)→抛错）。
+// ============================================================
+
+/* 兼容兜底 FnError：tools.js 比 fn.js 先加载（index_v3.html 顺序 1），
+ * 自己不能引用 fn.js 的类，所以这里定义独立的 Error，保持名字一致即可，
+ * 被 fn.js 的 instanceof 检测不到没关系，但 message 要可辨识。
+ * 注意：因为 tools.js 源码内自己的 class FnError 是在 bundle 内 fn.js 合并
+ * 后声明的，TDZ 下 typeof FnError 会 ReferenceError，这里只能先 try/catch
+ * 访问 window/global 上已挂载的 FnError，绝对不能出现裸名 FnError 的 typeof */
+(function __ensureToolsFnError(){
+    try {
+        var root = (typeof window !== 'undefined') ? window
+                 : (typeof self   !== 'undefined') ? self
+                 : (typeof global !== 'undefined') ? global
+                 : (typeof globalThis !== 'undefined') ? globalThis
+                 : Function('return this')();
+        if (root && root.FnError) return;       // 宿主已定义就不覆盖
+        if (root) {
+            root.FnError = (function(){
+                function FnError(msg, cause) {
+                    var base = Error.call(this, msg);
+                    this.name    = 'FnError';
+                    this.message = msg;
+                    if (cause) this.cause = cause;
+                    if (Error.captureStackTrace) Error.captureStackTrace(this, FnError);
+                    else this.stack = base.stack;
+                }
+                FnError.prototype = Object.create(Error.prototype);
+                FnError.prototype.constructor = FnError;
+                return FnError;
+            })();
+        }
+    } catch (_e) { /* 静默 */ }
+})();
+
+/**
+ * 以大端序写入 uint64 到 DataView（和 fn.js/sock_rpc_v3.js 行为一致）
+ * @private
+ */
+function writeUint64BE(view, offset, value) {
+  // --- 分支 1：真实 BigInt 支持（探针通过） ---
+  if (_HAS_BIGINT) {
+    try {
+      var asBigInt = (typeof value === 'bigint')
+          ? value
+          : BigInt((typeof value === 'string' || typeof value === 'number') ? value : String(value));
+      view.setBigUint64(offset, asBigInt, false);
+      return;
+    } catch (e) {
+      // 降级
+    }
+  }
+  // --- 分支 2：Number 降级（hi/lo 双 32-bit 拆分） ---
+  var num = NaN;
+  try {
+    if (value == null) num = 0;
+    else if (typeof value === 'bigint') num = Number(value) || 0;
+    else num = Number(value);
+  } catch (_e) { num = NaN; }
+
+  if (!isFinite(num) || num < 0) {
+    throw new FnError(
+      "fn: invalid uint64 value (no BigInt support in this environment, and value cannot be converted to finite number)"
+    );
+  }
+  var MAX_U32 = 0xffffffff;
+  var lo = ((num % 0x100000000) | 0) >>> 0;
+  var hi = ((num / 0x100000000) | 0) >>> 0;
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    var s = value.replace(/^0+/, '') || '0';
+    if (s.length <= 15) {
+      var n2 = Number(s);
+      lo = ((n2 % 0x100000000) | 0) >>> 0;
+      hi = ((n2 / 0x100000000) | 0) >>> 0;
+    } else {
+      try {
+        var bv = BigInt(s);
+        lo = Number(bv & BigInt(0xffffffff)) >>> 0;
+        hi = Number((bv >> BigInt(32)) & BigInt(0xffffffff)) >>> 0;
+      } catch (_ignore) { /* 保持 Number 拆分 */ }
+    }
+  }
+  view.setUint32(offset,      (hi & MAX_U32) >>> 0, false);
+  view.setUint32(offset + 4,  (lo & MAX_U32) >>> 0, false);
+}
+
+/**
+ * 以大端序从 DataView 读取 uint64（和 fn.js 行为一致）
+ * @private
+ */
+function readUint64BE(view, offset) {
+  if (_HAS_BIGINT) {
+    try {
+      return view.getBigUint64(offset, false);
+    } catch (e) {
+      // 降级
+    }
+  }
+  var hi = view.getUint32(offset,     false) >>> 0;
+  var lo = view.getUint32(offset + 4, false) >>> 0;
+  if (hi <= 0x1fffff) return (hi * 0x100000000) + lo;
+  try {
+    if (typeof BigInt === 'function') {
+      return (BigInt(hi) << BigInt(32)) | BigInt(lo);
+    }
+  } catch (_e) { /* fall through */ }
+  if (typeof console !== 'undefined' && console.warn) {
+    console.warn(
+      "[fn.js] uint64 value exceeds Number.MAX_SAFE_INTEGER, precision may be lost. Enable real BigInt for accuracy."
+    );
+  }
+  return (hi * 0x100000000) + lo;
+}
+
+// CRC functions
+const crc16_h = new Uint8Array([
+  0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00,
+  0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1,
+  0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81,
+  0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40,
+  0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x01,
+  0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0,
+  0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80,
+  0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41,
+  0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00,
+  0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0,
+  0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80,
+  0x41, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41,
+  0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01,
+  0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1,
+  0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81,
+  0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40,
+  0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01,
+  0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1,
+  0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80,
+  0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40,
+]);
+
+const crc16_l = new Uint8Array([
+  0x00, 0xc0, 0xc1, 0x01, 0xc3, 0x03, 0x02, 0xc2, 0xc6, 0x06, 0x07, 0xc7, 0x05,
+  0xc5, 0xc4, 0x04, 0xcc, 0x0c, 0x0d, 0xcd, 0x0f, 0xcf, 0xce, 0x0e, 0x0a, 0xca,
+  0xcb, 0x0b, 0xc9, 0x09, 0x08, 0xc8, 0xd8, 0x18, 0x19, 0xd9, 0x1b, 0xdb, 0xda,
+  0x1a, 0x1e, 0xde, 0xdf, 0x1f, 0xdd, 0x1d, 0x1c, 0xdc, 0x14, 0xd4, 0xd5, 0x15,
+  0xd7, 0x17, 0x16, 0xd6, 0xd2, 0x12, 0x13, 0xd3, 0x11, 0xd1, 0xd0, 0x10, 0xf0,
+  0x30, 0x31, 0xf1, 0x33, 0xf3, 0xf2, 0x32, 0x36, 0xf6, 0xf7, 0x37, 0xf5, 0x35,
+  0x34, 0xf4, 0x3c, 0xfc, 0xfd, 0x3d, 0xff, 0x3f, 0x3e, 0xfe, 0xfa, 0x3a, 0x3b,
+  0xfb, 0x39, 0xf9, 0xf8, 0x38, 0x28, 0xe8, 0xe9, 0x29, 0xeb, 0x2b, 0x2a, 0xea,
+  0xee, 0x2e, 0x2f, 0xef, 0x2d, 0xed, 0xec, 0x2c, 0xe4, 0x24, 0x25, 0xe5, 0x27,
+  0xe7, 0xe6, 0x26, 0x22, 0xe2, 0xe3, 0x23, 0xe1, 0x21, 0x20, 0xe0, 0xa0, 0x60,
+  0x61, 0xa1, 0x63, 0xa3, 0xa2, 0x62, 0x66, 0xa6, 0xa7, 0x67, 0xa5, 0x65, 0x64,
+  0xa4, 0x6c, 0xac, 0xad, 0x6d, 0xaf, 0x6f, 0x6e, 0xae, 0xaa, 0x6a, 0x6b, 0xab,
+  0x69, 0xa9, 0xa8, 0x68, 0x78, 0xb8, 0xb9, 0x79, 0xbb, 0x7b, 0x7a, 0xba, 0xbe,
+  0x7e, 0x7f, 0xbf, 0x7d, 0xbd, 0xbc, 0x7c, 0xb4, 0x74, 0x75, 0xb5, 0x77, 0xb7,
+  0xb6, 0x76, 0x72, 0xb2, 0xb3, 0x73, 0xb1, 0x71, 0x70, 0xb0, 0x50, 0x90, 0x91,
+  0x51, 0x93, 0x53, 0x52, 0x92, 0x96, 0x56, 0x57, 0x97, 0x55, 0x95, 0x94, 0x54,
+  0x9c, 0x5c, 0x5d, 0x9d, 0x5f, 0x9f, 0x9e, 0x5e, 0x5a, 0x9a, 0x9b, 0x5b, 0x99,
+  0x59, 0x58, 0x98, 0x88, 0x48, 0x49, 0x89, 0x4b, 0x8b, 0x8a, 0x4a, 0x4e, 0x8e,
+  0x8f, 0x4f, 0x8d, 0x4d, 0x4c, 0x8c, 0x44, 0x84, 0x85, 0x45, 0x87, 0x47, 0x46,
+  0x86, 0x82, 0x42, 0x43, 0x83, 0x41, 0x81, 0x80, 0x40,
+]);
+
+// CRC计算（与 Go 端 internal/utils/crc.go 的 GetCrC 完全一致）
+function getCRC(data) {
+  let hi = 0x00ff;
+  let low = 0x00ff;
+  for (let i = 0; i < data.length; i++) {
+    const pos = (low ^ data[i]) & 0x00ff;
+    low = hi ^ crc16_h[pos];
+    hi = crc16_l[pos];
+  }
+  const d_crc = ((hi & 0x00ff) << 8) | (low & 0x00ff);
+  const d_crcArr = new Uint8Array(2);
+  d_crcArr[0] = d_crc & 0xff;
+  d_crcArr[1] = (d_crc >> 8) & 0xff;
+  return d_crcArr;
+}
+
+
+/* ============================================================
+ * source: slice.js
+ * ============================================================ */
+/* patch: slice.js 错误引用 GetCrC，自动别名 getCRC */
+if (typeof GetCrC === "undefined" && typeof getCRC !== "undefined") { var GetCrC = getCRC; }
+// Constants
+const TextMessage = 0x01;
+const BinaryMessage = 0x02;
+const LongMessage = 0x80;
+const CRC = 0x40;
+
+// DataSlice class
+class DataSlice {
+    constructor(p, n, t, i, s, d) {
+        this.P = p; // Message type
+        this.N = n; // Slice name (2 bytes)
+        this.T = t; // Total slices
+        this.I = i; // Current slice index
+        this.S = s; // Total message size
+        this.D = d; // Slice data
+    }
+
+    Bytes() {
+        return serialize(this);
+    }
+
+    MuskCheck() {
+        return this.P & 0x40;
+    }
+
+    Encode(opts = []) {
+        return Encode(this, opts);
+    }
+}
+
+
+
+function newOption(opts = []) {
+    const opt = new Option();
+    for (const o of opts) {
+        o(opt);
+    }
+    return opt;
+}
+
+function get_header_size(lLen, checkCRC) {
+    let c = 0x02;
+    if (!checkCRC) {
+        c = 0;
+    }
+    return lLen + 1 + 2 + 1 + 1 + c;
+}
+
+
+function serialize(v) {
+    try {
+        return new TextEncoder().encode(JSON.stringify(v));
+    } catch (err) {
+        return new Uint8Array(0);
+    }
+}
+
+// Frame options
+class Option {
+    constructor() {
+        this.CheckCRC = false;
+        this.LengthSize = 2;
+    }
+}
+
+function CheckCRC() {
+    return function(opt) {
+        opt.CheckCRC = true;
+    };
+}
+
+function IsComplete(src, dst) {
+    if (!src || !dst) return false;
+    if (src.length !== 2 || dst.length !== 2) return false;
+    return src[0] === dst[0] && src[1] === dst[1];
+}
+
+function CheckCRC(src, crc) {
+    return IsComplete(getCRC(src), crc);
+}
+
+// Encode function
+function Encode(s, opts = []) {
+    const opt = newOption(opts);
+    // 1byte type
+    // 2byte name
+    // 1byte slices
+    // 1byte index
+    // 2/4byte size
+    // 0/2byte crc
+    // nbyte data
+    let tag = s.P & 0x3F;
+    let checkCRC = (s.P & CRC) === CRC;
+    const l = s.D.length;
+    
+    // Determine if long message tag is needed based on length
+    if (l <= 0xFFFF) {
+        opt.LengthSize = 2;
+    } else {
+        tag |= LongMessage;
+        opt.LengthSize = 4;
+    }
+    
+    if (opt.CheckCRC || checkCRC) {
+        checkCRC = true;
+        tag |= CRC;
+    }
+
+    const headerSize = get_header_size(opt.LengthSize, checkCRC);
+    const buf = new Uint8Array(headerSize + l);
+    
+    buf[0] = tag;
+    
+    // Write name (2 bytes)
+    const nameBytes = new TextEncoder().encode(s.N);
+    buf[1] = nameBytes[0] || 0;
+    buf[2] = nameBytes[1] || 0;
+    
+    buf[3] = s.T;
+    buf[4] = s.I;
+    
+    // Write length
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    if (opt.LengthSize === 2) {
+        dv.setUint16(5, l, false); // Big endian
+    } else {
+        dv.setUint32(5, l, false); // Big endian
+    }
+    
+    // Write CRC if needed
+    if (checkCRC) {
+        const crc = getCRC(s.D);
+        buf[headerSize - 2] = crc[0];
+        buf[headerSize - 1] = crc[1];
+    }
+    
+    // Write data
+    buf.set(s.D, headerSize);
+    
+    return buf;
+}
+
+// Decode function
+function Decode(b) {
+    let headerSize = get_header_size(2, false);
+    if (b.length < headerSize) {
+        throw new Error("invalid slice data length");
+    }
+    
+    const tag = b[0];
+    const opt = new Option();
+    
+    if ((tag & LongMessage) === 0) {
+        opt.LengthSize = 2;
+    } else {
+        opt.LengthSize = 4;
+    }
+    
+    if ((tag & CRC) === CRC) {
+        opt.CheckCRC = true;
+    }
+    
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    let l = dv.getUint16(5, false); // Big endian
+    if (opt.LengthSize === 4) {
+        l = dv.getUint32(5, false); // Big endian
+    }
+    
+    headerSize = get_header_size(opt.LengthSize, opt.CheckCRC);
+    if (b.length < headerSize + l) {
+        throw new Error("invalid slice data length");
+    }
+    
+    const s = new DataSlice();
+    s.P = tag;
+    s.N = new TextDecoder().decode(b.subarray(1, 3));
+    s.T = b[3];
+    s.I = b[4];
+    s.S = l;
+    
+    const data = b.subarray(headerSize, headerSize + l);
+    
+    // Verify CRC if needed
+    if (opt.CheckCRC) {
+        const crc = b.subarray(headerSize - 2, headerSize);
+        if (!CheckCRC(data, crc)) {
+            throw new Error("invalid slice crc");
+        }
+    }
+    
+    s.D = data;
+    return s;
+}
+
+// Export everything
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        TextMessage,
+        BinaryMessage,
+        LongMessage,
+        CRC,
+        DataSlice,
+        Encode,
+        Decode,
+        GetCrC,
+        IsComplete,
+        CheckCRC,
+        newOption
+    };
+}
+
+/* ============================================================
+ * source: ag.js
+ * ============================================================ */
+/**
+ * @file AG 协议 (Argument Grid) 参数帧格式 - JavaScript 实现
+ *
+ * 帧格式：
+ *   MAGIC  :p   2 byte   0x3A 0x70  (ASCII ":p")
+ *   TYPE   t    1 byte   ArgumentType* 枚举
+ *   LEN    l    2 byte   big endian，Value 字节数 (0~65535)
+ *   VALUE  d    l byte   payload，长度 = l
+ *
+ * 总帧最小 5 字节，最大 5 + 65535 = 65540 字节。
+ *
+ * 说明：
+ *   - 整数编码采用 Big Endian + 简易压缩（去除前导 0，负数保留 FF 符号位）
+ *   - Float32/Float64/Complex64/Complex128 采用 Little Endian（与 Go 版一致）
+ *   - 复合类型（Array/Object/非 Uint8Array）降级为 JSON 字符串以 String 帧传输
+ *   - 64 位整数使用 BigInt 保证精度；若运行环境不支持 BigInt，将退化为 Number
+ */
+
+/* ============================================================
+ *  常量定义
+ * ============================================================ */
+
+/** MAGIC 首字节 ':' */
+const ArgumentMagic1 = 0x3A;
+/** MAGIC 次字节 'p' */
+const ArgumentMagic2 = 0x70;
+/** 帧头大小 = Magic(2) + Type(1) + Length(2) = 5 */
+const ArgumentHeaderSize = 2 + 1 + 2;
+/** Value 段最大字节数上限（>此值时报 ErrAgDataTooLarge）。
+ *  注意：LEN 字段是 16 位无符号，实际最大可表达 65535；当 data 长度恰好 65536 时
+ *  不会触发错误但会使 LEN 溢位（与 Go 版行为完全一致）。
+ */
+const ArgumentMaxDataSize = 1 << 16;
+
+/**
+ * 基本类型枚举（与 Go 原语一一对应，0x01~0x1F 为基础标量；0x20~0x3F 为复合/扩展）
+ * @enum {number}
+ */
+const ArgumentType = {
+  Nil: 1,
+  Bool: 2,
+
+  Int: 3,
+  Int8: 4,
+  Int16: 5,
+  Int32: 6,
+  Int64: 7,
+
+  Uint: 8,
+  Uint8: 9,
+  Uint16: 10,
+  Uint32: 11,
+  Uint64: 12,
+  Uintptr: 13,
+
+  Float32: 14,
+  Float64: 15,
+
+  Complex64: 16,
+  Complex128: 17,
+
+  String: 18,
+  Bytes: 19,
+
+  Slice: 20,
+  Map: 21,
+  Struct: 22,
+  Custom: 23,
+};
+
+/** 兼容 Go 常量命名的别名 */
+const ArgumentTypeNil = ArgumentType.Nil;
+const ArgumentTypeBool = ArgumentType.Bool;
+const ArgumentTypeInt = ArgumentType.Int;
+const ArgumentTypeInt8 = ArgumentType.Int8;
+const ArgumentTypeInt16 = ArgumentType.Int16;
+const ArgumentTypeInt32 = ArgumentType.Int32;
+const ArgumentTypeInt64 = ArgumentType.Int64;
+const ArgumentTypeUint = ArgumentType.Uint;
+const ArgumentTypeUint8 = ArgumentType.Uint8;
+const ArgumentTypeUint16 = ArgumentType.Uint16;
+const ArgumentTypeUint32 = ArgumentType.Uint32;
+const ArgumentTypeUint64 = ArgumentType.Uint64;
+const ArgumentTypeUintptr = ArgumentType.Uintptr;
+const ArgumentTypeFloat32 = ArgumentType.Float32;
+const ArgumentTypeFloat64 = ArgumentType.Float64;
+const ArgumentTypeComplex64 = ArgumentType.Complex64;
+const ArgumentTypeComplex128 = ArgumentType.Complex128;
+const ArgumentTypeString = ArgumentType.String;
+const ArgumentTypeBytes = ArgumentType.Bytes;
+const ArgumentTypeSlice = ArgumentType.Slice;
+const ArgumentTypeMap = ArgumentType.Map;
+const ArgumentTypeStruct = ArgumentType.Struct;
+const ArgumentTypeCustom = ArgumentType.Custom;
+
+/* ============================================================
+ *  错误对象
+ * ============================================================ */
+
+const ErrAgTooShort = new Error('ag: payload too short for header');
+const ErrAgBadMagic = new Error('ag: bad magic header, expect :p');
+const ErrAgLengthMismatch = new Error('ag: payload length mismatch');
+const ErrAgDataTooLarge = new Error(`ag: data length exceeds ${ArgumentMaxDataSize}`);
+const ErrAgUnknownType = new Error('ag: unknown type tag');
+const ErrAgInvalidHeader = new Error('ag: invalid header');
+
+/* ============================================================
+ *  帧结构：基础操作
+ * ============================================================ */
+
+/**
+ * 构造一帧 AG 字节流
+ *   Layout: [Magic1 Magic2 Type Len(BE,2B) Data...]
+ * @param {number} t 类型标签 (ArgumentType*)
+ * @param {Uint8Array|null} data Value 段
+ * @returns {Uint8Array}
+ * @throws {ErrAgDataTooLarge} 数据超过 65535 字节
+ */
+function encode_ag(t, data) {
+  const payload = data || new Uint8Array(0);
+  if (payload.length > ArgumentMaxDataSize) {
+    throw ErrAgDataTooLarge;
+  }
+  const out = new Uint8Array(ArgumentHeaderSize + payload.length);
+  out[0] = ArgumentMagic1;
+  out[1] = ArgumentMagic2;
+  out[2] = t & 0xFF;
+  // 写入 2 字节 BigEndian 长度
+  out[3] = (payload.length >> 8) & 0xFF;
+  out[4] = payload.length & 0xFF;
+  if (payload.length > 0) {
+    out.set(payload, ArgumentHeaderSize);
+  }
+  return out;
+}
+
+/**
+ * O(1) 校验帧完整性（magic + length 匹配）
+ * @param {Uint8Array|ArrayBuffer|Array<number>} b
+ * @returns {boolean}
+ */
+function IsArgument(b) {
+  const buf = _asU8(b);
+  if (!buf || buf.length < ArgumentHeaderSize) return false;
+  if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return false;
+  const length = (buf[3] << 8) | buf[4];
+  return buf.length === ArgumentHeaderSize + length;
+}
+
+/**
+ * 纯验证；全部通过返回 null，否则抛/返回 Error
+ * @param {Uint8Array} b
+ * @returns {Error|null}
+ */
+function Validate(b) {
+  const buf = _asU8(b);
+  if (!buf || buf.length < ArgumentHeaderSize) return ErrAgTooShort;
+  if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return ErrAgBadMagic;
+  const length = (buf[3] << 8) | buf[4];
+  if (length > ArgumentMaxDataSize) return ErrAgDataTooLarge;
+  if (buf.length !== ArgumentHeaderSize + length) return ErrAgLengthMismatch;
+  return null;
+}
+
+/**
+ * 解析帧头并返回 (type, value_bytes)；失败抛错
+ * @param {Uint8Array} b
+ * @returns {{t: number, v: Uint8Array}}
+ */
+function ag_get_frame(b) {
+  const err = Validate(b);
+  if (err) throw err;
+  const buf = _asU8(b);
+  const t = buf[2];
+  const v =  ag_get_data(buf);
+  return { t, v };
+}
+
+/**
+ * 取 Value 段拷贝（按类型执行零扩展对齐）
+ *   - 对 int8/uint8  →  1B zeroExtend
+ *   - 对 int16/uint16 → 2B zeroExtend
+ *   - 对 int32/uint32 → 4B zeroExtend
+ *   - 对 64 位整数族  → 8B zeroExtend
+ *   - 其他类型       → 原样拷贝
+ *   Value 段为 0 字节时返回 null（与 Go 版保持一致）
+ * @param {Uint8Array} b
+ * @returns {Uint8Array|null}
+ */
+function ag_get_data(b) {
+  const buf = _asU8(b);
+  const length = (buf[3] << 8) | buf[4];
+  if (length === 0) return null;
+  const raw = new Uint8Array(length);
+  raw.set(buf.subarray(ArgumentHeaderSize, ArgumentHeaderSize + length), 0);
+  const t = buf[2];
+  switch (t) {
+    case ArgumentTypeUint8:
+    case ArgumentTypeInt8:
+      return zeroExtendN(raw, 1);
+    case ArgumentTypeUint16:
+    case ArgumentTypeInt16:
+      return zeroExtend2byte(raw);
+    case ArgumentTypeUint32:
+    case ArgumentTypeInt32:
+      return zeroExtend4byte(raw);
+    case ArgumentTypeUint64:
+    case ArgumentTypeInt64:
+    case ArgumentTypeInt:
+    case ArgumentTypeUint:
+    case ArgumentTypeUintptr:
+      return zeroExtend8byte(raw);
+  }
+  return raw;
+}
+
+/**
+ * Data 取 Value 段；非 AG 帧或不合法返回源切片（兼容旧调用方直接透传）
+ * @param {Uint8Array} b
+ * @returns {Uint8Array|null}
+ */
+function Data(b) {
+  if (!IsArgument(b)) return b;
+  return ag_get_data(b);
+}
+
+/** Value = Data 别名 */
+function Value(b) { return Data(b); }
+
+/**
+ * Decoder: 非 AG 帧返回原字节；AG 帧返回 Value 段
+ *   与 Decode 的区别：不解码具体值，只取 payload
+ * @param {Uint8Array} b
+ * @returns {Uint8Array|null}
+ */
+function Decoder(b) {
+  if (!IsArgument(b)) return b;
+  return ag_get_data(b);
+}
+
+/* ============================================================
+ *  类型判断：typeof
+ * ============================================================ */
+
+/**
+ * 判断 JS 值对应的 AG 类型标签
+ *   - JS 的 Number 无法区分 int/float；规则：
+ *       · Number.isInteger 且绝对值 < 2^53  → 按 Int/Int64 处理
+ *       · 否则 → Float64
+ *   - Boolean        → Bool
+ *   - null/undefined → Nil
+ *   - string         → String
+ *   - Uint8Array     → Bytes
+ *   - Array          → Slice（实际编码会降级 JSON → String）
+ *   - plain Object   → Struct/Map（实际编码会降级 JSON → String）
+ *   - BigInt         → Int64 / Uint64（根据符号）
+ * @param {any} arg
+ * @returns {number} ArgumentType*
+ */
+function typeofTag(arg) {
+  if (arg === null || arg === undefined) return ArgumentTypeNil;
+  if (typeof arg === 'boolean') return ArgumentTypeBool;
+  if (typeof arg === 'string') return ArgumentTypeString;
+  if (typeof arg === 'bigint') {
+    return arg < 0 ? ArgumentTypeInt64 : ArgumentTypeUint64;
+  }
+  if (typeof arg === 'number') {
+    if (!Number.isFinite(arg)) return ArgumentTypeFloat64;
+    if (Number.isInteger(arg)) {
+      // JS 的 number 整数统一走 Int（64 位压缩）
+      return ArgumentTypeInt;
+    }
+    return ArgumentTypeFloat64;
+  }
+  if (arg instanceof Uint8Array) return ArgumentTypeBytes;
+  if (Array.isArray(arg)) return ArgumentTypeSlice;
+  if (arg && typeof arg === 'object') {
+    // 判断是否复数对象 {real,imag}
+    if ('real' in arg && 'imag' in arg &&
+        typeof arg.real === 'number' && typeof arg.imag === 'number') {
+      // 默认 Complex128；调用方可通过显式包装指定 64
+      return ArgumentTypeComplex128;
+    }
+    return ArgumentTypeStruct;
+  }
+  return ArgumentTypeCustom;
+}
+
+/* ============================================================
+ *  编码：EncodeArg / Encoder / Json
+ * ============================================================ */
+
+/**
+ * 把任意值按类型编码为一帧 AG
+ *   - 标量走原语编码
+ *   - 复合 (Array/Object/非 Uint8Array) 走 JSON fallback 映射成 String 帧
+ * @param {any} arg
+ * @returns {Uint8Array}
+ * @throws {ErrAgDataTooLarge}
+ */
+function EncodeArg(arg) {
+  if (arg === null || arg === undefined) {
+    return encode_ag(ArgumentTypeNil, null);
+  }
+  const t = typeofTag(arg);
+  switch (t) {
+    case ArgumentTypeBool: {
+      return encode_ag(t, new Uint8Array([arg ? 1 : 0]));
+    }
+
+    case ArgumentTypeInt:
+    case ArgumentTypeInt8:
+    case ArgumentTypeInt16:
+    case ArgumentTypeInt32:
+    case ArgumentTypeInt64: {
+      return encode_ag(t, _intToByteImpl(_toBig(arg)));
+    }
+
+    case ArgumentTypeUint:
+    case ArgumentTypeUint8:
+    case ArgumentTypeUint16:
+    case ArgumentTypeUint32:
+    case ArgumentTypeUint64:
+    case ArgumentTypeUintptr: {
+      return encode_ag(t, uint_to_byte(arg));
+    }
+
+    case ArgumentTypeFloat32: {
+      const buf = new ArrayBuffer(4);
+      new DataView(buf).setFloat32(0, Number(arg), true); // LittleEndian
+      return encode_ag(t, new Uint8Array(buf));
+    }
+    case ArgumentTypeFloat64: {
+      const buf = new ArrayBuffer(8);
+      new DataView(buf).setFloat64(0, Number(arg), true);
+      return encode_ag(t, new Uint8Array(buf));
+    }
+
+    case ArgumentTypeComplex64: {
+      const buf = new ArrayBuffer(8);
+      const dv = new DataView(buf);
+      dv.setFloat32(0, Number(arg.real), true);
+      dv.setFloat32(4, Number(arg.imag), true);
+      return encode_ag(t, new Uint8Array(buf));
+    }
+    case ArgumentTypeComplex128: {
+      const buf = new ArrayBuffer(16);
+      const dv = new DataView(buf);
+      dv.setFloat64(0, Number(arg.real), true);
+      dv.setFloat64(8, Number(arg.imag), true);
+      return encode_ag(t, new Uint8Array(buf));
+    }
+
+    case ArgumentTypeString: {
+      return encode_ag(t, new TextEncoder().encode(String(arg)));
+    }
+    case ArgumentTypeBytes: {
+      const copy = new Uint8Array(arg.length);
+      copy.set(arg, 0);
+      return encode_ag(t, copy);
+    }
+
+    case ArgumentTypeSlice:
+    case ArgumentTypeMap:
+    case ArgumentTypeStruct: {
+      const s = jsonMarshalFallback(arg);
+      return encode_ag(ArgumentTypeString, new TextEncoder().encode(s));
+    }
+  }
+  // 兜底：Custom 类型走 serialize
+  return encode_ag(ArgumentTypeCustom, _serialize(arg));
+}
+
+/** Encoder = EncodeArg 别名 */
+function Encoder(arg) { return EncodeArg(arg); }
+
+/**
+ * 优先用 Encode；若失败（理论上不会）则回退为 JSON String 帧
+ *   这是 Go 版 `Json` 函数的等价实现（尽管 Go 版的 Encode 理论上不会错）
+ * @param {any} v
+ * @returns {Uint8Array}
+ */
+function Json(v) {
+  try {
+    return EncodeArg(v);
+  } catch (_e) {
+    const s = JSON.stringify(v);
+    try {
+      return encode_ag(ArgumentTypeString, new TextEncoder().encode(s));
+    } catch (_e2) {
+      return new Uint8Array(0);
+    }
+  }
+}
+
+/* ============================================================
+ *  解码：Decode / get_value
+ * ============================================================ */
+
+/**
+ * 根据 Type + Value 字节，还原出 JS 值
+ * @param {number} t
+ * @param {Uint8Array} v
+ * @returns {any}
+ */
+function get_value_from(t, v) {
+  switch (t) {
+    case ArgumentTypeNil:
+      return null;
+
+    case ArgumentTypeBool:
+      if (!v || v.length === 0) return false;
+      return v[0] !== 0;
+
+    case ArgumentTypeInt:
+    case ArgumentTypeInt8:
+    case ArgumentTypeInt16:
+    case ArgumentTypeInt32:
+    case ArgumentTypeInt64: {
+      switch (t) {
+        case ArgumentTypeInt8:   { const u = to_uint64(v); return narrowInt8(u); }
+        case ArgumentTypeInt16:  { const u = to_uint64(v); return narrowInt16(u); }
+        case ArgumentTypeInt32:  { const u = to_uint64(v); return narrowInt32(u); }
+        case ArgumentTypeInt:    return Number(to_int64(v));   // Int 返回 Number（JS 常规整数）
+        case ArgumentTypeInt64:  return to_int64(v);           // 保留完整 64 位（BigInt）
+      }
+      return Number(to_int64(v));
+    }
+
+    case ArgumentTypeUint:
+    case ArgumentTypeUint8:
+    case ArgumentTypeUint16:
+    case ArgumentTypeUint32:
+    case ArgumentTypeUint64:
+    case ArgumentTypeUintptr: {
+      const u = to_uint64(v);
+      switch (t) {
+        case ArgumentTypeUint8:   return narrowUint8(u);
+        case ArgumentTypeUint16:  return narrowUint16(u);
+        case ArgumentTypeUint32:  return narrowUint32(u);
+        case ArgumentTypeUint:    return Number(u);   // Uint 返回 Number
+        case ArgumentTypeUintptr: return Number(u);   // Uintptr 返回 Number
+        case ArgumentTypeUint64:  return u;           // 完整 64 位（BigInt）
+      }
+      return Number(u);
+    }
+
+    case ArgumentTypeFloat32: {
+      if (!v || v.length !== 4) throw ErrAgLengthMismatch;
+      return new DataView(v.buffer, v.byteOffset, v.byteLength).getFloat32(0, true);
+    }
+    case ArgumentTypeFloat64: {
+      if (!v || v.length !== 8) throw ErrAgLengthMismatch;
+      return new DataView(v.buffer, v.byteOffset, v.byteLength).getFloat64(0, true);
+    }
+
+    case ArgumentTypeComplex64: {
+      if (!v || v.length !== 8) throw ErrAgLengthMismatch;
+      const dv = new DataView(v.buffer, v.byteOffset, v.byteLength);
+      return { real: dv.getFloat32(0, true), imag: dv.getFloat32(4, true) };
+    }
+    case ArgumentTypeComplex128: {
+      if (!v || v.length !== 16) throw ErrAgLengthMismatch;
+      const dv = new DataView(v.buffer, v.byteOffset, v.byteLength);
+      return { real: dv.getFloat64(0, true), imag: dv.getFloat64(8, true) };
+    }
+
+    case ArgumentTypeString:
+      if (!v) return '';
+      return new TextDecoder().decode(v);
+
+    case ArgumentTypeBytes: {
+      if (!v) return new Uint8Array(0);
+      const out = new Uint8Array(v.length);
+      out.set(v, 0);
+      return out;
+    }
+  }
+  throw ErrAgUnknownType;
+}
+
+/**
+ * 从完整帧中取出 {type,value} 后再还原 JS 值
+ * @param {Uint8Array} b
+ * @returns {any}
+ */
+function get_value(b) {
+  const { t, v } = ag_get_frame(b);
+  return get_value_from(t, v);
+}
+
+/**
+ * 解码一帧 AG → JS 值
+ * @param {Uint8Array} b
+ * @returns {any}
+ * @throws {ErrAgInvalidHeader} 非合法 AG 帧
+ */
+function DecodeArg(b) {
+  if (!IsArgument(b)) {
+    throw ErrAgInvalidHeader;
+  }
+  return get_value(b);
+}
+
+/* ============================================================
+ *  内部工具：输入规范化 → Uint8Array
+ * ============================================================ */
+
+function _asU8(b) {
+  if (!b) return null;
+  if (b instanceof Uint8Array) return b;
+  if (b instanceof ArrayBuffer) return new Uint8Array(b);
+  if (Array.isArray(b)) return new Uint8Array(b);
+  if (typeof Buffer !== 'undefined' && b instanceof Buffer) {
+    return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+  }
+  // TypedArray 其他子类（如 Uint16Array）→ 取其底层字节
+  if (ArrayBuffer.isView(b)) {
+    return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+  }
+  return null;
+}
+
+/* ============================================================
+ *  调试辅助：类型标签可读名（对标 Go 版 typeName）
+ * ============================================================ */
+
+/**
+ * 返回 type tag 的可读名称（便于日志）
+ * @param {number} t
+ * @returns {string}
+ */
+function typeName(t) {
+  switch (t) {
+    case ArgumentTypeNil:        return 'nil';
+    case ArgumentTypeBool:       return 'bool';
+    case ArgumentTypeInt:        return 'int';
+    case ArgumentTypeInt8:       return 'int8';
+    case ArgumentTypeInt16:      return 'int16';
+    case ArgumentTypeInt32:      return 'int32';
+    case ArgumentTypeInt64:      return 'int64';
+    case ArgumentTypeUint:       return 'uint';
+    case ArgumentTypeUint8:      return 'uint8';
+    case ArgumentTypeUint16:     return 'uint16';
+    case ArgumentTypeUint32:     return 'uint32';
+    case ArgumentTypeUint64:     return 'uint64';
+    case ArgumentTypeUintptr:    return 'uintptr';
+    case ArgumentTypeFloat32:    return 'float32';
+    case ArgumentTypeFloat64:    return 'float64';
+    case ArgumentTypeComplex64:  return 'complex64';
+    case ArgumentTypeComplex128: return 'complex128';
+    case ArgumentTypeString:     return 'string';
+    case ArgumentTypeBytes:      return 'bytes';
+    case ArgumentTypeSlice:      return 'slice';
+    case ArgumentTypeMap:        return 'map';
+    case ArgumentTypeStruct:     return 'struct';
+    case ArgumentTypeCustom:     return 'custom';
+  }
+  return `unknown(${t})`;
+}
+
+/* ============================================================
+ *  显式类型包装器：给 JS 调用方精确控制 Type Tag
+ *  （因为 JS 的 Number 无法区分 int8 vs int64 等）
+ * ============================================================ */
+
+/**
+ * 用显式类型标签包装值，使 EncodeArg 按指定类型而非自动推断编码
+ *
+ * 示例：
+ *   EncodeArg(AsInt8(12))      → ArgumentTypeInt8
+ *   EncodeArg(AsFloat32(3.14)) → ArgumentTypeFloat32
+ *   EncodeArg(AsComplex64(1,2))→ ArgumentTypeComplex64
+ *
+ * @param {number} tag ArgumentType*
+ * @param {any} val
+ * @returns {{__ag_tag: number, __ag_val: any}}
+ */
+function Tagged(tag, val) {
+  return { __ag_tag: tag, __ag_val: val };
+}
+
+function AsInt8(v)    { return Tagged(ArgumentTypeInt8, v); }
+function AsInt16(v)   { return Tagged(ArgumentTypeInt16, v); }
+function AsInt32(v)   { return Tagged(ArgumentTypeInt32, v); }
+function AsInt64(v)   { return Tagged(ArgumentTypeInt64, v); }
+function AsUint(v)    { return Tagged(ArgumentTypeUint, v); }
+function AsUint8(v)   { return Tagged(ArgumentTypeUint8, v); }
+function AsUint16(v)  { return Tagged(ArgumentTypeUint16, v); }
+function AsUint32(v)  { return Tagged(ArgumentTypeUint32, v); }
+function AsUint64(v)  { return Tagged(ArgumentTypeUint64, v); }
+function AsUintptr(v) { return Tagged(ArgumentTypeUintptr, v); }
+function AsFloat32(v) { return Tagged(ArgumentTypeFloat32, v); }
+function AsComplex64(re, im) { return Tagged(ArgumentTypeComplex64, { real: re, imag: im }); }
+
+/* ---- 在 Encode / typeofTag 中识别 Tagged 对象 ---- */
+
+// 覆盖 typeofTag 增加 Tagged 识别
+(function _patchTypeofTagAndEncode() {
+  const _origTypeof = typeofTag;
+  // 保存原 typeofTag，下面覆盖全局引用
+  // （JS 函数声明提升，这里直接重写引用）
+})();
+
+// 为了让 Tagged 对象被 Encode 正确识别，我们需要 hook typeofTag 和 Encode
+// 这里通过重新赋值来实现
+
+const _origTypeofTag = typeofTag;
+const _patchedTypeofTag = function (arg) {
+  if (arg && typeof arg === 'object' && '__ag_tag' in arg && '__ag_val' in arg) {
+    return arg.__ag_tag | 0;
+  }
+  return _origTypeofTag(arg);
+};
+
+const _origEncode = EncodeArg;
+const _patchedEncode = function (arg) {
+  if (arg && typeof arg === 'object' && '__ag_tag' in arg && '__ag_val' in arg) {
+    const tag = arg.__ag_tag | 0;
+    const val = arg.__ag_val;
+    // 复用原 EncodeArg 的分支逻辑，但用显式 tag
+    if (val === null || val === undefined) {
+      return encode_ag(tag, null);
+    }
+    switch (tag) {
+      case ArgumentTypeBool:
+        return encode_ag(tag, new Uint8Array([val ? 1 : 0]));
+      case ArgumentTypeInt:
+      case ArgumentTypeInt8:
+      case ArgumentTypeInt16:
+      case ArgumentTypeInt32:
+      case ArgumentTypeInt64:
+        return encode_ag(tag, _intToByteImpl(_toBig(val)));
+      case ArgumentTypeUint:
+      case ArgumentTypeUint8:
+      case ArgumentTypeUint16:
+      case ArgumentTypeUint32:
+      case ArgumentTypeUint64:
+      case ArgumentTypeUintptr:
+        return encode_ag(tag, uint_to_byte(val));
+      case ArgumentTypeFloat32: {
+        const buf = new ArrayBuffer(4);
+        new DataView(buf).setFloat32(0, Number(val), true);
+        return encode_ag(tag, new Uint8Array(buf));
+      }
+      case ArgumentTypeFloat64: {
+        const buf = new ArrayBuffer(8);
+        new DataView(buf).setFloat64(0, Number(val), true);
+        return encode_ag(tag, new Uint8Array(buf));
+      }
+      case ArgumentTypeComplex64: {
+        const buf = new ArrayBuffer(8);
+        const dv = new DataView(buf);
+        dv.setFloat32(0, Number(val.real), true);
+        dv.setFloat32(4, Number(val.imag), true);
+        return encode_ag(tag, new Uint8Array(buf));
+      }
+      case ArgumentTypeComplex128: {
+        const buf = new ArrayBuffer(16);
+        const dv = new DataView(buf);
+        dv.setFloat64(0, Number(val.real), true);
+        dv.setFloat64(8, Number(val.imag), true);
+        return encode_ag(tag, new Uint8Array(buf));
+      }
+      case ArgumentTypeString:
+        return encode_ag(tag, new TextEncoder().encode(String(val)));
+      case ArgumentTypeBytes:
+        return encode_ag(tag, new Uint8Array(val));
+      case ArgumentTypeSlice:
+      case ArgumentTypeMap:
+      case ArgumentTypeStruct: {
+        const s = jsonMarshalFallback(val);
+        return encode_ag(ArgumentTypeString, new TextEncoder().encode(s));
+      }
+      case ArgumentTypeNil:
+        return encode_ag(ArgumentTypeNil, null);
+      case ArgumentTypeCustom:
+        return encode_ag(ArgumentTypeCustom, _serialize(val));
+    }
+    // 未知标签 → 走原值自动推断
+    return _origEncode(val);
+  }
+  return _origEncode(arg);
+};
+
+/* ============================================================
+ *  导出（兼容 ESM / CJS / 浏览器全局）
+ * ============================================================ */
+
+const AGExports = {
+  // 常量
+  ArgumentMagic1,
+  ArgumentMagic2,
+  ArgumentHeaderSize,
+  ArgumentMaxDataSize,
+  ArgumentType,
+  ArgumentTypeNil,
+  ArgumentTypeBool,
+  ArgumentTypeInt,
+  ArgumentTypeInt8,
+  ArgumentTypeInt16,
+  ArgumentTypeInt32,
+  ArgumentTypeInt64,
+  ArgumentTypeUint,
+  ArgumentTypeUint8,
+  ArgumentTypeUint16,
+  ArgumentTypeUint32,
+  ArgumentTypeUint64,
+  ArgumentTypeUintptr,
+  ArgumentTypeFloat32,
+  ArgumentTypeFloat64,
+  ArgumentTypeComplex64,
+  ArgumentTypeComplex128,
+  ArgumentTypeString,
+  ArgumentTypeBytes,
+  ArgumentTypeSlice,
+  ArgumentTypeMap,
+  ArgumentTypeStruct,
+  ArgumentTypeCustom,
+
+  // 错误
+  ErrAgTooShort,
+  ErrAgBadMagic,
+  ErrAgLengthMismatch,
+  ErrAgDataTooLarge,
+  ErrAgUnknownType,
+  ErrAgInvalidHeader,
+
+  // 辅助
+  zeroExtendN,
+  zeroExtend2byte,
+  zeroExtend4byte,
+  zeroExtend8byte,
+  int_to_byte,
+  uint_to_byte,
+  to_int64,
+  to_uint64,
+  jsonMarshalFallback,
+  typeName,
+
+  // 帧处理
+  encode_ag,
+  IsArgument,
+  Validate,
+  ag_get_frame,
+  ag_get_data,
+  Data,
+  Value,
+  Decoder,
+
+  // 编码/解码
+  typeofTag: _patchedTypeofTag,
+  EncodeArg: _patchedEncode,
+  Encoder: _patchedEncode,
+  DecodeArg,
+  Json,
+  get_value,
+  get_value_from,
+
+  // 显式类型包装
+  Tagged,
+  AsInt8,
+  AsInt16,
+  AsInt32,
+  AsInt64,
+  AsUint,
+  AsUint8,
+  AsUint16,
+  AsUint32,
+  AsUint64,
+  AsUintptr,
+  AsFloat32,
+  AsComplex64,
+};
+
+// CommonJS / Node.js
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AGExports;
+}
+// ESM 导出代理
+if (typeof exports !== 'undefined') {
+  Object.assign(exports, AGExports);
+}
+// 【V3 build 补丁】：在 bundle 合并 + 严格模式 IIFE 下，浏览器端也需要拿到 AG 裸名。
+// 原写法是 if (typeof window!=='undefined') window.AG=...；但 Node require() 验证
+// 用的是 global/globalThis，且没有 window。这里统一用 root 兜底，两边都 OK。
+(function __exposeAG() {
+  try {
+    var root = (typeof globalThis !== 'undefined') ? globalThis
+             : (typeof window     !== 'undefined') ? window
+             : (typeof self       !== 'undefined') ? self
+             : (typeof global     !== 'undefined') ? global
+             : Function('return this')();
+    if (root && typeof root.AG === 'undefined') root.AG = AGExports;
+    // 把内部常用的辅助函数也顺便提一下（避免 terser 认为是内部变量 mangling 改名）
+    var leak = ['EncodeArg','EncodeArg','Type','zeroExtendN','zeroExtend2byte','zeroExtend4byte','zeroExtend8byte'];
+    for (var i = 0; i < leak.length; i++) {
+      var k = leak[i];
+      if (typeof root[k] === 'undefined' && typeof AGExports[k] !== 'undefined') root[k] = AGExports[k];
+    }
+  } catch (e) { /* 静默 */ }
+})();
+// 浏览器全局（保留原写法兼容其他宿主）
+if (typeof window !== 'undefined') {
+  if (typeof window.AG === 'undefined') window.AG = AGExports;
+}
+// Web Worker 全局
+if (typeof self !== 'undefined' && typeof window === 'undefined') {
+  if (typeof self.AG === 'undefined') self.AG = AGExports;
+}
+
+
+/* ============================================================
+ * source: fn.js
+ * ============================================================ */
+/**
+ * ============================================================
+ * FN 协议帧编解码器 (JavaScript 版本)
+ * 对应 Go 实现: fn.go
+ * ============================================================
+ *
+ * 【协议帧结构】
+ *
+ *  偏移量   长度    字段名      类型             说明
+ *  ------  ------  ----------  ---------------  ---------------------------
+ *   0       2      Magic       uint8[2]         魔术字 = 0x40 0x46 ("@F")
+ *   2       1      Action      uint8            动作类型 (不可为0)
+ *   3       8      ID          uint64 BE        消息ID (大端序)
+ *  11       4      Length      uint32 BE        Data 字段的字节长度 (大端序)
+ *  15       N      Data        uint8[N]         数据载荷，长度 = Length
+ *
+ *  总头部长度 (HeaderSize) = 2 + 1 + 8 + 4 = 15 字节
+ *  最大数据长度 (MaxDataSize) = 1 << 30 = 1,073,741,824 字节 (~1GB)
+ *
+ * ============================================================
+ */
+
+// ============================================================
+// 常量定义
+// ============================================================
+
+/** 魔术字第1字节 */
+const FnMagic1 = 0x40;
+
+/** 魔术字第2字节 */
+const FnMagic2 = 0x46;
+
+/** 帧头部固定长度 = 15 字节 */
+const FnHeaderSize = 2 + 1 + 8 + 4;
+
+/** 数据载荷最大长度 = 1 << 30 (~1GB) */
+const FnMaxDataSize = 1 << 30;
+
+// ============================================================
+// 兜底：writeUint64BE / readUint64BE（优先复用 tools.js 的全局实现）
+// 说明：tools.js 在浏览器里声明了这两个全局函数；若因加载顺序问题
+// 导致未定义，这里提供等价实现，避免 fn.js 单独使用时报 ReferenceError。
+// ============================================================
+(function _ensureUint64Helpers() {
+    const _HAS_BIGINT = typeof BigInt === "function";
+    if (typeof writeUint64BE !== 'function') {
+        /**
+         * 以大端序写入 uint64 到 DataView（兼容有无 BigInt）
+         * @param {DataView} view
+         * @param {number} offset
+         * @param {bigint|number} value
+         * @global
+         */
+        writeUint64BE = function (view, offset, value) {
+            if (_HAS_BIGINT) {
+                try {
+                    view.setBigUint64(offset, typeof value === 'bigint' ? value : BigInt(value), false);
+                    return;
+                } catch (_e) { /* fallback */ }
+            }
+            const num = Number(value);
+            if (!isFinite(num) || num < 0) {
+                throw new FnError("fn: invalid uint64 value (no BigInt support in this environment)");
+            }
+            const MAX_U32 = 0xffffffff;
+            const lo = (num & MAX_U32) >>> 0;
+            const hi = (num / 0x100000000) | 0;
+            view.setUint32(offset, (hi & MAX_U32) >>> 0, false);
+            view.setUint32(offset + 4, lo, false);
+        };
+    }
+    if (typeof readUint64BE !== 'function') {
+        /**
+         * 以大端序从 DataView 读取 uint64（兼容有无 BigInt）
+         * @param {DataView} view
+         * @param {number} offset
+         * @returns {bigint|number}
+         * @global
+         */
+        readUint64BE = function (view, offset) {
+            if (_HAS_BIGINT) {
+                try { return view.getBigUint64(offset, false); } catch (_e) { /* fallback */ }
+            }
+            const hi = view.getUint32(offset, false);
+            const lo = view.getUint32(offset + 4, false);
+            const combined = hi * 0x100000000 + lo;
+            if (hi > 0x1fffff && typeof console !== 'undefined' && console.warn) {
+                console.warn("[fn.js] uint64 exceeds Number.MAX_SAFE_INTEGER, precision may be lost. Enable BigInt for accuracy.");
+            }
+            return combined;
+        };
+    }
+})();
+
+// ============================================================
+// 错误定义
+// ============================================================
+
+class FnError extends Error {
+    constructor(message, cause) {
+        super(message);
+        this.name = 'FnError';
+        if (cause) this.cause = cause;
+    }
+}
+
+const ErrFnTooShort       = new FnError('fn: frame too short');
+const ErrFnBadMagic       = new FnError('fn: bad magic header');
+const ErrFnLengthMismatch = new FnError('fn: length field mismatch actual data');
+const ErrFnDataTooLarge   = new FnError('fn: data size exceeds limit');
+const ErrFnNilFrame       = new FnError('fn: nil frame');
+const ErrFnInvalidFrame   = new FnError('fn: invalid frame');
+const ErrFnInvalidAction  = new FnError('fn: invalid action (must be non-zero)');
+
+// ============================================================
+// 帧结构 (类定义)
+// ============================================================
+
+/**
+ * FN 协议帧结构
+ * @property {number} action - 动作类型 (uint8, 非零)
+ * @property {bigint|number} id - 消息ID (uint64)
+ * @property {Uint8Array} data - 数据载荷
+ */
+class FnFrame {
+    /**
+     * @param {number} action - 动作类型 (uint8)
+     * @param {bigint|number} id - 消息ID (uint64)
+     * @param {Uint8Array|null|undefined} data - 数据载荷
+     */
+    constructor(action, id, data) {
+        this.action = action;
+        this.id = id;
+        this.data = data || new Uint8Array(0);
+    }
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+/**
+ * 获取 FN 协议头部魔术字字节数组
+ * @returns {Uint8Array} [0x40, 0x46]
+ */
+function FnHeader() {
+    return new Uint8Array([FnMagic1, FnMagic2]);
+}
+
+/**
+ * 判断字节数组是否是 FN 帧 (仅检查魔术字，不做完整校验)
+ * @param {Uint8Array|ArrayBuffer|Array} b - 待检测数据
+ * @returns {boolean} 是否以 FN 魔术字开头
+ */
+function IsFn(b) {
+    if (!b) return false;
+    const arr = toUint8Array(b);
+    if (arr.length < FnHeaderSize || arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
+        return false;
+    }
+    const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    const length = view.getUint32(11, false);
+    if (length > FnMaxDataSize) {
+        return false;
+    }
+    const totalLen = FnHeaderSize + length;
+    if (arr.length < totalLen) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * 把多种输入类型统一转换为 Uint8Array
+ * @private
+ * @param {Uint8Array|ArrayBuffer|Array<number>|null|undefined} input
+ * @returns {Uint8Array}
+ */
+function toUint8Array(input) {
+    if (input == null) return new Uint8Array(0);
+    if (input instanceof Uint8Array) return input;
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (Array.isArray(input)) return new Uint8Array(input);
+    // 尝试转换类数组对象
+    if (typeof input.length === 'number' || input.byteLength != null) {
+        return new Uint8Array(input);
+    }
+    throw new FnError('fn: unsupported data type for byte conversion');
+}
+
+// ============================================================
+// 编码函数
+// ============================================================
+
+/**
+ * 把 FnFrame 对象编码为字节数组
+ * @param {FnFrame|null|undefined} f - 帧对象
+ * @returns {{ buffer: Uint8Array, error: null } | { buffer: null, error: Error }} 编码结果
+ */
+function EncodeFn(f) {
+    if (f == null) {
+        return { buffer: null, error: ErrFnNilFrame };
+    }
+    const data = toUint8Array(f.data || new Uint8Array(0));
+    return _encodeInternal(f.action, f.id, data);
+}
+
+/**
+ * 编码 FN 帧 (便捷函数，直接传字段)
+ * 如果 data 本身就是一个 FN 帧，则自动剥离其外层头部 (取内层 Data)
+ * @param {number} action - 动作类型 (uint8)
+ * @param {bigint|number} id - 消息ID (uint64)
+ * @param {Uint8Array|ArrayBuffer|Array|null|undefined} data - 数据载荷
+ * @returns {{ buffer: Uint8Array, error: null } | { buffer: null, error: Error }} 编码结果
+ */
+function Encode(action, id, data) {
+    let payload = toUint8Array(data || new Uint8Array(0));
+    if (IsFn(payload)) {
+        payload = Data(payload);
+    }
+    return _encodeInternal(action, id, payload);
+}
+
+/**
+ * 内部编码实现
+ * @private
+ */
+function _encodeInternal(action, id, dataUint8) {
+    const dataLen = dataUint8.length;
+    if (dataLen > FnMaxDataSize) {
+        return { buffer: null, error: ErrFnDataTooLarge };
+    }
+
+    const totalLen = FnHeaderSize + dataLen;
+    const buf = new Uint8Array(totalLen);
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+    // Magic
+    buf[0] = FnMagic1;
+    buf[1] = FnMagic2;
+    // Action
+    buf[2] = action & 0xFF;
+    // ID (uint64 BigEndian)
+    writeUint64BE(view, 3, id);
+    // Length (uint32 BigEndian)
+    view.setUint32(11, dataLen >>> 0, false);
+    // Data
+    if (dataLen > 0) {
+        buf.set(dataUint8, FnHeaderSize);
+    }
+
+    return { buffer: buf, error: null };
+}
+
+// ============================================================
+// 解码函数
+// ============================================================
+
+/**
+ * 解码字节数组为 FnFrame 对象
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {{ frame: FnFrame, error: null } | { frame: null, error: Error }}
+ */
+function DecodeFn(b) {
+    const arr = toUint8Array(b);
+    const parsed = _decodeInternal(arr);
+    if (parsed.error) {
+        return { frame: null, error: parsed.error };
+    }
+    const { action, id, data } = parsed;
+    return { frame: new FnFrame(action, id, data), error: null };
+}
+
+/**
+ * 解码字节数组，直接返回各字段 (与 DecodeFn 逻辑相同，返回格式不同)
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {{ action: number, id: bigint|number, data: Uint8Array, error: null } | { action: 0, id: 0, data: null, error: Error }}
+ */
+function Decode(b) {
+    const arr = toUint8Array(b);
+    const parsed = _decodeInternal(arr);
+    if (parsed.error) {
+        return { action: 0, id: 0, data: null, error: parsed.error };
+    }
+    return { ...parsed, error: null };
+}
+
+/**
+ * 内部解码实现
+ * @private
+ */
+function _decodeInternal(arr) {
+    if (arr.length < FnHeaderSize) {
+        return { error: wrapError(ErrFnTooShort, `need ${FnHeaderSize}, got ${arr.length}`) };
+    }
+    if (arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
+        return { error: wrapError(ErrFnBadMagic, `got 0x${arr[0].toString(16).padStart(2, '0').toUpperCase()}${arr[1].toString(16).padStart(2, '0').toUpperCase()}`) };
+    }
+
+    const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    const length = view.getUint32(11, false); // BigEndian
+
+    if (length > FnMaxDataSize) {
+        return { error: ErrFnDataTooLarge };
+    }
+
+    const totalLen = FnHeaderSize + length;
+    if (arr.length < totalLen) {
+        return { error: wrapError(ErrFnLengthMismatch, `length=${length} total need ${totalLen}, got ${arr.length}`) };
+    }
+
+    const action = arr[2];
+    const id = readUint64BE(view, 3);
+    let data = new Uint8Array(0);
+    if (length > 0) {
+        data = arr.slice(FnHeaderSize, totalLen);
+    }
+
+    return { action, id, data, length };
+}
+
+// ============================================================
+// 快速字段提取 (部分函数跳过完整校验，需调用方保证前置条件)
+// ============================================================
+
+/**
+ * 快速提取帧 ID (建议先调用 Action 或 IsFn 校验帧有效性)
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {bigint|number} ID 值，数据过短时返回 0
+ */
+function Id(b) {
+    const arr = toUint8Array(b);
+    if (arr.length < 11) {
+        return typeof BigInt !== 'undefined' ? 0n : 0;
+    }
+    const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    return readUint64BE(view, 3);
+}
+
+/**
+ * 提取帧 Action 字段 (会校验 Magic 和最小长度)
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {{ action: number, error: null } | { action: 0, error: Error }}
+ */
+function Action(b) {
+    const arr = toUint8Array(b);
+    if (arr.length < FnHeaderSize || arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
+        return { action: 0, error: ErrFnInvalidFrame };
+    }
+    return { action: arr[2], error: null };
+}
+
+/**
+ * 提取帧 Data 载荷
+ * 如果输入本身不是 FN 帧，则原样返回；是 FN 帧则返回剥离头部后的 Data
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {Uint8Array}
+ */
+function Data(b) {
+    const arr = toUint8Array(b);
+    if (!IsFn(arr)) {
+        return arr;
+    }
+    return arr.slice(FnHeaderSize);
+}
+
+// ============================================================
+// 校验与头部解析
+// ============================================================
+
+/**
+ * 完整校验帧合法性 (长度、Magic、Action 非零、长度匹配)
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {Error|null} 合法返回 null，否则返回错误
+ */
+function ValidateFn(b) {
+    const arr = toUint8Array(b);
+
+    if (arr.length < FnHeaderSize) {
+        return wrapError(ErrFnTooShort, `need ${FnHeaderSize}, got ${arr.length}`);
+    }
+    if (arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
+        return wrapError(ErrFnBadMagic, `got 0x${arr[0].toString(16).padStart(2, '0').toUpperCase()}${arr[1].toString(16).padStart(2, '0').toUpperCase()}`);
+    }
+    if (arr[2] === 0) {
+        return ErrFnInvalidAction;
+    }
+
+    const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    const length = view.getUint32(11, false);
+
+    if (length > FnMaxDataSize) {
+        return ErrFnDataTooLarge;
+    }
+
+    const totalLen = FnHeaderSize + length;
+    if (arr.length < totalLen) {
+        return wrapError(ErrFnLengthMismatch, `length=${length} total need ${totalLen}, got ${arr.length}`);
+    }
+
+    return null;
+}
+
+/**
+ * 仅解析帧头部字段 (Action, ID, Length)，不处理 Data
+ * @param {Uint8Array|ArrayBuffer|Array} b - 原始字节数据
+ * @returns {{ action: number, id: bigint|number, length: number, error: null } | { action: 0, id: 0, length: 0, error: Error }}
+ */
+function ParseFnHeader(b) {
+    const arr = toUint8Array(b);
+
+    if (arr.length < FnHeaderSize) {
+        return {
+            action: 0, id: typeof BigInt !== 'undefined' ? 0n : 0, length: 0,
+            error: wrapError(ErrFnTooShort, `need ${FnHeaderSize}, got ${arr.length}`)
+        };
+    }
+    if (arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
+        return {
+            action: 0, id: typeof BigInt !== 'undefined' ? 0n : 0, length: 0,
+            error: wrapError(ErrFnBadMagic, `got 0x${arr[0].toString(16).padStart(2, '0').toUpperCase()}${arr[1].toString(16).padStart(2, '0').toUpperCase()}`)
+        };
+    }
+
+    const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    const action = arr[2];
+    const id = readUint64BE(view, 3);
+    const length = view.getUint32(11, false);
+
+    return { action, id, length, error: null };
+}
+
+/**
+ * 包装错误信息，附带上下文
+ * @private
+ */
+function wrapError(baseErr, detail) {
+    const err = new FnError(`${baseErr.message}: ${detail}`);
+    return err;
+}
+
+// ============================================================
+// 导出 (兼容浏览器全局变量 / CommonJS / ES Module)
+// ============================================================
+
+const _exports = {
+    // 常量
+    FnMagic1,
+    FnMagic2,
+    FnHeaderSize,
+    FnMaxDataSize,
+    // 错误
+    FnError,
+    ErrFnTooShort,
+    ErrFnBadMagic,
+    ErrFnLengthMismatch,
+    ErrFnDataTooLarge,
+    ErrFnNilFrame,
+    ErrFnInvalidFrame,
+    ErrFnInvalidAction,
+    // 类
+    FnFrame,
+    // 函数
+    FnHeader,
+    EncodeFn,
+    Encode,
+    DecodeFn,
+    Decode,
+    Id,
+    Action,
+    Data,
+    ValidateFn,
+    ParseFnHeader,
+    IsFn,
+};
+
+// Node.js / CommonJS
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = _exports;
+}
+
+// ES Module
+if (typeof __webpack_exports__ !== 'undefined' || (typeof window !== 'undefined' && window.__ES_MODULE__)) {
+    // 兼容部分打包器
+}
+
+// 浏览器全局对象
+if (typeof window !== 'undefined') {
+    window.Fn = _exports;
+}
+
+// Web Worker
+if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
+    self.Fn = _exports;
+}
+
+
+/* ============================================================
+ * source: sock_rpc_v3.js
+ * ============================================================ */
 /**
  * ============================================================
  * SockRpcV3 —— 浏览器端 V3 WebSocket RPC 客户端
@@ -1655,4 +3704,119 @@ class SockRpcV3 {
     } catch (_e) { /* 任何异常静默，不影响主模块导出 */ }
 
     if (typeof module !== 'undefined' && module.exports) module.exports = _bag;
+})();
+
+
+/* ============================================================
+ * 共享 IIFE 尾部：把白名单显式挂到全局（兼容 浏览器 / Worker / 其他宿主）
+ * ============================================================ */
+  var __root__ = (typeof globalThis !== "undefined") ? globalThis
+              : (typeof window     !== "undefined") ? window
+              : (typeof self       !== "undefined") ? self
+              : (typeof global     !== "undefined") ? global
+              : Function("return this")();
+
+  try { if (typeof _HAS_BIGINT !== "undefined") __root__["_HAS_BIGINT"] = _HAS_BIGINT; } catch (_e) {}
+  try { if (typeof encode_bytes !== "undefined") __root__["encode_bytes"] = encode_bytes; } catch (_e) {}
+  try { if (typeof decode_bytes !== "undefined") __root__["decode_bytes"] = decode_bytes; } catch (_e) {}
+  try { if (typeof decode_string !== "undefined") __root__["decode_string"] = decode_string; } catch (_e) {}
+  try { if (typeof _toBig !== "undefined") __root__["_toBig"] = _toBig; } catch (_e) {}
+  try { if (typeof _bitAnd !== "undefined") __root__["_bitAnd"] = _bitAnd; } catch (_e) {}
+  try { if (typeof _lshift !== "undefined") __root__["_lshift"] = _lshift; } catch (_e) {}
+  try { if (typeof _urshift !== "undefined") __root__["_urshift"] = _urshift; } catch (_e) {}
+  try { if (typeof zeroExtendN !== "undefined") __root__["zeroExtendN"] = zeroExtendN; } catch (_e) {}
+  try { if (typeof zeroExtend2byte !== "undefined") __root__["zeroExtend2byte"] = zeroExtend2byte; } catch (_e) {}
+  try { if (typeof zeroExtend4byte !== "undefined") __root__["zeroExtend4byte"] = zeroExtend4byte; } catch (_e) {}
+  try { if (typeof zeroExtend8byte !== "undefined") __root__["zeroExtend8byte"] = zeroExtend8byte; } catch (_e) {}
+  try { if (typeof int_to_byte !== "undefined") __root__["int_to_byte"] = int_to_byte; } catch (_e) {}
+  try { if (typeof bi_holder !== "undefined") __root__["bi_holder"] = bi_holder; } catch (_e) {}
+  try { if (typeof _intToByteImpl !== "undefined") __root__["_intToByteImpl"] = _intToByteImpl; } catch (_e) {}
+  try { if (typeof uint_to_byte !== "undefined") __root__["uint_to_byte"] = uint_to_byte; } catch (_e) {}
+  try { if (typeof to_uint64 !== "undefined") __root__["to_uint64"] = to_uint64; } catch (_e) {}
+  try { if (typeof to_int64 !== "undefined") __root__["to_int64"] = to_int64; } catch (_e) {}
+  try { if (typeof narrowInt8 !== "undefined") __root__["narrowInt8"] = narrowInt8; } catch (_e) {}
+  try { if (typeof narrowInt16 !== "undefined") __root__["narrowInt16"] = narrowInt16; } catch (_e) {}
+  try { if (typeof narrowInt32 !== "undefined") __root__["narrowInt32"] = narrowInt32; } catch (_e) {}
+  try { if (typeof narrowUint8 !== "undefined") __root__["narrowUint8"] = narrowUint8; } catch (_e) {}
+  try { if (typeof narrowUint16 !== "undefined") __root__["narrowUint16"] = narrowUint16; } catch (_e) {}
+  try { if (typeof narrowUint32 !== "undefined") __root__["narrowUint32"] = narrowUint32; } catch (_e) {}
+  try { if (typeof jsonMarshalFallback !== "undefined") __root__["jsonMarshalFallback"] = jsonMarshalFallback; } catch (_e) {}
+  try { if (typeof _serialize !== "undefined") __root__["_serialize"] = _serialize; } catch (_e) {}
+  try { if (typeof writeUint64BE !== "undefined") __root__["writeUint64BE"] = writeUint64BE; } catch (_e) {}
+  try { if (typeof readUint64BE !== "undefined") __root__["readUint64BE"] = readUint64BE; } catch (_e) {}
+  try { if (typeof crc16_h !== "undefined") __root__["crc16_h"] = crc16_h; } catch (_e) {}
+  try { if (typeof crc16_l !== "undefined") __root__["crc16_l"] = crc16_l; } catch (_e) {}
+  try { if (typeof getCRC !== "undefined") __root__["getCRC"] = getCRC; } catch (_e) {}
+  try { if (typeof TextMessage !== "undefined") __root__["TextMessage"] = TextMessage; } catch (_e) {}
+  try { if (typeof BinaryMessage !== "undefined") __root__["BinaryMessage"] = BinaryMessage; } catch (_e) {}
+  try { if (typeof LongMessage !== "undefined") __root__["LongMessage"] = LongMessage; } catch (_e) {}
+  try { if (typeof CRC !== "undefined") __root__["CRC"] = CRC; } catch (_e) {}
+  try { if (typeof DataSlice !== "undefined") __root__["DataSlice"] = DataSlice; } catch (_e) {}
+  try { if (typeof newOption !== "undefined") __root__["newOption"] = newOption; } catch (_e) {}
+  try { if (typeof get_header_size !== "undefined") __root__["get_header_size"] = get_header_size; } catch (_e) {}
+  try { if (typeof serialize !== "undefined") __root__["serialize"] = serialize; } catch (_e) {}
+  try { if (typeof Option !== "undefined") __root__["Option"] = Option; } catch (_e) {}
+  try { if (typeof IsComplete !== "undefined") __root__["IsComplete"] = IsComplete; } catch (_e) {}
+  try { if (typeof CheckCRC !== "undefined") __root__["CheckCRC"] = CheckCRC; } catch (_e) {}
+  try { if (typeof Encode !== "undefined") __root__["Encode"] = Encode; } catch (_e) {}
+  try { if (typeof Decode !== "undefined") __root__["Decode"] = Decode; } catch (_e) {}
+  try { if (typeof GetCrC !== "undefined") __root__["GetCrC"] = GetCrC; } catch (_e) {}
+  try { if (typeof SliceMessage !== "undefined") __root__["SliceMessage"] = SliceMessage; } catch (_e) {}
+  try { if (typeof Slice !== "undefined") __root__["Slice"] = Slice; } catch (_e) {}
+  try { if (typeof newSliceText !== "undefined") __root__["newSliceText"] = newSliceText; } catch (_e) {}
+  try { if (typeof newSliceBinary !== "undefined") __root__["newSliceBinary"] = newSliceBinary; } catch (_e) {}
+  try { if (typeof decodeSliceText !== "undefined") __root__["decodeSliceText"] = decodeSliceText; } catch (_e) {}
+  try { if (typeof decodeSliceBinary !== "undefined") __root__["decodeSliceBinary"] = decodeSliceBinary; } catch (_e) {}
+  try { if (typeof concatSliceBinary !== "undefined") __root__["concatSliceBinary"] = concatSliceBinary; } catch (_e) {}
+  try { if (typeof SliceTypes !== "undefined") __root__["SliceTypes"] = SliceTypes; } catch (_e) {}
+  try { if (typeof SliceSize !== "undefined") __root__["SliceSize"] = SliceSize; } catch (_e) {}
+  try { if (typeof FnMagic1 !== "undefined") __root__["FnMagic1"] = FnMagic1; } catch (_e) {}
+  try { if (typeof FnMagic2 !== "undefined") __root__["FnMagic2"] = FnMagic2; } catch (_e) {}
+  try { if (typeof FnHeaderSize !== "undefined") __root__["FnHeaderSize"] = FnHeaderSize; } catch (_e) {}
+  try { if (typeof FnMaxDataSize !== "undefined") __root__["FnMaxDataSize"] = FnMaxDataSize; } catch (_e) {}
+  try { if (typeof FnError !== "undefined") __root__["FnError"] = FnError; } catch (_e) {}
+  try { if (typeof ErrFnTooShort !== "undefined") __root__["ErrFnTooShort"] = ErrFnTooShort; } catch (_e) {}
+  try { if (typeof ErrFnBadMagic !== "undefined") __root__["ErrFnBadMagic"] = ErrFnBadMagic; } catch (_e) {}
+  try { if (typeof ErrFnLengthMismatch !== "undefined") __root__["ErrFnLengthMismatch"] = ErrFnLengthMismatch; } catch (_e) {}
+  try { if (typeof ErrFnDataTooLarge !== "undefined") __root__["ErrFnDataTooLarge"] = ErrFnDataTooLarge; } catch (_e) {}
+  try { if (typeof ErrFnNilFrame !== "undefined") __root__["ErrFnNilFrame"] = ErrFnNilFrame; } catch (_e) {}
+  try { if (typeof ErrFnInvalidFrame !== "undefined") __root__["ErrFnInvalidFrame"] = ErrFnInvalidFrame; } catch (_e) {}
+  try { if (typeof ErrFnInvalidAction !== "undefined") __root__["ErrFnInvalidAction"] = ErrFnInvalidAction; } catch (_e) {}
+  try { if (typeof FnFrame !== "undefined") __root__["FnFrame"] = FnFrame; } catch (_e) {}
+  try { if (typeof FnHeader !== "undefined") __root__["FnHeader"] = FnHeader; } catch (_e) {}
+  try { if (typeof IsFn !== "undefined") __root__["IsFn"] = IsFn; } catch (_e) {}
+  try { if (typeof toUint8Array !== "undefined") __root__["toUint8Array"] = toUint8Array; } catch (_e) {}
+  try { if (typeof EncodeFn !== "undefined") __root__["EncodeFn"] = EncodeFn; } catch (_e) {}
+  try { if (typeof Encode !== "undefined") __root__["Encode"] = Encode; } catch (_e) {}
+  try { if (typeof _encodeInternal !== "undefined") __root__["_encodeInternal"] = _encodeInternal; } catch (_e) {}
+  try { if (typeof DecodeFn !== "undefined") __root__["DecodeFn"] = DecodeFn; } catch (_e) {}
+  try { if (typeof Decode !== "undefined") __root__["Decode"] = Decode; } catch (_e) {}
+  try { if (typeof _decodeInternal !== "undefined") __root__["_decodeInternal"] = _decodeInternal; } catch (_e) {}
+  try { if (typeof Id !== "undefined") __root__["Id"] = Id; } catch (_e) {}
+  try { if (typeof Action !== "undefined") __root__["Action"] = Action; } catch (_e) {}
+  try { if (typeof Data !== "undefined") __root__["Data"] = Data; } catch (_e) {}
+  try { if (typeof ValidateFn !== "undefined") __root__["ValidateFn"] = ValidateFn; } catch (_e) {}
+  try { if (typeof ParseFnHeader !== "undefined") __root__["ParseFnHeader"] = ParseFnHeader; } catch (_e) {}
+  try { if (typeof wrapError !== "undefined") __root__["wrapError"] = wrapError; } catch (_e) {}
+  try { if (typeof _exports !== "undefined") __root__["_exports"] = _exports; } catch (_e) {}
+  try { if (typeof ACTION_CALL !== "undefined") __root__["ACTION_CALL"] = ACTION_CALL; } catch (_e) {}
+  try { if (typeof ACTION_REPLY_SUCCESS !== "undefined") __root__["ACTION_REPLY_SUCCESS"] = ACTION_REPLY_SUCCESS; } catch (_e) {}
+  try { if (typeof ACTION_REPLY_ERROR !== "undefined") __root__["ACTION_REPLY_ERROR"] = ACTION_REPLY_ERROR; } catch (_e) {}
+  try { if (typeof ACTION_BROADCAST !== "undefined") __root__["ACTION_BROADCAST"] = ACTION_BROADCAST; } catch (_e) {}
+  try { if (typeof FN_HEADER_SIZE !== "undefined") __root__["FN_HEADER_SIZE"] = FN_HEADER_SIZE; } catch (_e) {}
+  try { if (typeof FN_MAGIC_1 !== "undefined") __root__["FN_MAGIC_1"] = FN_MAGIC_1; } catch (_e) {}
+  try { if (typeof FN_MAGIC_2 !== "undefined") __root__["FN_MAGIC_2"] = FN_MAGIC_2; } catch (_e) {}
+  try { if (typeof FN !== "undefined") __root__["FN"] = FN; } catch (_e) {}
+  try { if (typeof BuildCall !== "undefined") __root__["BuildCall"] = BuildCall; } catch (_e) {}
+  try { if (typeof BuildReply !== "undefined") __root__["BuildReply"] = BuildReply; } catch (_e) {}
+  try { if (typeof BuildBroadcast !== "undefined") __root__["BuildBroadcast"] = BuildBroadcast; } catch (_e) {}
+  try { if (typeof ParseData !== "undefined") __root__["ParseData"] = ParseData; } catch (_e) {}
+  try { if (typeof AGExports !== "undefined") __root__["AGExports"] = AGExports; } catch (_e) {}
+  try { if (typeof AG !== "undefined") __root__["AG"] = AG; } catch (_e) {}
+  try { if (typeof SockRpcV3 !== "undefined") __root__["SockRpcV3"] = SockRpcV3; } catch (_e) {}
+  try { if (typeof TlvJson !== "undefined") __root__["TlvJson"] = TlvJson; } catch (_e) {}
+  try { if (typeof TlvValue !== "undefined") __root__["TlvValue"] = TlvValue; } catch (_e) {}
+  try { if (typeof TlvValueAsText !== "undefined") __root__["TlvValueAsText"] = TlvValueAsText; } catch (_e) {}
+  try { if (typeof TlvValueAsJson !== "undefined") __root__["TlvValueAsJson"] = TlvValueAsJson; } catch (_e) {}
+
 })();

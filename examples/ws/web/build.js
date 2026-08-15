@@ -41,6 +41,8 @@ function pick(name, dft) {
 
 const WEB_DIR    = __dirname;
 const OUT_DIR    = path.resolve(WEB_DIR, pick('--out-dir', '.'));
+const BUNDLE_NAME = pick('--out-file', 'sloth_rpc_v3.js');
+const MINIFY_NAME = pick('--min-file', 'sloth_rpc_v3.min.js');
 const NO_MINIFY  = flag('--no-minify');
 const INSTALL_T  = flag('--install-terser');
 
@@ -363,8 +365,10 @@ async function minifyWithTerser(code) {
     if (INSTALL_T) installTerserSync();
 
     const bundle = concatAll();
-    const bundlePath = path.join(OUT_DIR, 'sloth_v3_bundle.js');
+    const bundlePath = path.join(OUT_DIR, BUNDLE_NAME);
+    const legacyBundlePath = path.join(OUT_DIR, 'sloth_v3_bundle.js');
     writeUtf8(bundlePath, bundle);
+    writeUtf8(legacyBundlePath, bundle);
 
     if (NO_MINIFY) {
         console.log('[build] ⏭️  --no-minify: 跳过压缩输出');
@@ -373,8 +377,8 @@ async function minifyWithTerser(code) {
         if (!terser) {
             // 没传 --install-terser 也没 terser：给出友好提示，不报错直接输出 bundle 即可
             console.warn(
-                '[build] ⚠️  未检测到 terser。压缩步骤跳过（仅输出 sloth_v3_bundle.js）。\n' +
-                '         如要生成 sloth_v3_min.js，可再跑一次：\n' +
+                '[build] ⚠️  未检测到 terser。压缩步骤跳过（仅输出 sloth_rpc_v3.js / sloth_v3_bundle.js）。\n' +
+                '         如要生成 sloth_rpc_v3.min.js，可再跑一次：\n' +
                 '             node build.js --install-terser'
             );
         } else {
@@ -382,16 +386,18 @@ async function minifyWithTerser(code) {
             if (out.skipped) {
                 console.warn('[build] ⚠️  terser 压缩失败，跳过 min 输出: ' + out.reason);
             } else {
-                const minPath = path.join(OUT_DIR, 'sloth_v3_min.js');
+                const minPath = path.join(OUT_DIR, MINIFY_NAME);
+                const legacyMinPath = path.join(OUT_DIR, 'sloth_v3_min.js');
                 writeUtf8(minPath, out.code);
+                writeUtf8(legacyMinPath, out.code);
 
-                // 额外输出一份 sloth_v3_min.js 的语法校验（避免压缩器产生错误代码）
+                // 额外输出一份 sloth_rpc_v3.min.js 的语法校验（避免压缩器产生错误代码）
                 try {
                     const nodeBin = process.execPath;
                     cp.execSync(`"${nodeBin}" --check "${minPath}"`, { stdio: 'pipe' });
-                    console.log('[build] ✅ sloth_v3_min.js 语法校验通过 (node --check)');
+                    console.log('[build] ✅ sloth_rpc_v3.min.js 语法校验通过 (node --check)');
                 } catch (e) {
-                    console.error('[build] ❌ sloth_v3_min.js 语法校验失败：' + String(e && e.message || e));
+                    console.error('[build] ❌ sloth_rpc_v3.min.js 语法校验失败：' + String(e && e.message || e));
                     process.exit(2);
                 }
             }
