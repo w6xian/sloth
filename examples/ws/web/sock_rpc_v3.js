@@ -1304,7 +1304,14 @@ class SockRpcV3 {
             if (typeof raw === 'string') {
                 const s = raw.trim();
                 const maybe = _b64ToU8(s);
-                if (AG && typeof AG.IsArgument === 'function' && AG.IsArgument(maybe)) {
+                const ag = this._ag();
+                if (ag && typeof ag.IsArgument === 'function' && ag.IsArgument(maybe)) {
+                    if (maybe instanceof Uint8Array && _isFunction(ag.DecodeArg)) {
+                        try { 
+                            args.push(ag.DecodeArg(maybe)); 
+                            continue; 
+                        } catch (_) { /* fall through */ }
+                    }
                     u8 = maybe;
                 } else if (s === '') {
                     args.push('');
@@ -1313,12 +1320,6 @@ class SockRpcV3 {
                     // 不是 Base64 AG 帧，保留原始 JSON 值（例如 "hello" / "123" / "true"）
                     args.push(raw);
                     continue;
-                }
-            }
-            if (u8 instanceof Uint8Array) {
-                const ag = this._ag();
-                if (ag && _isFunction(ag.IsArgument) && ag.IsArgument(u8) && _isFunction(ag.DecodeArg)) {
-                    try { args.push(ag.DecodeArg(u8)); continue; } catch (_) { /* fall through */ }
                 }
             }
             args.push(u8);

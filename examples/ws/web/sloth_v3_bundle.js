@@ -9,7 +9,7 @@
  *   5. sock_rpc_v3.js
  *
  * Build order exactly matches: examples/ws/web/index_v3.html L17-L21
- * Generated at: 2026-08-15T08:02:41.539Z
+ * Generated at: 2026-08-17T09:39:31.322Z
  */
 (function () {
 "use strict";
@@ -1207,6 +1207,16 @@ function get_value_from(t, v) {
       if (!v) return new Uint8Array(0);
       const out = new Uint8Array(v.length);
       out.set(v, 0);
+      return out;
+    }
+    case ArgumentTypeCustom:{
+       if (!v) return new Uint8Array(0);
+      const out = new Uint8Array(v.length);
+      out.set(v, 0);
+      try {
+        const u= new TextDecoder().decode(out);
+        return JSON.parse(u);
+      } catch (_) {}
       return out;
     }
   }
@@ -3353,7 +3363,14 @@ class SockRpcV3 {
             if (typeof raw === 'string') {
                 const s = raw.trim();
                 const maybe = _b64ToU8(s);
-                if (AG && typeof AG.IsArgument === 'function' && AG.IsArgument(maybe)) {
+                const ag = this._ag();
+                if (ag && typeof ag.IsArgument === 'function' && ag.IsArgument(maybe)) {
+                    if (maybe instanceof Uint8Array && _isFunction(ag.DecodeArg)) {
+                        try { 
+                            args.push(ag.DecodeArg(maybe)); 
+                            continue; 
+                        } catch (_) { /* fall through */ }
+                    }
                     u8 = maybe;
                 } else if (s === '') {
                     args.push('');
@@ -3362,12 +3379,6 @@ class SockRpcV3 {
                     // 不是 Base64 AG 帧，保留原始 JSON 值（例如 "hello" / "123" / "true"）
                     args.push(raw);
                     continue;
-                }
-            }
-            if (u8 instanceof Uint8Array) {
-                const ag = this._ag();
-                if (ag && _isFunction(ag.IsArgument) && ag.IsArgument(u8) && _isFunction(ag.DecodeArg)) {
-                    try { args.push(ag.DecodeArg(u8)); continue; } catch (_) { /* fall through */ }
                 }
             }
             args.push(u8);

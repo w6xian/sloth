@@ -475,6 +475,16 @@ function get_value_from(t, v) {
       out.set(v, 0);
       return out;
     }
+    case ArgumentTypeCustom:{
+       if (!v) return new Uint8Array(0);
+      const out = new Uint8Array(v.length);
+      out.set(v, 0);
+      try {
+        const u= new TextDecoder().decode(out);
+        return JSON.parse(u);
+      } catch (_) {}
+      return out;
+    }
   }
   throw ErrAgUnknownType;
 }
