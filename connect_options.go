@@ -1,6 +1,7 @@
 package sloth
 
 import (
+	"context"
 	"time"
 )
 
@@ -9,6 +10,7 @@ import (
 type IRpcOption func(IRpc)
 type ServerRpcOption func(*ServerRpc)
 type ClientRpcOption func(*ClientRpc)
+type ConnectProxy func(ctx context.Context, service string) (int64, error)
 
 // 链接相关参数，透传到ws中
 type ConnOption func(*Connect)
@@ -77,6 +79,12 @@ func WithMaxMessageSize(maxMessageSize int64) ConnOption {
 func WithPingPeriod(pingPeriod time.Duration) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.PingPeriod = pingPeriod
+	}
+}
+
+func WithConnectProxy(proxyHandler ConnectProxy) ConnOption {
+	return func(ch *Connect) {
+		ch.proxyHandler = proxyHandler
 	}
 }
 

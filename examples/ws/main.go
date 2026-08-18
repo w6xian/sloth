@@ -32,7 +32,17 @@ func main() {
 	defer cancel()
 
 	server := sloth.DefaultServer()
-	drpc := sloth.ServerConn(server)
+	drpc := sloth.ServerConn(server, sloth.WithConnectProxy(func(ctx context.Context, service string) (int64, error) {
+		node, err := sloth.GetNode(service)
+		if err != nil {
+			return 0, err
+		}
+		svrId, ok := smap.Get(node.Service)
+		if !ok {
+			return 0, fmt.Errorf("service %s not registered", node.Service)
+		}
+		return svrId, nil
+	}))
 	r := mux.NewRouter()
 	// Register services
 	drpc.Register("v1", &HelloService{}, "metadata")
