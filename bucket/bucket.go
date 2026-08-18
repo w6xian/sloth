@@ -5,6 +5,7 @@ package bucket
 
 import (
 	"context"
+	"log"
 	"sync"
 	"sync/atomic"
 
@@ -56,12 +57,29 @@ func (b *Bucket) PushRoom(ctx context.Context, ch chan *message.PushRoomMsgReque
 		)
 		arg = <-ch
 		if room = b.Room(arg.RoomId); room != nil {
-			room.Push(ctx, arg.Msg)
+			room.Broadcast(ctx, arg.Msg)
 		}
 	}
 }
 func (b *Bucket) GetRooms() map[int64]*Room {
 	return b.rooms
+}
+
+// RangeRooms 安全遍历桶内所有房间：读锁下快照后锁外回调，fn 返回 false 提前终止。
+// 相比直接遍历 GetRooms() 返回的裸 map，可避免遍历期间其他 goroutine
+// 增删房间导致的并发读写 panic。
+func (b *Bucket) RangeRooms(fn func(room *Room) bool) {
+	b.cLock.RLock()
+	rooms := make([]*Room, 0, len(b.rooms))
+	for _, room := range b.rooms {
+		rooms = append(rooms, room)
+	}
+	b.cLock.RUnlock()
+	for _, room := range rooms {
+		if !fn(room) {
+			return
+		}
+	}
 }
 
 func (b *Bucket) Room(rid int64) (room *Room) {
@@ -91,7 +109,7 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 
 		// 原来有房间，且不是当前房间，先退出房间
 		if ch0Room != nil && ch0Room.Id != roomId {
-			ch0Room.DeleteChannel(ch0)
+			ch0Room.Leave(ch0)
 		}
 		// userId 改变，需要更新桶中的连接
 		if ch0.UserId() != userId && ch0.UserId() > 0 {
@@ -103,7 +121,7 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	// 原来有房间，先退出房间
 	if curRoom := ch.Room(); curRoom != nil {
 		if curRoom.Id != roomId {
-			curRoom.DeleteChannel(ch)
+			curRoom.Leave(ch)
 		}
 	}
 	if roomId != NoRoom {
@@ -121,7 +139,7 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	ch.Token(token)
 	b.chs[userId] = ch
 	if room != nil {
-		err = room.Put(ch)
+		err = room.Join(ch)
 	}
 	return
 }
@@ -140,7 +158,7 @@ func (b *Bucket) Quit(ch IChannel) (err error) {
 	prev := ch.Room().Id
 	if prev != NoRoom {
 		if room, ok = b.rooms[prev]; ok {
-			room.DeleteChannel(ch)
+			room.Leave(ch)
 		}
 		if room, ok = b.rooms[Plaza]; !ok {
 			room = NewRoom(Plaza)
@@ -148,7 +166,7 @@ func (b *Bucket) Quit(ch IChannel) (err error) {
 		}
 		ch.Room(room)
 		if room != nil {
-			err = room.Put(ch)
+			err = room.Join(ch)
 		}
 	}
 	return
@@ -166,7 +184,7 @@ func (b *Bucket) DeleteChannel(ch IChannel) {
 		//delete from bucket
 		delete(b.chs, ch.UserId())
 	}
-	if room != nil && room.DeleteChannel(ch) {
+	if room != nil && room.Leave(ch) {
 		// if room empty delete,will mark room.Drop is true
 		if room.Drop {
 			delete(b.rooms, room.Id)
@@ -181,7 +199,16 @@ func (b *Bucket) Channel(userId int64) (ch IChannel) {
 	return
 }
 
-func (b *Bucket) BroadcastRoom(pushRoomMsgReq *message.PushRoomMsgRequest) {
+// BroadcastRoom 向 worker 池投递房间广播请求（异步），返回是否投递成功。
+// 投递非阻塞：队列满时返回 false（广播是尽力而为，不应让调用方被队列阻塞），
+// 由调用方决定降级（如同步直推）或忽略。
+func (b *Bucket) BroadcastRoom(pushRoomMsgReq *message.PushRoomMsgRequest) bool {
 	num := atomic.AddUint64(&b.routinesNum, 1) % b.RoutineAmount
-	b.routines[num] <- pushRoomMsgReq
+	select {
+	case b.routines[num] <- pushRoomMsgReq:
+		return true
+	default:
+		log.Printf("bucket broadcast room queue full, room:%d dropped", pushRoomMsgReq.RoomId)
+		return false
+	}
 }

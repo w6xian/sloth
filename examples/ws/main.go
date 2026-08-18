@@ -65,7 +65,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(time.Millisecond * 2000)
-			rst, err := server.Call(ctx, 2, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
+			rst, err := server.CallRoom(ctx, 1, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
 			if err != nil {
 				fmt.Println("Call error:", err)
 				continue

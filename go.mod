@@ -8,6 +8,5 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/pkg/errors v0.9.1
 	github.com/w6xian/tlv v0.0.5
 )

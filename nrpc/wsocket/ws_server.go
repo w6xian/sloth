@@ -150,14 +150,29 @@ func (s *WsServer) Room(roomId int64) *bucket.Room {
 	}
 	return nil
 }
+// Broadcast 向所有 bucket 的所有房间异步广播。
+// 仅把请求投递到各 bucket 的 worker 队列后立即返回，实际下发由 worker 池异步完成；
+// 因此 ctx 不参与实际推送（worker 使用 bucket 自身的 background ctx）。
+// 若某个房间因队列满投递失败（尽力而为），返回携带丢弃数量的 error，
+// 调用方可感知队列压力并决定是否降级。
 func (s *WsServer) Broadcast(ctx context.Context, msg *message.Msg) error {
+	var dropped int
 	for _, b := range s.Buckets {
 		if b == nil {
 			continue
 		}
-		for _, room := range b.GetRooms() {
-			room.Push(ctx, msg)
-		}
+		b.RangeRooms(func(room *bucket.Room) bool {
+			if room.IsDrop() {
+				return true
+			}
+			if !b.BroadcastRoom(&message.PushRoomMsgRequest{RoomId: room.Id, Msg: msg}) {
+				dropped++
+			}
+			return true
+		})
+	}
+	if dropped > 0 {
+		return fmt.Errorf("broadcast dropped %d rooms: worker queue full", dropped)
 	}
 	return nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
@@ -167,6 +169,49 @@ func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data 
 	}
 }
 
+// defaultCallTimeout 单次 RPC 调用超时。底层 SendData 已有 writeWait/readWait(默认 10s)
+// 兜底不会无限阻塞，这里取更短的值，控制批量调用的总耗时。
+const defaultCallTimeout = 5 * time.Second
+
+// callRoomConcurrency CallRoom 并发调用上限，防止房间成员过多时 goroutine 爆炸。
+const callRoomConcurrency = 64
+
+func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg ...any) ([]byte, error) {
+	if c.Serve == nil {
+		return nil, errors.New("server not found")
+	}
+	room := c.Serve.Room(roomId)
+	if room == nil || room.IsDrop() {
+		return nil, errors.New("room not found")
+	}
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
+	}
+
+	// 并发调用 + 每成员独立超时：总耗时 ≈ 最慢单次调用，而非 成员数×超时。
+	sem := make(chan struct{}, callRoomConcurrency)
+	var wg sync.WaitGroup
+	room.Range(func(ch bucket.IChannel) bool {
+		if ch == nil {
+			return true
+		}
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			callCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
+			defer cancel()
+			if _, err := ch.Call(callCtx, c.Header.Clone(), mtd, args...); err != nil {
+				log.Printf("room call err:%s", err.Error())
+			}
+		})
+		return true
+	})
+	wg.Wait()
+
+	return []byte{}, nil
+}
+
 func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data string) {
 	if c.Serve == nil {
 		return
@@ -175,7 +220,7 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 	if room == nil {
 		return
 	}
-	if room.Drop {
+	if room.IsDrop() {
 		return
 	}
 	cmd := message.CmdReq{
@@ -185,7 +230,7 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 		Data:   data,
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
-	room.Push(ctx, msg)
+	room.Broadcast(ctx, msg)
 }
 
 func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
@@ -200,6 +245,7 @@ func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
 	if err := c.Serve.Broadcast(ctx, msg); err != nil {
+		log.Printf("broadcast err:%s", err.Error())
 		return
 	}
 }
