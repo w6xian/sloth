@@ -12,4 +12,5 @@ type IServer interface {
 	Room(roomId int64) *bucket.Room
 	Channel(userId int64) bucket.IChannel
 	Broadcast(ctx context.Context, msg *message.Msg) error
+	AllBuckets() []*bucket.Bucket
 }

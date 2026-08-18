@@ -18,8 +18,12 @@ type Bucket struct {
 
 	rooms       map[int64]*Room // bucket room channels
 	routines    []chan *message.PushRoomMsgRequest
-	routinesNum uint64
-	broadcast   chan []byte
+	routinesNum atomic.Uint64
+	dropped     atomic.Uint64 // 广播投递累计丢弃数（用于日志限流）
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	ChannelSize   int
 	RoomSize      int
@@ -40,34 +44,41 @@ func NewBucket(opts ...BucketOption) (b *Bucket) {
 	b.chs = make(map[int64]IChannel, b.ChannelSize)
 	b.routines = make([]chan *message.PushRoomMsgRequest, b.RoutineAmount)
 	b.rooms = make(map[int64]*Room, b.RoomSize)
-	ctx := context.Background()
+	b.ctx, b.cancel = context.WithCancel(context.Background())
+	b.wg.Add(int(b.RoutineAmount))
 	for i := uint64(0); i < b.RoutineAmount; i++ {
 		c := make(chan *message.PushRoomMsgRequest, b.RoutineSize)
 		b.routines[i] = c
-		go b.PushRoom(ctx, c)
+		go b.PushRoom(b.ctx, c)
 	}
 	return
 }
 
+// Close 停止所有 worker goroutine 并等待其退出。
+// 调用后 Bucket 不再可用（禁止再投递广播）。
+func (b *Bucket) Close() {
+	b.cancel()
+	b.wg.Wait()
+}
+
 func (b *Bucket) PushRoom(ctx context.Context, ch chan *message.PushRoomMsgRequest) {
+	defer b.wg.Done()
 	for {
-		var (
-			arg  *message.PushRoomMsgRequest
-			room *Room
-		)
-		arg = <-ch
-		if room = b.Room(arg.RoomId); room != nil {
-			room.Broadcast(ctx, arg.Msg)
+		select {
+		case arg := <-ch:
+			if room := b.Room(arg.RoomId); room != nil {
+				room.Broadcast(ctx, arg.Msg)
+			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
-func (b *Bucket) GetRooms() map[int64]*Room {
-	return b.rooms
-}
 
 // RangeRooms 安全遍历桶内所有房间：读锁下快照后锁外回调，fn 返回 false 提前终止。
-// 相比直接遍历 GetRooms() 返回的裸 map，可避免遍历期间其他 goroutine
-// 增删房间导致的并发读写 panic。
+// 相比直接遍历裸 map，可避免遍历期间其他 goroutine 增删房间导致的并发读写 panic。
+// 注意：每次调用都会全量拷贝房间快照，若回调仅为广播投递（非阻塞、不碰桶锁），
+// 请优先使用 BroadcastAll，它在读锁内直接遍历，零额外分配。
 func (b *Bucket) RangeRooms(fn func(room *Room) bool) {
 	b.cLock.RLock()
 	rooms := make([]*Room, 0, len(b.rooms))
@@ -82,10 +93,47 @@ func (b *Bucket) RangeRooms(fn func(room *Room) bool) {
 	}
 }
 
-func (b *Bucket) Room(rid int64) (room *Room) {
+// BroadcastAll 向桶内所有房间异步广播一条消息，返回因 worker 队列满而丢弃的房间数。
+// 广播热路径专用：在读锁内直接遍历房间 map 并做非阻塞投递。
+// 投递（BroadcastRoom）只涉及原子计数与无阻塞 channel 写，不触碰桶锁，锁内执行安全，
+// 因此无需像 RangeRooms 那样先全量拷贝快照，省掉每次广播的一次整表分配。
+// 已解散(Drop)的房间跳过；若投递失败（队列满）调用方可根据返回值决定是否降级。
+func (b *Bucket) BroadcastAll(ctx context.Context, msg *message.Msg) (dropped int) {
 	b.cLock.RLock()
 	defer b.cLock.RUnlock()
+	for rid, room := range b.rooms {
+		if room.IsDrop() {
+			continue
+		}
+		if !b.BroadcastRoom(&message.PushRoomMsgRequest{RoomId: rid, Msg: msg}) {
+			dropped++
+		}
+	}
+	return
+}
+
+// RangeChannels 安全遍历桶内所有在线连接：读锁下快照后锁外回调，fn 返回 false 提前终止。
+// b.chs 是 user->channel 的唯一映射：同一连接即使同时在多个房间，也只会被遍历一次，
+// 天然去重，适合"对每个连接做一次操作"的场景（如 CallBucket 全服 RPC）。
+// 与 RangeRooms 的差异：覆盖全部在线连接（含未入任何房间的连接），而非仅房间成员。
+func (b *Bucket) RangeChannels(fn func(ch IChannel) bool) {
+	b.cLock.RLock()
+	chs := make([]IChannel, 0, len(b.chs))
+	for _, ch := range b.chs {
+		chs = append(chs, ch)
+	}
+	b.cLock.RUnlock()
+	for _, ch := range chs {
+		if !fn(ch) {
+			return
+		}
+	}
+}
+
+func (b *Bucket) Room(rid int64) (room *Room) {
+	b.cLock.RLock()
 	room = b.rooms[rid]
+	b.cLock.RUnlock()
 	return
 }
 
@@ -173,20 +221,16 @@ func (b *Bucket) Quit(ch IChannel) (err error) {
 }
 
 func (b *Bucket) DeleteChannel(ch IChannel) {
-	var (
-		ok   bool
-		room *Room
-	)
-	b.cLock.RLock()
-	defer b.cLock.RUnlock()
-	if ch, ok = b.chs[ch.UserId()]; ok {
-		room = b.chs[ch.UserId()].Room()
-		//delete from bucket
+	// 注意：这里必须持有写锁。删除 chs/rooms map 项是写操作，
+	// 在 RLock 下执行会与其他写者并发读写 map，导致 fatal error: concurrent map writes。
+	b.cLock.Lock()
+	defer b.cLock.Unlock()
+	if cur, ok := b.chs[ch.UserId()]; ok {
+		room := cur.Room()
+		// delete from bucket
 		delete(b.chs, ch.UserId())
-	}
-	if room != nil && room.Leave(ch) {
-		// if room empty delete,will mark room.Drop is true
-		if room.Drop {
+		// 房间清空后解散并回收：Leave 返回 Drop（空且非 Plaza）
+		if room != nil && room.Leave(cur) && room.Drop {
 			delete(b.rooms, room.Id)
 		}
 	}
@@ -203,12 +247,17 @@ func (b *Bucket) Channel(userId int64) (ch IChannel) {
 // 投递非阻塞：队列满时返回 false（广播是尽力而为，不应让调用方被队列阻塞），
 // 由调用方决定降级（如同步直推）或忽略。
 func (b *Bucket) BroadcastRoom(pushRoomMsgReq *message.PushRoomMsgRequest) bool {
-	num := atomic.AddUint64(&b.routinesNum, 1) % b.RoutineAmount
+	num := b.routinesNum.Add(1) % b.RoutineAmount
 	select {
 	case b.routines[num] <- pushRoomMsgReq:
 		return true
 	default:
-		log.Printf("bucket broadcast room queue full, room:%d dropped", pushRoomMsgReq.RoomId)
+		// 队列满说明下游消费不过来。日志走标准库 log 包（全局互斥锁），
+		// 若逐条打印会在大流量下形成日志风暴并反噬热路径，故限流：
+		// 仅首次与每满 1024 次丢弃打一条，携带累计计数。
+		if n := b.dropped.Add(1); n == 1 || n%1024 == 0 {
+			log.Printf("bucket broadcast room queue full, room:%d dropped(total:%d)", pushRoomMsgReq.RoomId, n)
+		}
 		return false
 	}
 }

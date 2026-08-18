@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
@@ -207,6 +208,57 @@ func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg 
 		})
 		return true
 	})
+	wg.Wait()
+
+	return []byte{}, nil
+}
+
+// callBucketErrLog 全服批量调用失败日志采样计数：失败连接往往成批出现（如断连），
+// 全量打印会形成日志风暴，故仅首次与每满 128 次失败记录一条。
+var callBucketErrLog atomic.Uint64
+
+// CallBucket 对服务端所有在线连接发起一次方法调用（全服推送 RPC）。
+// 遍历各 bucket 的连接唯一映射（RangeChannels）而非房间成员：同一连接即使同时在
+// 多个房间也只被调用一次，且未入任何房间的在线连接也不会漏掉。
+// 并发受信号量限制，每连接独立超时（defaultCallTimeout），单点失败不中断整体。
+func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
+	if c.Serve == nil {
+		return nil, errors.New("server not found")
+	}
+	args, err := decoder.EncodeArgs(arg, c.Encoder)
+	if err != nil {
+		return nil, err
+	}
+
+	sem := make(chan struct{}, callRoomConcurrency)
+	var wg sync.WaitGroup
+	for _, b := range c.Serve.AllBuckets() {
+		if b == nil {
+			continue
+		}
+		b.RangeChannels(func(ch bucket.IChannel) bool {
+			if ch == nil {
+				return true
+			}
+			// 在调用线程内同步拷贝 header 快照：Header 是 map（引用语义），
+			// 若在 goroutine 内才 Clone，调用方于 CallBucket 执行期间修改 c.Header
+			// 仍会与 Clone 的读产生 race；提前拷贝后 goroutine 只读自己的副本，
+			// 配合调用方"改 header → 调用 → 返回后再改"的串行模式即完全安全。
+			header := c.Header.Clone()
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-sem }()
+				callCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
+				defer cancel()
+				if _, err := ch.Call(callCtx, header, mtd, args...); err != nil {
+					if n := callBucketErrLog.Add(1); n == 1 || n%128 == 0 {
+						log.Printf("bucket call err:%s", err.Error())
+					}
+				}
+			})
+			return true
+		})
+	}
 	wg.Wait()
 
 	return []byte{}, nil
