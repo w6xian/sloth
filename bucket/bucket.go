@@ -145,26 +145,23 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	b.cLock.Lock()
 	defer b.cLock.Unlock()
 
-	if ch0, ch_ok := b.chs[ch.UserId()]; ch_ok {
+	// 用入参 userId 查重（而非 ch.UserId()）：重连的新连接在 Put 时其 UserId 可能
+	// 尚未设置（=0），若按 ch.UserId() 查会查不到旧连接，导致旧连接残留注册表。
+	if ch0, ch_ok := b.chs[userId]; ch_ok {
 		ch0Room := ch0.Room()
-		// 只是更新 token（userId 相同、roomId 相同、两者要么都没房间要么房间ID一致）
-		if ch0.UserId() == userId &&
-			((ch0Room == nil && roomId == NoRoom) ||
-				(ch0Room != nil && ch0Room.Id == roomId)) {
+		// 同一连接对象重复 login：仅更新 token，幂等返回
+		if ch0 == ch {
 			ch0.Token(token)
 			return
 		}
-
-		// 原来有房间，且不是当前房间，先退出房间
-		if ch0Room != nil && ch0Room.Id != roomId {
-			ch0Room.Leave(ch0)
+		// 不同连接对象（如 Web 端 F5 强刷新重连）：新连接抢占，回收旧连接。
+		// 否则旧连接残留在注册表/房间成员里，后续 CallRoom/Broadcast 全部打在
+		// 已断开的旧连接上 → 稳定超时，且新连接被吞掉（原 bug 的表现）。
+		if ch0Room != nil {
+			ch0Room.Leave(ch0) // 旧连接退出其房间（房间空后 Drop，由后续逻辑重建）
 		}
-		// userId 改变，需要更新桶中的连接
-		if ch0.UserId() != userId && ch0.UserId() > 0 {
-			// 关闭后，删除桶中的连接
-			ch0.Close()
-			delete(b.chs, ch0.UserId())
-		}
+		ch0.Close()           // 关闭旧连接（对已断开连接幂等）
+		delete(b.chs, userId) // 移除旧注册，防止残留/误删
 	}
 	// 原来有房间，先退出房间
 	if curRoom := ch.Room(); curRoom != nil {
@@ -225,7 +222,9 @@ func (b *Bucket) DeleteChannel(ch IChannel) {
 	// 在 RLock 下执行会与其他写者并发读写 map，导致 fatal error: concurrent map writes。
 	b.cLock.Lock()
 	defer b.cLock.Unlock()
-	if cur, ok := b.chs[ch.UserId()]; ok {
+	// 只删除传入的连接自身：断开的旧连接若晚于新连接执行清理（F5 重连竞态），
+	// b.chs 中该 userId 已是新连接，无 cur==ch 保护会误删新连接。
+	if cur, ok := b.chs[ch.UserId()]; ok && cur == ch {
 		room := cur.Room()
 		// delete from bucket
 		delete(b.chs, ch.UserId())

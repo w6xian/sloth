@@ -321,9 +321,12 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 		}
 	}()
 	defer func() {
-		if ch.Room() == nil || ch.UserId() == 0 {
-			GetBucket(ctx, s.Buckets, ch.UserId()).DeleteChannel(ch)
-		}
+		// 无论登录与否，连接断开都必须从注册表移除。
+		// 原条件（ch.Room()==nil || ch.UserId()==0）会放过已登录连接，导致：
+		// Web 端 F5 强刷新后旧连接残留 b.chs/房间成员，新连接同 userId 重连又被
+		// Bucket.Put 的幂等分支吞掉，后续 CallRoom/Broadcast 全部打在已断开的
+		// 旧连接上 → 稳定超时，重启服务端才恢复。
+		GetBucket(ctx, s.Buckets, ch.UserId()).DeleteChannel(ch)
 		if ch.Conn != nil {
 			ch.Conn.Close()
 			ch.Conn = nil

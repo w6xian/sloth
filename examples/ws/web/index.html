@@ -28,7 +28,7 @@
         //      reconnectDelay(ms)   : 1000  首次失败 1s 后重试
         //      backoffMax(ms)       : 20000 最大间隔 20s（每次失败 *1.5 指数退避，cap 到这里）
         //      maxReconnectAttempts : 0     <=0 表示无限重试
-        const addr = `ws://localhost:8990/ws`;
+        const addr = `ws://127.0.0.1:9999/ws`;
         const rpc = new SockRpcV3({
             addr: addr,
             timeoutMs: 10000,   // 单次 Call 超时（对齐 Go ws_client.writeWait/readWait）
@@ -69,40 +69,40 @@
 
             // 定时 Call v1.Sign（对应 Go 示例 L76 client.Call(ctx, "v1.Sign", []byte("sign"))）
             const signPayload = new TextEncoder().encode('sign'); // []byte("sign")
-            const tick = () => {
+            // const tick = () => {
                 console.log('[V3] → Call("v1.Sign", Uint8Array("sign"))');
-                rpc.Call(
-                    'v1.Sign',
-                    signPayload,
-                    (data, extra, rawFnBytes) => {
-                        // data: 已经自动 AG.DecodeArg 后的值；裸字节返回 Uint8Array
-                        //
-                        // 关键：对齐 Go examples/ws/node/main.go L84 `data = tlv.Value(data)` 用法——
-                        //       v1.Sign 服务端返回的是 tlv.Json(auth) 编码后的 []byte
-                        //       （auth 结构体 JSON 再包一层 TLV_TYPE_JSON tag，见 tlv/types.go L33-L43）
-                        //       所以浏览器端：先剥外层 TLV 取 Value，再转 JSON / Text
-                        // console.log('[V3] ← v1.Sign reply success (raw bytes):', data);
-                        if (data instanceof Uint8Array) {
-                            // 1) 等价 Go: data = tlv.Value(data) —— 剥外层 TLV，失败返回原 bytes
-                            const peeled = window.TlvValue(data);
-                            // 2) Text 显示
-                            console.log('[V3]   TlvValue as text :', decode_string(peeled));
-                            // 3) JSON 解析（服务端写入的是 tlv.Json(auth)，value 本身就是 JSON 串）
-                            try {
-                                console.log('[V3]   TlvValue as json :', decode_bytes(peeled));
-                            } catch (e) {
-                                console.warn('[V3]   TlvValue parse json failed:', e);
-                            }
-                        }
-                    },
-                    (err, extra, rawFnBytes) => {
-                        console.error('[V3] ← v1.Sign reply error:', err && err.message ? err.message : err);
-                    },
-                    /* extra: */ { ts: Date.now() }
-                );
+                // rpc.Call(
+                //     'v1.Sign',
+                //     signPayload,
+                //     (data, extra, rawFnBytes) => {
+                //         // data: 已经自动 AG.DecodeArg 后的值；裸字节返回 Uint8Array
+                //         //
+                //         // 关键：对齐 Go examples/ws/node/main.go L84 `data = tlv.Value(data)` 用法——
+                //         //       v1.Sign 服务端返回的是 tlv.Json(auth) 编码后的 []byte
+                //         //       （auth 结构体 JSON 再包一层 TLV_TYPE_JSON tag，见 tlv/types.go L33-L43）
+                //         //       所以浏览器端：先剥外层 TLV 取 Value，再转 JSON / Text
+                //         // console.log('[V3] ← v1.Sign reply success (raw bytes):', data);
+                //         if (data instanceof Uint8Array) {
+                //             // 1) 等价 Go: data = tlv.Value(data) —— 剥外层 TLV，失败返回原 bytes
+                //             const peeled = window.TlvValue(data);
+                //             // 2) Text 显示
+                //             console.log('[V3]   TlvValue as text :', decode_string(peeled));
+                //             // 3) JSON 解析（服务端写入的是 tlv.Json(auth)，value 本身就是 JSON 串）
+                //             try {
+                //                 console.log('[V3]   TlvValue as json :', decode_bytes(peeled));
+                //             } catch (e) {
+                //                 console.warn('[V3]   TlvValue parse json failed:', e);
+                //             }
+                //         }
+                //     },
+                //     (err, extra, rawFnBytes) => {
+                //         console.error('[V3] ← v1.Sign reply error:', err && err.message ? err.message : err);
+                //     },
+                //     /* extra: */ { ts: Date.now() }
+                // );
 
                 // 同时演示 Promise 版
-                rpc.CallPromise('v1.Sign', signPayload) 
+                rpc.CallPromise('v1.Sign1', signPayload) 
                     .then(v => {
                          const peeled = window.TlvValue(v);
                         console.log('[V3]   TlvValue as text :', decode_string(peeled));
@@ -117,31 +117,31 @@
                 // 场景：JS 作为客户端，把一个对象先 JSON 序列化，再包一层 TLV_TYPE_JSON 的 TLV，
                 //       作为 Call 参数发送；服务端 handler 收到后用 `tlv.Value(arg)` 剥外层，再 json.Unmarshal
                 //       ——完全对称于 examples/ws/main.go L152 服务端 tlv.Json(auth) 给客户端回包的方式。
-                try {
-                    const jsAuth = { UserId: 42, RoomId: 9, Token: 'token_from_browser', Ts: Math.floor(Date.now() / 1000) };
-                    // 1) 编码：等价 Go: b := tlv.Json(jsAuth)
-                    const tlvJsonPayload = window.TlvJson(jsAuth);
-                    console.log('[V3] TlvJson(auth) bytes.len =', tlvJsonPayload.length, 'hex =', Array.from(tlvJsonPayload).slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join(' '));
-                    // 2) 验证解码（往返）：剥 TLV + JSON.parse，应和原对象一致
-                    const roundTrip = window.TlvValueAsJson(tlvJsonPayload);
-                    console.log('[V3] TlvJson → TlvValueAsJson (round trip) =', roundTrip);
+                // try {
+                //     const jsAuth = { UserId: 42, RoomId: 9, Token: 'token_from_browser', Ts: Math.floor(Date.now() / 1000) };
+                //     // 1) 编码：等价 Go: b := tlv.Json(jsAuth)
+                //     const tlvJsonPayload = window.TlvJson(jsAuth);
+                //     console.log('[V3] TlvJson(auth) bytes.len =', tlvJsonPayload.length, 'hex =', Array.from(tlvJsonPayload).slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join(' '));
+                //     // 2) 验证解码（往返）：剥 TLV + JSON.parse，应和原对象一致
+                //     const roundTrip = window.TlvValueAsJson(tlvJsonPayload);
+                //     console.log('[V3] TlvJson → TlvValueAsJson (round trip) =', roundTrip);
 
-                    // 3) 用这份 payload 调一次 v1.Sign（或你新注册的"接收 tlv.Json"接口）
-                    rpc.Call(
-                        'v1.Sign',
-                        tlvJsonPayload,
-                        (data) => {
-                            const peeled = window.TlvValue(data);
-                            console.log('[V3]   TlvValue as text :', decode_string(peeled));
-                        },
-                        (err)  => console.warn('[V3] ← v1.Sign (TlvJson arg) reply err:', err && err.message ? err.message : err),
-                    );
-                } catch (e) {
-                    console.error('[V3] TlvJson encode failed:', e);
-                }
-            };
-            tick();
-            window.__v3Timer = setInterval(tick, 3000);
+                //     // 3) 用这份 payload 调一次 v1.Sign（或你新注册的"接收 tlv.Json"接口）
+                //     rpc.Call(
+                //         'v1.Sign',
+                //         tlvJsonPayload,
+                //         (data) => {
+                //             const peeled = window.TlvValue(data);
+                //             console.log('[V3]   TlvValue as text :', decode_string(peeled));
+                //         },
+                //         (err)  => console.warn('[V3] ← v1.Sign (TlvJson arg) reply err:', err && err.message ? err.message : err),
+                //     );
+                // } catch (e) {
+                //     console.error('[V3] TlvJson encode failed:', e);
+                // }
+            // };
+            // tick();
+            // window.__v3Timer = setInterval(tick, 3000);
         });
        
         rpc.OnClose(evt => {

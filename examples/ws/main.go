@@ -48,7 +48,7 @@ func main() {
 	drpc.Register("v1", &HelloService{}, "metadata")
 	drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithRouter(r, "/ws"),
-		option.WithOrigin("*"),
+		option.WithOrigin("*", "localhost:8000"),
 		option.WithServerHandleMessage(&Handler{}))
 	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
 		node, err := sloth.GetNode(service)
@@ -62,17 +62,17 @@ func main() {
 		return svrId, nil
 	})
 
-	go func() {
-		for {
-			time.Sleep(time.Millisecond * 2000)
-			rst, err := server.CallRoom(ctx, 1, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
-			if err != nil {
-				fmt.Println("Call error:", err)
-				continue
-			}
-			fmt.Println("Call result:", string(rst))
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		time.Sleep(time.Millisecond * 2000)
+	// 		rst, err := server.CallRoom(ctx, 1, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
+	// 		if err != nil {
+	// 			fmt.Println("Call error:", err)
+	// 			continue
+	// 		}
+	// 		fmt.Println("Call result:", string(rst))
+	// 	}
+	// }()
 
 	if err := drpc.Serve(); err != nil {
 		panic(err)
@@ -131,6 +131,35 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 		"req":  "server 1",
 		"time": time.Now().Format("2006-01-02 15:04:05"),
 	}, nil
+}
+
+// Sign handles user signing/authentication
+func (h *HelloService) WebSign(ctx context.Context, data []byte) ([]byte, error) {
+	h.Id = h.Id + 1
+
+	// Get channel from context
+	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
+	if !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+
+	// Get bucket server from context
+	svr, ok := ctx.Value(sloth.BucketKey).(types.IBucket)
+	if !ok {
+		return nil, fmt.Errorf("bucket not found")
+	}
+
+	// Simulate auth info extraction
+	auth := auth.AuthInfo{
+		UserId: 2,
+		RoomId: 1,
+		Token:  "token_123", // Added fake token
+		Ts:     time.Now().Unix(),
+	}
+
+	// Register session in bucket
+	svr.Bucket(auth.UserId).Put(auth.UserId, auth.RoomId, auth.Token, ch)
+	return tlv.Json(auth), nil
 }
 
 // Sign handles user signing/authentication

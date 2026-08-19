@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"runtime"
@@ -350,11 +351,11 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 		}
 	}
 
-	header := message.Header{}
-	if len(msgReq.Header) > 0 {
-		header = msgReq.Header
-	}
-	ctx = context.WithValue(ctx, HeaderKey, message.Header(header))
+	// 克隆调用方 header 后追加 meta，避免写污染调用方持有的 map（RpcCaller 可能被复用）
+	header := make(message.Header, len(msgReq.Header)+1)
+	maps.Copy(header, msgReq.Header)
+	header.Set("meta", c.metaData)
+	ctx = context.WithValue(ctx, HeaderKey, header)
 
 	funArgs := decoder.DecodeArgs(msgReq.Args, c.server.Decoder)
 	return ref.CallFuncWithContext(ctx, serviceFns, node.Method, funArgs...)

@@ -12,10 +12,11 @@ import (
 
 // mockChannel 最小化实现 IChannel，供 Room 测试使用。
 type mockChannel struct {
-	id   int64
-	user int64
-	room *Room
-	push atomic.Int64 // Push 调用次数
+	id     int64
+	user   int64
+	room   *Room
+	push   atomic.Int64  // Push 调用次数
+	closed atomic.Bool   // Close 是否被调用
 }
 
 func (m *mockChannel) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
@@ -45,7 +46,10 @@ func (m *mockChannel) UserId(u ...int64) int64 {
 	return m.user
 }
 func (m *mockChannel) Token(t ...string) string { return "" }
-func (m *mockChannel) Close() error              { return nil }
+func (m *mockChannel) Close() error {
+	m.closed.Store(true)
+	return nil
+}
 
 func newMockChannels(n int) []*mockChannel {
 	chs := make([]*mockChannel, n)
@@ -490,6 +494,75 @@ func TestBucketRangeChannels(t *testing.T) {
 	})
 	if cnt != 3 {
 		t.Fatalf("RangeChannels early stop got %d, want 3", cnt)
+	}
+}
+
+// TestBucketReconnectReplace 验证 F5 强刷新重连语义：
+// 同 userId 不同连接对象重新 Put，旧连接必须被回收（退出房间 + 关闭），新连接接管注册表。
+func TestBucketReconnectReplace(t *testing.T) {
+	b := NewBucket(WithRoutineAmount(2))
+	defer b.Close()
+
+	oldCh := newMockChannels(1)[0]
+	if err := b.Put(1, 10, "t1", oldCh); err != nil {
+		t.Fatal(err)
+	}
+
+	// 模拟 F5 强刷新：同 userId 新连接对象（UserId 尚未设置，模拟常见重连时序）
+	newCh := &mockChannel{id: 100, user: 0}
+	if err := b.Put(1, 10, "t2", newCh); err != nil {
+		t.Fatal(err)
+	}
+
+	// 新连接接管注册表
+	b.cLock.RLock()
+	cur := b.chs[1]
+	b.cLock.RUnlock()
+	if cur != newCh {
+		t.Fatalf("chs[1] = %v, want new channel", cur)
+	}
+	// 旧连接被关闭并退出房间
+	if !oldCh.closed.Load() {
+		t.Fatal("old channel should be closed after reconnect")
+	}
+	r := b.Room(10)
+	if r == nil || !r.Contains(newCh) || r.Contains(oldCh) {
+		t.Fatalf("room 10 should contain only the new channel")
+	}
+	// 同一对象重复 login 仍幂等：只更新 token，不重复注册、不关闭自己
+	if err := b.Put(1, 10, "t3", newCh); err != nil {
+		t.Fatal(err)
+	}
+	if newCh.closed.Load() {
+		t.Fatal("same-channel re-login must not close itself")
+	}
+}
+
+// TestBucketDeleteChannelOnlySelf 验证 DeleteChannel 只删除传入的自身：
+// 断开的旧连接晚于新连接执行清理时（F5 重连竞态），不得误删已接管的新连接。
+func TestBucketDeleteChannelOnlySelf(t *testing.T) {
+	b := NewBucket(WithRoutineAmount(2))
+	defer b.Close()
+
+	oldCh := newMockChannels(1)[0]
+	if err := b.Put(1, 10, "t1", oldCh); err != nil {
+		t.Fatal(err)
+	}
+	// 新连接已注册（覆盖注册表）
+	newCh := &mockChannel{id: 100, user: 0}
+	if err := b.Put(1, 10, "t2", newCh); err != nil {
+		t.Fatal(err)
+	}
+	// 旧连接的清理晚到：不得删除新连接
+	b.DeleteChannel(oldCh)
+	b.cLock.RLock()
+	cur, ok := b.chs[1]
+	b.cLock.RUnlock()
+	if !ok || cur != newCh {
+		t.Fatal("DeleteChannel of a stale connection must not remove the new one")
+	}
+	if r := b.Room(10); r == nil || !r.Contains(newCh) {
+		t.Fatal("new channel should still be in room 10")
 	}
 }
 
