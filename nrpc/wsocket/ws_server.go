@@ -381,7 +381,7 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 			m = tlvFrame.Value()
 		}
 		if _, err := fn.Action(m); err == nil {
-			if err := s.HandleFn(ctx, ch, m); err != nil {
+			if err := s.HandleFn(ctx, r, ch, m); err != nil {
 				if s.handler != nil {
 					s.handler.OnError(ctx, r, s, ch, err)
 				}
@@ -394,7 +394,7 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 	}
 }
 
-func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byte) error {
+func (s *WsServer) HandleFn(ctx context.Context, r *http.Request, ch *WsChannelServer, data []byte) error {
 	action, err := fn.Action(data)
 	if err != nil {
 		return err
@@ -410,14 +410,14 @@ func (s *WsServer) HandleFn(ctx context.Context, ch *WsChannelServer, data []byt
 			return err
 		}
 		if !s.Connect.IsRegisteredService(fx.Method) {
-			resp, lerr := s.Connect.CallNetFunc(ctx, fx.Method, id, data)
+			resp, lerr := s.Connect.CallNetFunc(ctx, r, fx.Method, id, data)
 			ch.Reply(id, resp, lerr)
 			return nil
 		}
 		// 链接通道
 		// fx.Channel = ch
 		// 调用 connect.CallFunc 方法
-		rst, err := s.Connect.CallFunc(ctx, s, &trpc.RpcCaller{
+		rst, err := s.Connect.CallFunc(ctx, r, s, &trpc.RpcCaller{
 			Method:  fx.Method,
 			Data:    body,
 			Channel: ch,

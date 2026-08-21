@@ -463,7 +463,7 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 			return err
 		}
 		if !c.Connect.IsRegisteredService(fx.Method) {
-			resp, err := c.Connect.CallNetFunc(ctx, fx.Method, id, data)
+			resp, err := c.Connect.CallNetFunc(ctx, nil, fx.Method, id, data)
 			ch.Reply(id, resp, err)
 			return nil
 		}
@@ -471,7 +471,7 @@ func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []
 		// 链接通道
 		// fx.Channel = ch
 		// 调用 connect.CallFunc 方法
-		rst, err := c.Connect.CallFunc(ctx, nil, &trpc.RpcCaller{
+		rst, err := c.Connect.CallFunc(ctx, nil, nil, &trpc.RpcCaller{
 			Method:  fx.Method,
 			Data:    body,
 			Channel: ch,

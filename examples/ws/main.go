@@ -122,6 +122,9 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
 	fmt.Println("Test args (AB):", ab)
 
+	header, _ := sloth.GetHeader(ctx)
+	fmt.Println("Test header:", header)
+
 	// Simulate error
 	if h.Id%5 == 1 {
 		return nil, fmt.Errorf("error %d", h.Id)

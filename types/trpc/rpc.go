@@ -2,6 +2,7 @@ package trpc
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/option"
@@ -23,8 +24,8 @@ type RpcCaller struct {
 }
 
 type ICallRpc interface {
-	CallFunc(ctx context.Context, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
-	CallNetFunc(ctx context.Context, service string, msgId uint64, payload []byte) ([]byte, error)
+	CallFunc(ctx context.Context, r *http.Request, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
+	CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, payload []byte) ([]byte, error)
 	IsRegisteredService(service string) bool
 	Options() *option.Options
 }

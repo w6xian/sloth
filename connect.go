@@ -72,7 +72,7 @@ type Connect struct {
 	metaData string
 }
 
-func (c *Connect) CallNetFunc(ctx context.Context, service string, msgId uint64, msg []byte) ([]byte, error) {
+func (c *Connect) CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, msg []byte) ([]byte, error) {
 	if c.proxyHandler == nil {
 		return nil, errors.New("service not set")
 	}
@@ -322,7 +322,7 @@ func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
 }
 
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
-func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
+func (c *Connect) CallFunc(ctx context.Context, r *http.Request, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.Log(logger.Error, "connect.CallFunc %s recover err : %v", msgReq.Method, err)
@@ -355,6 +355,9 @@ func (c *Connect) CallFunc(ctx context.Context, svr types.IBucket, msgReq *trpc.
 	header := make(message.Header, len(msgReq.Header)+1)
 	maps.Copy(header, msgReq.Header)
 	header.Set("meta", c.metaData)
+	if r != nil {
+		header.Set("remote_addr", r.RemoteAddr)
+	}
 	ctx = context.WithValue(ctx, HeaderKey, header)
 
 	funArgs := decoder.DecodeArgs(msgReq.Args, c.server.Decoder)

@@ -13,6 +13,7 @@ import (
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
 )
@@ -49,15 +50,16 @@ func main() {
 				client.Header.Set("USER_ID", "1")
 				data, err := client.Call(context.Background(), "v1.Sign", []byte("sign"))
 				fmt.Println("------------")
-				fmt.Println("Sign result", data, err)
+				fmt.Println("Sign result", string(tlv.Value(data)), err)
 				fmt.Println("------------")
 				if err != nil {
 					fmt.Println("v1.Sign Call error:", err)
 					continue
 				}
 				auth := &auth.AuthInfo{}
-				err = json.Unmarshal(data, auth)
+				err = json.Unmarshal(tlv.Value(data), auth)
 				if err != nil {
+					fmt.Println(err.Error())
 					continue
 				}
 				fmt.Println(auth)
@@ -65,13 +67,13 @@ func main() {
 				fmt.Println("v1.Sign Call success:")
 			}
 
-			// // Example RPC call with header and various arguments
-			// data, err := client.CallWithHeader(context.Background(), message.Header{
-			// 	"APP_ID":  "header_app_id",
-			// 	"USER_ID": "1",
-			// }, "v1.Test", &AB{A: 1, B: 2},
-			// )
-			// fmt.Println("v1.Test Call result:", data, err)
+			// Example RPC call with header and various arguments
+			data, err := client.CallWithHeader(context.Background(), message.Header{
+				"APP_ID":  "header_app_id",
+				"USER_ID": "1",
+			}, "v1.Test", &AB{A: 1, B: 2},
+			)
+			fmt.Println("v1.Test Call result:", data, err)
 			// Example RPC call with header and various arguments
 			data1, err := client.CallWithHeader(context.Background(), message.Header{
 				"APP_ID":  "header_app_id",
