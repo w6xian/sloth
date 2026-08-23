@@ -205,17 +205,22 @@ func ParseFnHeader(b []byte) (action uint8, id uint64, length uint32, err error)
 }
 
 func IsFn(b []byte) bool {
-	// 不仅要验证协议头，还需要验证数据长度也能正常解析
-	if len(b) < FnHeaderSize || b[0] != FnMagic1 || b[1] != FnMagic2 {
-		return false
-	}
-	length := binary.BigEndian.Uint32(b[11:15])
-	if length > FnMaxDataSize {
-		return false
-	}
-	totalLen := FnHeaderSize + int(length)
-	if len(b) < totalLen {
-		return false
-	}
-	return true
+    if len(b) < 2 || b[0] != FnMagic1 || b[1] != FnMagic2 {
+        return false
+    }
+    if len(b) < 3 {
+        return true
+    }
+    if len(b) < FnHeaderSize {
+        return true
+    }
+    length := binary.BigEndian.Uint32(b[11:15])
+    if length > FnMaxDataSize {
+        return false
+    }
+    totalLen := FnHeaderSize + int(length)
+    if len(b) < totalLen {
+        return false
+    }
+    return true
 }

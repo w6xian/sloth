@@ -177,14 +177,15 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 }
 
 // @call ReplySuccess 回复调用成功
-func (c *WsChannelServer) Reply(id uint64, data []byte, err error) error {
+func (c *WsChannelServer) Send(ctx context.Context, id uint64, data []byte, err error) error {
+
 	if err != nil {
-		return c.result(actions.ACTION_REPLY_ERROR, id, []byte(err.Error()))
+		return c.channel_result(ctx, actions.ACTION_REPLY_ERROR, id, []byte(err.Error()))
 	}
-	return c.result(actions.ACTION_REPLY_SUCCESS, id, data)
+	return c.channel_result(ctx, actions.ACTION_REPLY_SUCCESS, id, data)
 }
 
-func (c *WsChannelServer) result(action byte, id uint64, data []byte) error {
+func (c *WsChannelServer) channel_result(ctx context.Context, action byte, id uint64, data []byte) error {
 	if c.Conn == nil {
 		return fmt.Errorf("conn is nil")
 	}
@@ -192,15 +193,24 @@ func (c *WsChannelServer) result(action byte, id uint64, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return c.Send(payload)
-}
-
-func (c *WsChannelServer) Send(payload []byte) error {
-
 	timer := time.NewTimer(c.writeWait)
 	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		return ctx.Err()
 	case c.rpcBacker <- payload:
+	case <-timer.C:
+		return fmt.Errorf("rpc reply queue full")
+	}
+	return nil
+}
+
+func (c *WsChannelServer) Receive(ctx context.Context, payload []byte) error {
+	timer := time.NewTimer(c.writeWait)
+	select {
+	case c.rpcResult <- payload:
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-timer.C:
 		return fmt.Errorf("rpc reply queue full")
 	}

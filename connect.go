@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/w6xian/sloth/v3/internal/codec"
+
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/internal/logger"
@@ -54,15 +56,17 @@ type ServeHandler interface {
 // implements [trpc.ICallRpc]
 type Connect struct {
 	// id         int64
-	ServerId   string
-	client     *ClientRpc
-	server     *ServerRpc
-	serviceMap map[string]*ref.ServiceFuncs
-	sleepTimes int
-	times      int
-	cpuNum     int
-	tlsConfig  *tls.Config
-	Option     *option.Options
+	ServerId       string
+	client         *ClientRpc
+	server         *ServerRpc
+	serviceMap     map[string]*ref.ServiceFuncs
+	sleepTimes     int
+	times          int
+	cpuNum         int
+	tlsConfig      *tls.Config
+	Option         *option.Options
+	protocols      map[string]ProtocolFactory
+	protocolCodecs map[string]codec.Codec
 
 	// 多协议监听器
 	listeners []ProtocolListener
@@ -105,6 +109,23 @@ func (c *Connect) Options() *option.Options {
 	return c.Option
 }
 
+func (c *Connect) RegisterProtocol(name string, factory ProtocolFactory) {
+	if c.protocols == nil {
+		c.protocols = make(map[string]ProtocolFactory)
+	}
+	c.protocols[name] = factory
+}
+
+func (c *Connect) resolveProtocol(name string) ProtocolFactory {
+	if c.protocols == nil {
+		return nil
+	}
+	if factory, ok := c.protocols[name]; ok {
+		return factory
+	}
+	return nil
+}
+
 func ServerConn(client *ClientRpc, opts ...ConnOption) *Connect {
 	opts = append(opts, Client(client))
 	return newConnect(opts...)
@@ -128,6 +149,11 @@ func newConnect(opts ...ConnOption) *Connect {
 	svr.client = LinkClientFunc()
 	svr.server = LinkServerFunc()
 	svr.Option = option.NewOptions()
+	svr.protocols = map[string]ProtocolFactory{
+		"ws":        wsProtocolFactory{},
+		"wss":       wsProtocolFactory{},
+		"websocket": wsProtocolFactory{},
+	}
 	svr.listeners = make([]ProtocolListener, 0)
 	svr.proxyHandler = func(ctx context.Context, service string) (int64, error) {
 		return 0, nil
@@ -154,12 +180,27 @@ func (c *Connect) Register(name string, rcvr any, metadata string) error {
 // Listen 注册协议监听器，不立即启动服务
 // 可以多次调用注册多个协议，最后用 Serve() 启动所有服务
 func (c *Connect) Listen(ctx context.Context, network, address string, opts ...option.ConnectOption) error {
+	if factory := c.resolveProtocol(network); factory != nil {
+		if factory.Name() == "ws" || factory.Name() == "wss" || factory.Name() == "websocket" {
+			ln, err := net.Listen("tcp", address)
+			if err != nil {
+				return err
+			}
+			c.listeners = append(c.listeners, ProtocolListener{
+				Network:  network,
+				Address:  address,
+				Context:  ctx,
+				Listener: ln,
+				Options:  opts,
+			})
+			c.Log(logger.Info, "registered %s listener on %s", factory.Name(), address)
+			return nil
+		}
+	}
 
-	// 工厂模式，根据不同的协议，创建不同的服务器监听器
 	runtime.GOMAXPROCS(c.cpuNum)
 	switch network {
 	case "ws", "wss", "websocket":
-		// WebSocket 服务器
 		ln, err := net.Listen("tcp", address)
 		if err != nil {
 			return err
@@ -277,17 +318,32 @@ func (c *Connect) Close() error {
 }
 
 func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) {
-
 	if c.server.Listen != nil {
 		return
 	}
-	// 工厂模式，根据不同的协议，创建不同的客户端
-	// 支持协议: ws, wss, websocket (WebSocket), tcp (TODO)
-	runtime.GOMAXPROCS(c.cpuNum)
 
+	if factory := c.resolveProtocol(network); factory != nil {
+		if factory.Name() == "ws" || factory.Name() == "wss" || factory.Name() == "websocket" {
+			scheme := "ws://"
+			if network == "wss" {
+				scheme = "wss://"
+			}
+			opts := []option.ConnectOption{
+				option.WithUriPath("/ws"),
+				option.WithAddress(scheme + address),
+			}
+			opts = append(opts, options...)
+			if err := c.initWsClientInstance(ctx, opts...); err != nil {
+				c.Log(logger.Error, "websocket dial error: %v", err)
+				return
+			}
+			return
+		}
+	}
+
+	runtime.GOMAXPROCS(c.cpuNum)
 	switch network {
 	case "ws", "wss", "websocket":
-		// WebSocket 客户端
 		scheme := "ws://"
 		if network == "wss" {
 			scheme = "wss://"
@@ -302,7 +358,6 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			return
 		}
 	default:
-		// 默认使用 WebSocket
 		c.Log(logger.Info, "unknown network type: %s, using WebSocket", network)
 		opts := []option.ConnectOption{
 			option.WithUriPath("/ws"),
@@ -314,7 +369,6 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			return
 		}
 	}
-
 }
 
 func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
@@ -322,7 +376,7 @@ func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
 }
 
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
-func (c *Connect) CallFunc(ctx context.Context, r *http.Request, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
+func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Response, svr types.IBucket, msgReq *trpc.RpcCaller) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			c.Log(logger.Error, "connect.CallFunc %s recover err : %v", msgReq.Method, err)

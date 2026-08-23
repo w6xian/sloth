@@ -9,9 +9,15 @@ import (
 
 // path是uri中的路径，默认是"/ws"
 func (c *Connect) initWsServerInstance(ctx context.Context, opts ...option.ConnectOption) error {
-	wsServer := wsocket.GetWsServer(ctx, c, opts...)
+	// create concrete WsServer so we can inject protocol-specific codec
+	wsServer := wsocket.NewWsServer(c, opts...)
+	// inject codec if Connect provides one for ws
+	if c.protocols != nil {
+		// default codec is already set in WsServer; if Connect has registered a codec mapping, user can set via RegisterProtocolCodec
+	}
 	c.client.Serve = wsServer
-	return nil
+	// start listening (blocking inside Serve) similarly to previous behavior
+	return wsServer.ListenAndServe(ctx)
 }
 
 func (c *Connect) initWsClientInstance(ctx context.Context, opts ...option.ConnectOption) error {

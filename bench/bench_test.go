@@ -22,20 +22,20 @@ func (m *mockChannel) Call(ctx context.Context, header message.Header, mtd strin
 func (m *mockChannel) SendData(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
 	return nil, nil
 }
-func (m *mockChannel) Send(payload []byte) error                { return nil }
+func (m *mockChannel) Receive(ctx context.Context, payload []byte) error { return nil }
 func (m *mockChannel) Push(ctx context.Context, msg *message.Msg) error {
 	if m.push != nil {
 		return m.push(ctx, msg)
 	}
 	return nil
 }
-func (m *mockChannel) Reply(id uint64, data []byte, err error) error { return nil }
-func (m *mockChannel) Prev(p ...bucket.IChannel) bucket.IChannel     { return nil }
-func (m *mockChannel) Next(n ...bucket.IChannel) bucket.IChannel     { return nil }
-func (m *mockChannel) Room(r ...*bucket.Room) *bucket.Room           { return nil }
-func (m *mockChannel) UserId(u ...int64) int64                       { return m.id }
-func (m *mockChannel) Token(t ...string) string                      { return "" }
-func (m *mockChannel) Close() error                                  { return nil }
+func (m *mockChannel) Send(ctx context.Context, id uint64, data []byte, err error) error { return nil }
+func (m *mockChannel) Prev(p ...bucket.IChannel) bucket.IChannel                         { return nil }
+func (m *mockChannel) Next(n ...bucket.IChannel) bucket.IChannel                         { return nil }
+func (m *mockChannel) Room(r ...*bucket.Room) *bucket.Room                               { return nil }
+func (m *mockChannel) UserId(u ...int64) int64                                           { return m.id }
+func (m *mockChannel) Token(t ...string) string                                          { return "" }
+func (m *mockChannel) Close() error                                                      { return nil }
 
 // ---------------------------------------------------------------------------
 // Room 成员管理

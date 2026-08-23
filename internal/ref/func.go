@@ -161,23 +161,6 @@ func CallFuncWithContext(ctx context.Context, Fns *ServiceFuncs, method string, 
 	return call_instance_func(mtd, funcArgs, args...)
 }
 
-// CallFunc 调用方法
-// @param ctx 上下文
-// @param Fns 方法
-// @param method 方法名，反射参（第一个默认是方法所属对象）
-// @param args 传参
-// @return []byte, error
-func CallFunc(fns *ServiceFuncs, method string, args ...[]byte) ([]byte, error) {
-	mtd, ok := fns.M[method]
-	if !ok {
-		return nil, errors.New("method not found")
-	}
-	funcArgs := []reflect.Value{
-		fns.V, // 需要第一个为方法所属对象，【必须】这个是反射参数要求
-	}
-	return call_instance_func(mtd, funcArgs, args...)
-}
-
 func call_instance_func(mtd reflect.Method, params []reflect.Value, args ...[]byte) ([]byte, error) {
 	defArgsNum := len(params)
 	// func f(ctx)

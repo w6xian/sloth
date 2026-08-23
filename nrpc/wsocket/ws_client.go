@@ -2,7 +2,6 @@ package wsocket
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -11,9 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/w6xian/sloth/v3/actions"
 	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder/fn"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
@@ -33,10 +30,9 @@ type LocalClient struct {
 	uriPath      string
 	address      string
 
-	Connect trpc.ICallRpc
-	handler handler.IClientHandleMessage
-	client  trpc.ICall
-
+	Connect         trpc.ICallRpc
+	handler         handler.IClientHandleMessage
+	client          trpc.ICall
 	WriteWait       time.Duration
 	ReadWait        time.Duration
 	PongWait        time.Duration
@@ -363,11 +359,11 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 }
 
 func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, resp *http.Response) {
-	defer func() {
-		if err := recover(); err != nil {
-			c.log(logger.Error, "readPump recover err : %v", err)
-		}
-	}()
+	// defer func() {
+	// 	if err := recover(); err != nil {
+	// 		c.log(logger.Error, "readPump recover err : %v", err)
+	// 	}
+	// }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
@@ -431,65 +427,22 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		if _, err := fn.Action(m); err == nil {
-			if err := c.HandleFn(ctx, ch, m); err != nil {
-				if c.handler != nil {
-					c.handler.OnError(ctx, resp, c, ch, err)
+		if err := DispatchMessage(RouteArgs{
+			Context: ctx,
+			Request: resp.Request,
+			Data:    m,
+			OnFn: func(ctx context.Context, raw []byte) error {
+				return HandleFn(ctx, nil, resp, nil, c.Connect, ch, raw)
+			},
+			OnData: func(ctx context.Context, raw []byte) error {
+				if c.handler == nil {
+					return nil
 				}
-			}
-			continue
+				return c.handler.OnData(ctx, resp, c, ch, messageType, raw)
+			},
+		}); err != nil && c.handler != nil {
+			c.handler.OnError(ctx, resp, c, ch, err)
 		}
-		if c.handler != nil {
-			c.handler.OnData(ctx, resp, c, ch, messageType, m)
-		}
-	}
-}
-
-func (c *LocalClient) HandleFn(ctx context.Context, ch *WsChannelClient, data []byte) error {
-	action, err := fn.Action(data)
-	if err != nil {
-		return err
-	}
-	id := fn.Id(data)
-	body := fn.Data(data)
-	// 客户端IP和端口
-
-	switch action {
-	case actions.ACTION_CALL:
-		fx := getCallObj()
-		err := json.Unmarshal(body, fx)
-		if err != nil {
-			log.Println(logger.Error, "server readPump，json.Unmarshal err:%v", err)
-			return err
-		}
-		if !c.Connect.IsRegisteredService(fx.Method) {
-			resp, err := c.Connect.CallNetFunc(ctx, nil, fx.Method, id, data)
-			ch.Reply(id, resp, err)
-			return nil
-		}
-
-		// 链接通道
-		// fx.Channel = ch
-		// 调用 connect.CallFunc 方法
-		rst, err := c.Connect.CallFunc(ctx, nil, nil, &trpc.RpcCaller{
-			Method:  fx.Method,
-			Data:    body,
-			Channel: ch,
-			Header:  fx.Header,
-			Args:    fx.Args,
-		})
-		ch.Reply(id, rst, err)
-		return nil
-	case actions.ACTION_REPLY_SUCCESS, actions.ACTION_REPLY_ERROR:
-		select {
-		case ch.rpcResult <- data:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		return nil
-	default:
-		log.Printf("server readPump，action:%d is not valid", action)
-		return nil
 	}
 }
 

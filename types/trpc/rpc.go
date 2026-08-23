@@ -24,7 +24,14 @@ type RpcCaller struct {
 }
 
 type ICallRpc interface {
-	CallFunc(ctx context.Context, r *http.Request, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
+	CallFunc(ctx context.Context, r *http.Request, w *http.Response, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
+	CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, payload []byte) ([]byte, error)
+	IsRegisteredService(service string) bool
+	Options() *option.Options
+}
+
+type IConnecter interface {
+	CallFunc(ctx context.Context, r *http.Request, w *http.Response, s types.IBucket, msgReq *RpcCaller) ([]byte, error)
 	CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, payload []byte) ([]byte, error)
 	IsRegisteredService(service string) bool
 	Options() *option.Options
@@ -39,7 +46,7 @@ type ICall interface {
 }
 
 type IWsReply interface {
-	Reply(id uint64, data []byte, err error) error
+	Send(ctx context.Context, id uint64, data []byte, err error) error
 }
 
 type IChannel interface {

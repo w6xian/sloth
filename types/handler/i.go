@@ -23,3 +23,11 @@ type IClientHandleMessage interface {
 	OnClose(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo) error
 	OnError(ctx context.Context, resp *http.Response, c types.IConnRpc, ch types.IConnInfo, err error) error
 }
+
+type IHandleMessage interface {
+	OnConnect(ctx context.Context, r *http.Request, w *http.Response) error
+	OnReady(ctx context.Context, r *http.Request, w *http.Response, c types.IActionHandler, ch types.IConnInfo) error
+	OnData(ctx context.Context, r *http.Request, w *http.Response, c types.IActionHandler, ch types.IConnInfo, msgType int, message []byte) error
+	OnClose(ctx context.Context, r *http.Request, w *http.Response, c types.IActionHandler, ch types.IConnInfo) error
+	OnError(ctx context.Context, r *http.Request, w *http.Response, c types.IActionHandler, ch types.IConnInfo, err error) error
+}

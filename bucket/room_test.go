@@ -15,8 +15,8 @@ type mockChannel struct {
 	id     int64
 	user   int64
 	room   *Room
-	push   atomic.Int64  // Push 调用次数
-	closed atomic.Bool   // Close 是否被调用
+	push   atomic.Int64 // Push 调用次数
+	closed atomic.Bool  // Close 是否被调用
 }
 
 func (m *mockChannel) Call(ctx context.Context, header message.Header, mtd string, args ...[]byte) ([]byte, error) {
@@ -25,14 +25,14 @@ func (m *mockChannel) Call(ctx context.Context, header message.Header, mtd strin
 func (m *mockChannel) SendData(ctx context.Context, msgId uint64, payload []byte) ([]byte, error) {
 	return nil, nil
 }
-func (m *mockChannel) Send(payload []byte) error { return nil }
+func (m *mockChannel) Receive(tx context.Context, payload []byte) error { return nil }
 func (m *mockChannel) Push(ctx context.Context, msg *message.Msg) error {
 	m.push.Add(1)
 	return nil
 }
-func (m *mockChannel) Reply(id uint64, data []byte, err error) error { return nil }
-func (m *mockChannel) Prev(p ...IChannel) IChannel                   { return nil }
-func (m *mockChannel) Next(n ...IChannel) IChannel                   { return nil }
+func (m *mockChannel) Send(ctx context.Context, id uint64, data []byte, err error) error { return nil }
+func (m *mockChannel) Prev(p ...IChannel) IChannel                                       { return nil }
+func (m *mockChannel) Next(n ...IChannel) IChannel                                       { return nil }
 func (m *mockChannel) Room(r ...*Room) *Room {
 	if len(r) > 0 {
 		m.room = r[0]
@@ -228,8 +228,8 @@ func TestRoomEachWithMutationInCallback(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		r.Each(func(ch IChannel) {
-			_ = r.Join(extra)  // 回调中写房间
-			r.Leave(ch)        // 回调中删除当前成员
+			_ = r.Join(extra) // 回调中写房间
+			r.Leave(ch)       // 回调中删除当前成员
 		})
 		close(done)
 	}()

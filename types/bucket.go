@@ -21,3 +21,11 @@ type IBucket interface {
 	Room(roomId int64) *bucket.Room
 	Broadcast(ctx context.Context, msg *message.Msg) error
 }
+
+type IActionHandler interface {
+	Bucket(userId int64) *bucket.Bucket
+	Channel(userId int64) bucket.IChannel
+	Room(roomId int64) *bucket.Room
+	Broadcast(ctx context.Context, msg *message.Msg) error
+	Call(ctx context.Context, header message.Header, mtd string, data ...[]byte) ([]byte, error)
+}

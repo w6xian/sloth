@@ -2,7 +2,6 @@ package wsocket
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,9 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/w6xian/sloth/v3/actions"
 	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v3/internal/codec"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/internal/utils"
@@ -48,6 +46,7 @@ type WsServer struct {
 	BroadcastSize   int
 	SliceSize       int64
 	header          map[string]string
+	Codec           codec.Codec
 	originDomain    []string
 }
 
@@ -116,6 +115,7 @@ func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 		BroadcastSize:   opt.BroadcastSize,
 		SliceSize:       opt.SliceSize,
 		header:          make(map[string]string),
+		Codec:           codec.DefaultFnCodec(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -380,62 +380,23 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		if _, err := fn.Action(m); err == nil {
-			if err := s.HandleFn(ctx, r, ch, m); err != nil {
-				if s.handler != nil {
-					s.handler.OnError(ctx, r, s, ch, err)
+		if err := DispatchMessage(RouteArgs{
+			Context: ctx,
+			Request: r,
+			Data:    m,
+			Codec:   s.Codec,
+			OnFn: func(ctx context.Context, raw []byte) error {
+				return HandleFn(ctx, r, nil, s, s.Connect, ch, raw)
+			},
+			OnData: func(ctx context.Context, raw []byte) error {
+				if s.handler == nil {
+					return nil
 				}
-			}
-			continue
+				return s.handler.OnData(ctx, r, s, ch, messageType, raw)
+			},
+		}); err != nil && s.handler != nil {
+			s.handler.OnError(ctx, r, s, ch, err)
 		}
-		if s.handler != nil {
-			s.handler.OnData(ctx, r, s, ch, messageType, m)
-		}
-	}
-}
-
-func (s *WsServer) HandleFn(ctx context.Context, r *http.Request, ch *WsChannelServer, data []byte) error {
-	action, err := fn.Action(data)
-	if err != nil {
-		return err
-	}
-	id := fn.Id(data)
-	body := fn.Data(data)
-	switch action {
-	case actions.ACTION_CALL:
-		fx := getCallObj()
-		err := json.Unmarshal(body, fx)
-		if err != nil {
-			log.Println(logger.Error, "server readPump，json.Unmarshal err:%v", err)
-			return err
-		}
-		if !s.Connect.IsRegisteredService(fx.Method) {
-			resp, lerr := s.Connect.CallNetFunc(ctx, r, fx.Method, id, data)
-			ch.Reply(id, resp, lerr)
-			return nil
-		}
-		// 链接通道
-		// fx.Channel = ch
-		// 调用 connect.CallFunc 方法
-		rst, err := s.Connect.CallFunc(ctx, r, s, &trpc.RpcCaller{
-			Method:  fx.Method,
-			Data:    body,
-			Channel: ch,
-			Header:  fx.Header,
-			Args:    fx.Args,
-		})
-		ch.Reply(id, rst, err)
-		return nil
-	case actions.ACTION_REPLY_SUCCESS, actions.ACTION_REPLY_ERROR:
-		select {
-		case ch.rpcResult <- data:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		return nil
-	default:
-		log.Printf("server readPump，action:%d is not valid", action)
-		return nil
 	}
 }
 
