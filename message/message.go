@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"sync"
 )
 
 type JsonCallObject struct {
@@ -19,6 +20,32 @@ type JsonBackObject struct {
 	Data []byte `json:"data,omitempty"`
 	// error
 	Error string `json:"error,omitempty"` // error message
+}
+
+var callPool sync.Pool = sync.Pool{
+	New: func() any {
+		return &JsonCallObject{}
+	},
+}
+
+func GetCallJCO() *JsonCallObject {
+	req := callPool.Get()
+	if req == nil {
+		return &JsonCallObject{}
+	}
+	return req.(*JsonCallObject)
+}
+
+func PutCallJCO(req *JsonCallObject) {
+	if req == nil {
+		return
+	}
+	req.Header = nil
+	req.Method = ""
+	req.Data = nil
+	req.Error = ""
+	req.Args = nil
+	callPool.Put(req)
 }
 
 const (

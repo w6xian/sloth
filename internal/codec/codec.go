@@ -19,6 +19,7 @@ type Codec interface {
 const DefaultFnCodecName = "fn"
 const CODEC_PRE = 0x40
 const CODEC_FN = 0x46
+const CODEC_CODER_FN = "@F"
 
 func GetCodecer(raw []byte) (Codec, error) {
 	prev := raw[0]
@@ -28,4 +29,12 @@ func GetCodecer(raw []byte) (Codec, error) {
 		return &fnCodec{}, nil
 	}
 	return nil, errors.New("not support")
+}
+
+func UseCodec(corder string) Codec {
+	switch corder {
+	case CODEC_CODER_FN:
+		return &fnCodec{}
+	}
+	return &fnCodec{}
 }

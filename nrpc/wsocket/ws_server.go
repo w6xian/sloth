@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/codec"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/nrpc"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/handler"
 	"github.com/w6xian/sloth/v3/types/trpc"
@@ -29,25 +29,17 @@ import (
 )
 
 type WsServer struct {
-	Buckets         []*bucket.Bucket
-	bucketIdx       uint32
-	serviceMapMu    sync.RWMutex
-	Connect         trpc.ICallRpc
-	uriPath         string
-	handler         handler.IServerHandleMessage
-	router          *mux.Router
-	WriteWait       time.Duration
-	ReadWait        time.Duration
-	PongWait        time.Duration
-	PingPeriod      time.Duration
-	MaxMessageSize  int64
-	ReadBufferSize  int
-	WriteBufferSize int
-	BroadcastSize   int
-	SliceSize       int64
-	header          map[string]string
-	Codec           codec.Codec
-	originDomain    []string
+	nrpc.RpcConn
+
+	Buckets      []*bucket.Bucket
+	bucketIdx    uint32
+	serviceMapMu sync.RWMutex
+
+	uriPath string
+	handler handler.IServerHandleMessage
+	router  *mux.Router
+
+	originDomain []string
 }
 
 // 实现 options.ConnectOption
@@ -64,7 +56,7 @@ func (s *WsServer) SetAddress(address string) error {
 	return nil
 }
 func (s *WsServer) SetHeader(key string, value string) error {
-	s.header[key] = value
+	s.Header[key] = value
 	return nil
 }
 func (s *WsServer) SetOrigin(args ...string) error {
@@ -81,7 +73,7 @@ func (s *WsServer) SetClientHandleMessage(handler handler.IClientHandleMessage) 
 }
 
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
-	log.Println("[WsServer]", line, args)
+	log.Println("[WsServer]", level, line, args)
 }
 
 func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
@@ -98,25 +90,24 @@ func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 			bucket.WithRoutineSize(opt.RoutineSize),
 		)
 	}
-	s := &WsServer{
-		Buckets:         bs,
-		bucketIdx:       uint32(len(bs)),
-		Connect:         server,
-		uriPath:         "/ws",
-		handler:         nil,
-		router:          mux.NewRouter(),
-		WriteWait:       opt.WriteWait,
-		ReadWait:        opt.ReadWait,
-		PongWait:        opt.PongWait,
-		PingPeriod:      opt.PingPeriod,
-		MaxMessageSize:  opt.MaxMessageSize,
-		ReadBufferSize:  opt.ReadBufferSize,
-		WriteBufferSize: opt.WriteBufferSize,
-		BroadcastSize:   opt.BroadcastSize,
-		SliceSize:       opt.SliceSize,
-		header:          make(map[string]string),
-		Codec:           codec.DefaultFnCodec(),
-	}
+	s := new(WsServer)
+	s.Buckets = bs
+	s.bucketIdx = uint32(len(bs))
+	s.Connect = server
+	s.uriPath = "/ws"
+	s.handler = nil
+	s.router = mux.NewRouter()
+	s.WriteWait = opt.WriteWait
+	s.ReadWait = opt.ReadWait
+	s.PongWait = opt.PongWait
+	s.PingPeriod = opt.PingPeriod
+	s.MaxMessageSize = opt.MaxMessageSize
+	s.ReadBufferSize = opt.ReadBufferSize
+	s.WriteBufferSize = opt.WriteBufferSize
+	s.BroadcastSize = opt.BroadcastSize
+	s.SliceSize = opt.SliceSize
+	s.Header = make(map[string]string)
+
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -200,7 +191,7 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	}
 	// 构建header
 	header := make(http.Header)
-	for k, v := range s.header {
+	for k, v := range s.Header {
 		header[k] = []string{v}
 	}
 
@@ -272,7 +263,7 @@ func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannel
 			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
 				return
 			}
-		case payload, ok := <-ch.rpcCaller:
+		case payload, ok := <-ch.PRpcCaller:
 			if ch.Conn == nil {
 				return
 			}
@@ -285,7 +276,7 @@ func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannel
 			if err := slicesTextSend(getSliceName(), ch.Conn, payload, 512); err != nil {
 				return
 			}
-		case payload, ok := <-ch.rpcBacker:
+		case payload, ok := <-ch.PRpcBacker:
 			if ch.Conn == nil {
 				return
 			}
@@ -380,13 +371,12 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		if err := DispatchMessage(RouteArgs{
+		if err := nrpc.DispatchMessage(nrpc.RouteArgs{
 			Context: ctx,
 			Request: r,
 			Data:    m,
-			Codec:   s.Codec,
 			OnFn: func(ctx context.Context, raw []byte) error {
-				return HandleFn(ctx, r, nil, s, s.Connect, ch, raw)
+				return nrpc.HandleFn(ctx, r, nil, s, s.Connect, ch, raw)
 			},
 			OnData: func(ctx context.Context, raw []byte) error {
 				if s.handler == nil {

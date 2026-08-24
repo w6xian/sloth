@@ -1,4 +1,4 @@
-package wsocket
+package nrpc
 
 import (
 	"context"

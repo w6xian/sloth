@@ -15,6 +15,7 @@ import (
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/nrpc"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/handler"
@@ -26,26 +27,14 @@ import (
 )
 
 type LocalClient struct {
+	nrpc.RpcConn
 	serviceMapMu sync.RWMutex
 	uriPath      string
 	address      string
-
-	Connect         trpc.ICallRpc
-	handler         handler.IClientHandleMessage
-	client          trpc.ICall
-	WriteWait       time.Duration
-	ReadWait        time.Duration
-	PongWait        time.Duration
-	PingPeriod      time.Duration
-	SliceSize       int64
-	MaxMessageSize  int64
-	ReadBufferSize  int
-	WriteBufferSize int
-	BroadcastSize   int
-	KeepAlive       bool
+	handler      handler.IClientHandleMessage
+	client       trpc.ICall
 
 	defaultHeader message.Header
-	header        map[string]string
 }
 
 // 实现 options.ConnectOption
@@ -61,7 +50,7 @@ func (c *LocalClient) SetAddress(address string) error {
 	return nil
 }
 func (c *LocalClient) SetHeader(key string, value string) error {
-	c.header[key] = value
+	c.Header[key] = value
 	return nil
 }
 func (c *LocalClient) SetOrigin(origins ...string) error {
@@ -96,7 +85,7 @@ func NewLocalClient(connect trpc.ICallRpc, options ...option.ConnectOption) *Loc
 	s.BroadcastSize = opt.BroadcastSize
 	s.SliceSize = opt.SliceSize
 	s.KeepAlive = opt.KeepAlive
-	s.header = make(map[string]string)
+	s.Header = make(map[string]string)
 	s.handler = nil
 
 	for _, opt := range options {
@@ -134,7 +123,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 		// 构建header
 		header := make(http.Header)
 		header["app_id"] = []string{id.ShortStringID()}
-		for k, v := range c.header {
+		for k, v := range c.Header {
 			header[k] = []string{v}
 		}
 
@@ -197,7 +186,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn, resp *
 	wsConn := NewWsChannelClient(c.Connect)
 	c.client = wsConn
 	//default broadcast size eq 512
-	wsConn.conn = conn
+	wsConn.Conn = conn
 	wsConn.RoomId = 0
 	parentCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
@@ -281,74 +270,74 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}()
 	defer func() {
 		ticker.Stop()
-		if ch.conn != nil {
-			ch.conn.Close()
-			ch.conn = nil
+		if ch.Conn != nil {
+			ch.Conn.Close()
+			ch.Conn = nil
 		}
 
 	}()
 	sliceSize := int(c.SliceSize) // 默认512
 	for {
 		select {
-		case msg, ok := <-ch.send:
-			if ch.conn == nil {
+		case msg, ok := <-ch.PSend:
+			if ch.Conn == nil {
 				return
 			}
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+			ch.Conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.conn, msg.Body, sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, msg.Body, sliceSize); err != nil {
 				return
 			}
-		case payload, ok := <-ch.rpcCaller:
+		case payload, ok := <-ch.PRpcCaller:
 			/*
 			 * @call  调用服务器方法
 			 * @param payload 调用参数
 			 */
-			if ch.conn == nil {
+			if ch.Conn == nil {
 				return
 			}
 			// @call  调用服务器方法
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+			ch.Conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, payload, sliceSize); err != nil {
 				c.log(logger.Error, "slicesBinarySend err = %v", err.Error())
 				return
 			}
-		case payload, ok := <-ch.rpcBacker:
+		case payload, ok := <-ch.PRpcBacker:
 			/*
 			 * @reply  服务器返回调用结果
 			 * @param payload 调用结果
 			 */
-			if ch.conn == nil {
+			if ch.Conn == nil {
 				return
 			}
 			// @reply  服务器返回调用结果
 			//write data dead time , like http timeout , default 10s
-			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+			ch.Conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				ch.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
-			if err := slicesTextSend(getSliceName(), ch.conn, payload, sliceSize); err != nil {
+			if err := slicesTextSend(getSliceName(), ch.Conn, payload, sliceSize); err != nil {
 				return
 			}
 
 		case <-ticker.C:
-			if ch.conn == nil {
+			if ch.Conn == nil {
 				return
 			}
 			//heartbeat，if ping error will exit and close current websocket conn
-			ch.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-			if err := ch.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			ch.Conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		case <-ctx.Done():
@@ -370,16 +359,16 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		signalClose(closeChan)
 	}()
 	defer func() {
-		if ch.conn != nil {
-			ch.conn.Close()
-			ch.conn = nil
+		if ch.Conn != nil {
+			ch.Conn.Close()
+			ch.Conn = nil
 		}
 	}()
 
-	ch.conn.SetReadLimit(c.MaxMessageSize)
-	ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
-	ch.conn.SetPongHandler(func(string) error {
-		ch.conn.SetReadDeadline(time.Now().Add(c.PongWait))
+	ch.Conn.SetReadLimit(c.MaxMessageSize)
+	ch.Conn.SetReadDeadline(time.Now().Add(c.PongWait))
+	ch.Conn.SetPongHandler(func(string) error {
+		ch.Conn.SetReadDeadline(time.Now().Add(c.PongWait))
 		return nil
 	})
 	// 要防止OnOpen阻塞，导致readPump阻塞
@@ -395,7 +384,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		default:
 		}
 		// 来自服务器的消息
-		messageType, msg, err := ch.conn.ReadMessage()
+		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
 			c.log(logger.Error, err.Error())
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -407,7 +396,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 					c.handler.OnClose(ctx, resp, c, ch)
 				}
 			}
-			c.log(logger.Error, "readPump，ch.conn.ReadMessage return")
+			c.log(logger.Error, "readPump，ch.Conn.ReadMessage return")
 			return
 		}
 		if len(msg) == 0 || messageType == -1 {
@@ -416,7 +405,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		}
 		// 消息体可能太大，需要分片接收后再解析
 		// 实现分片接收的函数
-		m, err := receiveMessage(ch.conn, byte(messageType), msg)
+		m, err := receiveMessage(ch.Conn, byte(messageType), msg)
 		if err != nil {
 			if c.handler != nil {
 				c.handler.OnError(ctx, resp, c, ch, err)
@@ -427,12 +416,12 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		if err == nil {
 			m = tlvFrame.Value()
 		}
-		if err := DispatchMessage(RouteArgs{
+		if err := nrpc.DispatchMessage(nrpc.RouteArgs{
 			Context: ctx,
 			Request: resp.Request,
 			Data:    m,
 			OnFn: func(ctx context.Context, raw []byte) error {
-				return HandleFn(ctx, nil, resp, nil, c.Connect, ch, raw)
+				return nrpc.HandleFn(ctx, nil, resp, nil, c.Connect, ch, raw)
 			},
 			OnData: func(ctx context.Context, raw []byte) error {
 				if c.handler == nil {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/w6xian/sloth/v3/internal/codec"
 	"github.com/w6xian/sloth/v3/types/handler"
 )
 
@@ -15,6 +16,7 @@ type IConnectOption interface {
 	SetClientHandleMessage(handler handler.IClientHandleMessage) error
 	SetHeader(key string, value string) error
 	SetOrigin(origins ...string) error
+	SetCodec(c codec.Codec)
 }
 
 type ConnectOption func(s IConnectOption)
@@ -69,5 +71,11 @@ func WithRequestHeader(key string, value string) ConnectOption {
 func WithOrigin(origins ...string) ConnectOption {
 	return func(s IConnectOption) {
 		s.SetOrigin(origins...)
+	}
+}
+
+func WithCodec(c codec.Codec) ConnectOption {
+	return func(s IConnectOption) {
+		s.SetCodec(c)
 	}
 }
