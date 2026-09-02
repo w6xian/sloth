@@ -33,4 +33,3 @@ func NextId(svr int64) int64 {
 	id := node.Generate()
 	return id.Int64()
 }
-

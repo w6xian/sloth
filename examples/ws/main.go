@@ -50,6 +50,7 @@ func main() {
 		option.WithRouter(r, "/ws"),
 		option.WithOrigin("*", "localhost:8000"),
 		option.WithServerHandleMessage(&Handler{}))
+	// 重复操作，可以sloth.WithConnectProxy()来代替
 	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
 		node, err := sloth.GetNode(service)
 		if err != nil {
