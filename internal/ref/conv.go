@@ -271,13 +271,20 @@ func get_param_type(needPtr bool, name string, data []byte) reflect.Value {
 		}
 		return reflect.ValueOf(str)
 	case "uint8":
-		by := data[0]
+		// 网络字节流可能为空，直接取 data[0] 会越界 panic
+		var by byte
+		if len(data) > 0 {
+			by = data[0]
+		}
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}
 		return reflect.ValueOf(by)
 	case "int8":
-		by := int8(data[0])
+		var by int8
+		if len(data) > 0 {
+			by = int8(data[0])
+		}
 		if needPtr {
 			return reflect.ValueOf(&by)
 		}

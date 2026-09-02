@@ -68,3 +68,61 @@ func TestUseCodecUnknownFallback(t *testing.T) {
 		t.Fatal("encoded frame is empty")
 	}
 }
+
+// TestGetCodecerRejectNonFNFrame 只接受 @F(0x40 0x46) 开头的帧。
+func TestGetCodecerRejectNonFNFrame(t *testing.T) {
+	cases := [][]byte{
+		{0x40, 0x41}, // @A
+		{0x46, 0x40}, // 反向 magic
+		{0x46, 0x46}, // FF
+		{0x00, 0x01},
+	}
+	for i, raw := range cases {
+		if co, err := GetCodecer(raw); err == nil {
+			t.Fatalf("case %d: GetCodecer(%v) should error, got codec %v", i, raw, co)
+		}
+	}
+}
+
+// TestFnCodecDecodeTruncated 任意截断的 FN 帧不得 panic（网络字节流不可信）。
+func TestFnCodecDecodeTruncated(t *testing.T) {
+	co := UseCodec(CODEC_CODER_FN)
+	raw, err := co.Encode(actions.ACTION_CALL, 0x1122334455667788, []byte("the quick brown fox jumps over the lazy dog"))
+	if err != nil {
+		t.Fatalf("Encode err: %v", err)
+	}
+	for i := 0; i < len(raw); i++ {
+		// 截断后只要仍能被识别为 FN（>=2 字节）就必须返回错误而不是 panic
+		trunc := raw[:i]
+		if _, gerr := GetCodecer(trunc); gerr != nil {
+			continue // 2 字节以下直接拒绝
+		}
+		if _, _, _, derr := co.Decode(trunc); derr == nil {
+			t.Fatalf("truncated frame len=%d should fail Decode", i)
+		}
+	}
+}
+
+// TestFnCodecDecodeForgeData 篡改 payload 长度字段（超出实际数据）不得 panic。
+func TestFnCodecDecodeForgeData(t *testing.T) {
+	co := UseCodec(CODEC_CODER_FN)
+	raw, err := co.Encode(actions.ACTION_CALL, 7, []byte("abc"))
+	if err != nil {
+		t.Fatalf("Encode err: %v", err)
+	}
+	// 头布局: [0:2]=magic [2]=action [3:11]=id [11:15]=length
+	raw = append([]byte(nil), raw...)
+	raw[11] = 0xFF // 篡改为极大长度
+	if _, _, _, derr := co.Decode(raw); derr == nil {
+		t.Fatal("forged length should fail Decode")
+	}
+}
+
+// TestFnCodecEncodeOversize 超出 1GB 上限的数据应被拒绝。
+func TestFnCodecEncodeOversize(t *testing.T) {
+	co := UseCodec(CODEC_CODER_FN)
+	big := make([]byte, (1<<30)+1) // 超过 FnMaxDataSize
+	if _, err := co.Encode(actions.ACTION_CALL, 1, big); err == nil {
+		t.Fatal("encode of oversized data should error")
+	}
+}
