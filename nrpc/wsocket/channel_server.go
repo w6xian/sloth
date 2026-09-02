@@ -31,6 +31,9 @@ type WsChannelServer struct {
 	pongTimeout time.Duration
 	// error handler
 	errHandler func(err error)
+	// done 由 Close 一次性关闭，writePump 监听它实现服务端主动优雅断开
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
@@ -97,13 +100,14 @@ func (ch *WsChannelServer) Close() error {
 	ch.Lock.Lock()
 	defer ch.Lock.Unlock()
 
+	ch.doneOnce.Do(func() { close(ch.done) })
 	if ch.Conn != nil {
 		ch.Conn.Close()
 	}
-	ch._userId = 0
-	ch.PAddr = ""
-	ch.PPort = 0
-	ch.Sign = ""
+	// 注意：此处不清空 _userId/PAddr/PPort/Sign。
+	// readPump 的 defer 在 Close 之后仍需读取 ch.UserId()/ch.PAddr() 完成
+	// bucket 移除与连接计数释放；且 writePump/readPump 的 defer 会并发调用 Close，
+	// 清理字段会引入数据竞争。WsChannelServer 为每连接新建、不复用，无需清理。
 	return nil
 }
 
@@ -114,6 +118,7 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	c.PRpcCaller = make(chan []byte, 10)
 	c.PRpcBacker = make(chan []byte, 10)
 	c.PRpcResult = make(chan []byte, 10)
+	c.done = make(chan struct{})
 	c.Next(nil)
 	c.Prev(nil)
 	c.pongTimeout = 54 * time.Second

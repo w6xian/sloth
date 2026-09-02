@@ -29,10 +29,13 @@ import (
 type LocalClient struct {
 	nrpc.RpcConn
 	serviceMapMu sync.RWMutex
-	uriPath      string
-	address      string
-	handler      handler.IClientHandleMessage
-	client       trpc.ICall
+	// clientMu 保护 client 字段：ClientWs 在连接建立 goroutine 中写入，
+	// 调用方可能在另一 goroutine 轮询/使用该字段
+	clientMu sync.RWMutex
+	uriPath  string
+	address  string
+	handler  handler.IClientHandleMessage
+	client   trpc.ICall
 
 	defaultHeader message.Header
 }
@@ -154,22 +157,31 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 	return nil
 }
 
+// Client 返回底层客户端通道（连接建立后非 nil，用于调用方轮询连接就绪状态）
+func (c *LocalClient) Client() trpc.ICall {
+	c.clientMu.RLock()
+	defer c.clientMu.RUnlock()
+	return c.client
+}
+
 func (c *LocalClient) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}
-	if c.client == nil {
+	cli := c.Client()
+	if cli == nil {
 		return errors.New("client not found")
 	}
-	return c.client.SetAuthInfo(auth)
+	return cli.SetAuthInfo(auth)
 }
 
 // GetAuthInfo 获取认证信息
 func (c *LocalClient) GetAuthInfo() (*auth.AuthInfo, error) {
-	if c.client == nil {
+	cli := c.Client()
+	if cli == nil {
 		return nil, errors.New("client not found")
 	}
-	return c.client.GetAuthInfo()
+	return cli.GetAuthInfo()
 }
 
 // ClientWs 客户端连接
@@ -184,7 +196,9 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn, resp *
 	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
 	wsConn := NewWsChannelClient(c.Connect)
+	c.clientMu.Lock()
 	c.client = wsConn
+	c.clientMu.Unlock()
 	//default broadcast size eq 512
 	wsConn.Conn = conn
 	wsConn.RoomId = 0
@@ -213,7 +227,8 @@ func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd strin
 			c.log(logger.Error, "Call recover err : %v", err)
 		}
 	}()
-	if c.client == nil {
+	cli := c.Client()
+	if cli == nil {
 		c.log(logger.Error, "client not found")
 		return nil, errors.New("client not found")
 	}
@@ -236,7 +251,7 @@ func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd strin
 
 	// 使用中间件链包装调用
 	handler := func(ctx context.Context, hdr message.Header, method string, args ...[]byte) ([]byte, error) {
-		return c.client.Call(ctx, hdr, method, args...)
+		return cli.Call(ctx, hdr, method, args...)
 	}
 
 	rst, err := handler(ctx, mergedHeader, mtd, data...)
@@ -247,11 +262,12 @@ func (c *LocalClient) Call(ctx context.Context, header message.Header, mtd strin
 }
 
 func (c *LocalClient) Push(ctx context.Context, msg *message.Msg) (err error) {
-	if c.client == nil {
+	cli := c.Client()
+	if cli == nil {
 		c.log(logger.Error, "server not found")
 		return errors.New("server not found")
 	}
-	return c.client.Push(ctx, msg)
+	return cli.Push(ctx, msg)
 }
 
 func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}) {
@@ -270,11 +286,8 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 	}()
 	defer func() {
 		ticker.Stop()
-		if ch.Conn != nil {
-			ch.Conn.Close()
-			ch.Conn = nil
-		}
-
+		// closeConn 幂等：readPump 与 writePump 的 defer 会并发执行，必须只关闭一次
+		ch.closeConn()
 	}()
 	sliceSize := int(c.SliceSize) // 默认512
 	for {
@@ -357,12 +370,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 	defer cancel()
 	defer func() {
 		signalClose(closeChan)
-	}()
-	defer func() {
-		if ch.Conn != nil {
-			ch.Conn.Close()
-			ch.Conn = nil
-		}
+		ch.closeConn()
 	}()
 
 	ch.Conn.SetReadLimit(c.MaxMessageSize)

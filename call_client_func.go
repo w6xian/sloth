@@ -17,10 +17,27 @@ import (
 )
 
 type ClientRpc struct {
+	// mu 保护 Serve 字段：Serve() 在服务 goroutine 中写入，
+	// Call/CallRoom 等可能在另一 goroutine 读取
+	mu      sync.RWMutex
 	Serve   types.IServer
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
+}
+
+// setServe 在服务启动（initWsServerInstance）时写入服务端实例
+func (c *ClientRpc) setServe(s types.IServer) {
+	c.mu.Lock()
+	c.Serve = s
+	c.mu.Unlock()
+}
+
+// getServe 返回服务端实例（调用方持引用在锁外使用）
+func (c *ClientRpc) getServe() types.IServer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Serve
 }
 
 // LinkClientFunc 链接客户端  请用：DefaultServer 代替
@@ -75,10 +92,11 @@ func GetHeader(ctx context.Context) (message.Header, error) {
 
 // @call client
 func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...any) ([]byte, error) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return nil, errors.New("server not found")
 	}
-	b := c.Serve.Bucket(userId)
+	b := serve.Bucket(userId)
 	ch := b.Channel(userId)
 	if ch == nil {
 		return nil, errors.New("channel not found")
@@ -97,10 +115,11 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 
 // @call clientNet
 func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint64, data []byte) ([]byte, error) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return nil, errors.New("server not found")
 	}
-	b := c.Serve.Bucket(proxyService)
+	b := serve.Bucket(proxyService)
 	ch := b.Channel(proxyService)
 	if ch == nil {
 		return nil, errors.New("channel not found")
@@ -114,10 +133,11 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint6
 }
 
 func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, userId int64, mtd string, arg ...any) ([]byte, error) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return nil, errors.New("server not found")
 	}
-	b := c.Serve.Bucket(userId)
+	b := serve.Bucket(userId)
 	ch := b.Channel(userId)
 	if ch == nil {
 		return nil, errors.New("channel not found")
@@ -151,10 +171,11 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 }
 
 func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data string) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return
 	}
-	b := c.Serve.Bucket(userId)
+	b := serve.Bucket(userId)
 	ch := b.Channel(userId)
 	if ch == nil {
 		return
@@ -178,10 +199,11 @@ const defaultCallTimeout = 5 * time.Second
 const callRoomConcurrency = 64
 
 func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg ...any) ([]byte, error) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return nil, errors.New("server not found")
 	}
-	room := c.Serve.Room(roomId)
+	room := serve.Room(roomId)
 	if room == nil || room.IsDrop() {
 		return nil, errors.New("room not found")
 	}
@@ -222,7 +244,8 @@ var callBucketErrLog atomic.Uint64
 // 多个房间也只被调用一次，且未入任何房间的在线连接也不会漏掉。
 // 并发受信号量限制，每连接独立超时（defaultCallTimeout），单点失败不中断整体。
 func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return nil, errors.New("server not found")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
@@ -232,7 +255,7 @@ func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]b
 
 	sem := make(chan struct{}, callRoomConcurrency)
 	var wg sync.WaitGroup
-	for _, b := range c.Serve.AllBuckets() {
+	for _, b := range serve.AllBuckets() {
 		if b == nil {
 			continue
 		}
@@ -265,10 +288,11 @@ func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]b
 }
 
 func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data string) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return
 	}
-	room := c.Serve.Room(roomId)
+	room := serve.Room(roomId)
 	if room == nil {
 		return
 	}
@@ -286,7 +310,8 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 }
 
 func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
-	if c.Serve == nil {
+	serve := c.getServe()
+	if serve == nil {
 		return
 	}
 	cmd := message.CmdReq{
@@ -296,7 +321,7 @@ func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
 		Data:   data,
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
-	if err := c.Serve.Broadcast(ctx, msg); err != nil {
+	if err := serve.Broadcast(ctx, msg); err != nil {
 		log.Printf("broadcast err:%s", err.Error())
 		return
 	}

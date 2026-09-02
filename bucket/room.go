@@ -151,13 +151,16 @@ func (r *Room) EachBatch(batchSize int, fn func(chs []IChannel)) {
 }
 
 // Broadcast 向房间内所有成员广播消息。
-// ch.Push 内部为缓冲通道，此处不做阻塞等待，天然异步削峰。
+// ch.Push 内部为缓冲通道（非阻塞，超时即返回），不会触碰房间锁，
+// 因此可在读锁内直接遍历，免去 Each 的全量快照分配，适合广播热路径。
 func (r *Room) Broadcast(ctx context.Context, msg *message.Msg) {
-	r.Each(func(ch IChannel) {
+	r.rLock.RLock()
+	defer r.rLock.RUnlock()
+	for ch := range r.channels {
 		if err := ch.Push(ctx, msg); err != nil {
 			log.Printf("room broadcast err:%s", err.Error())
 		}
-	})
+	}
 }
 
 // Push 是 Broadcast 的别名，保留旧 API 兼容。

@@ -35,14 +35,12 @@ type Options struct {
 	MaxConnsGlobal int64
 	MaxConnsPerIP  int64
 	MaxConnsWS     int64
-	MaxConnsTCP    int64
-	MaxConnsKCP    int64
+	// MaxConnsTCP/MaxConnsKCP 为后续 TCP/KCP 协议预留（协议实现后生效）。
+	MaxConnsTCP int64
+	MaxConnsKCP int64
+	// TrustProxyHeaders 为 true 时，从 X-Forwarded-For / X-Real-IP 解析客户端 IP，
+	// 用于 MaxConnsPerIP 计数。仅在可信反向代理之后部署时开启，否则可被伪造绕过。
 	TrustProxyHeaders bool
-
-	AutoBanEnabled   bool
-	AutoBanWindow    time.Duration
-	AutoBanThreshold int64
-	AutoBanTTL       time.Duration
 
 	TLSCertFile string
 	TLSKeyFile  string
@@ -65,17 +63,13 @@ func NewOptions() *Options {
 		RoutineSize:   20,
 		SliceSize:     512,
 		KeepAlive:     true,
-		MaxConnsGlobal: 0,
-		MaxConnsPerIP:  0,
-		MaxConnsWS:     0,
-		MaxConnsTCP:    0,
-		MaxConnsKCP:    0,
+		MaxConnsGlobal:    0,
+		MaxConnsPerIP:     0,
+		MaxConnsWS:        0,
+		MaxConnsTCP:       0,
+		MaxConnsKCP:       0,
 		TrustProxyHeaders: false,
-		AutoBanEnabled:   false,
-		AutoBanWindow:    30 * time.Second,
-		AutoBanThreshold: 5,
-		AutoBanTTL:       10 * time.Minute,
-		TLSCertFile: "",
-		TLSKeyFile:  "",
+		TLSCertFile:       "",
+		TLSKeyFile:        "",
 	}
 }

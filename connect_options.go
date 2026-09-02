@@ -155,30 +155,6 @@ func WithTrustProxyHeaders(trust bool) ConnOption {
 	}
 }
 
-func WithAutoBan(enabled bool) ConnOption {
-	return func(ch *Connect) {
-		ch.Option.AutoBanEnabled = enabled
-	}
-}
-
-func WithAutoBanWindow(window time.Duration) ConnOption {
-	return func(ch *Connect) {
-		ch.Option.AutoBanWindow = window
-	}
-}
-
-func WithAutoBanThreshold(threshold int64) ConnOption {
-	return func(ch *Connect) {
-		ch.Option.AutoBanThreshold = threshold
-	}
-}
-
-func WithAutoBanTTL(ttl time.Duration) ConnOption {
-	return func(ch *Connect) {
-		ch.Option.AutoBanTTL = ttl
-	}
-}
-
 func WithTLSCertFile(path string) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.TLSCertFile = path

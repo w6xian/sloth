@@ -178,6 +178,9 @@ func bytes_to_float64(data []byte) float64 {
 
 // BytesToBool converts a byte slice to a boolean value.
 func bytes_to_bool(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
 	return data[0] != 0
 }
 

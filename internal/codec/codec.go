@@ -22,6 +22,10 @@ const CODEC_FN = 0x46
 const CODEC_CODER_FN = "@F"
 
 func GetCodecer(raw []byte) (Codec, error) {
+	// 网络字节流不可信：长度不足 2 字节时直接返回错误，避免 raw[0]/raw[1] 越界 panic
+	if len(raw) < 2 {
+		return nil, errors.New("frame too short")
+	}
 	prev := raw[0]
 	proto := raw[1]
 	// @F [64 70]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/decoder/ag"
@@ -13,6 +14,9 @@ import (
 )
 
 type ServerRpc struct {
+	// mu 保护 Listen 字段：Dial 在连接 goroutine 中写入，
+	// Call/SetAuthInfo 等可能在另一 goroutine 读取
+	mu      sync.RWMutex
 	Listen  trpc.ICall
 	RoomId  int64
 	UserId  int64
@@ -20,6 +24,20 @@ type ServerRpc struct {
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
+}
+
+// setListen 在 Dial 建立连接时写入底层调用通道
+func (c *ServerRpc) setListen(l trpc.ICall) {
+	c.mu.Lock()
+	c.Listen = l
+	c.mu.Unlock()
+}
+
+// getListen 返回底层调用通道（调用方持引用在锁外使用）
+func (c *ServerRpc) getListen() trpc.ICall {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Listen
 }
 
 func (c *ServerRpc) SetEncoder(encoder Encoder) {
@@ -33,20 +51,22 @@ func (c *ServerRpc) SetAuthInfo(auth *auth.AuthInfo) error {
 	if auth == nil {
 		return errors.New("auth is nil")
 	}
-	if c.Listen == nil {
+	listen := c.getListen()
+	if listen == nil {
 		return errors.New("server not found")
 	}
 	c.RoomId = auth.RoomId
 	c.UserId = auth.UserId
-	return c.Listen.SetAuthInfo(auth)
+	return listen.SetAuthInfo(auth)
 }
 
 // GetAuthInfo 获取认证信息
 func (c *ServerRpc) GetAuthInfo() (*auth.AuthInfo, error) {
-	if c.Listen == nil {
+	listen := c.getListen()
+	if listen == nil {
 		return nil, errors.New("server not found")
 	}
-	return c.Listen.GetAuthInfo()
+	return listen.GetAuthInfo()
 }
 
 func DefaultClient(opts ...IRpcOption) *ServerRpc {
@@ -68,7 +88,8 @@ func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
 
 // @call server
 func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
-	if c.Listen == nil {
+	listen := c.getListen()
+	if listen == nil {
 		return nil, errors.New("server not found")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
@@ -76,7 +97,7 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		return nil, err
 	}
 	// 调用服务器方法,这里对应的是 channel_client.go 中的Call方法
-	resp, err := c.Listen.Call(ctx, c.Header.Clone(), mtd, args...)
+	resp, err := listen.Call(ctx, c.Header.Clone(), mtd, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +105,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 }
 
 func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, mtd string, arg ...any) ([]byte, error) {
-	if c.Listen == nil {
+	listen := c.getListen()
+	if listen == nil {
 		return nil, errors.New("server not found")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
@@ -108,7 +130,7 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 		defer message.PutHeader(mergedHeader)
 	}
 
-	resp, err := c.Listen.Call(ctx, mergedHeader, mtd, args...)
+	resp, err := listen.Call(ctx, mergedHeader, mtd, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +138,8 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 }
 
 func (c *ServerRpc) Send(ctx context.Context, data any) error {
-	if c.Listen == nil {
+	listen := c.getListen()
+	if listen == nil {
 		return errors.New("server not found")
 	}
 	// 编码
@@ -125,7 +148,7 @@ func (c *ServerRpc) Send(ctx context.Context, data any) error {
 		return err
 	}
 	msg := message.NewTextMessage(attr)
-	err = c.Listen.Push(ctx, msg)
+	err = listen.Push(ctx, msg)
 	if err != nil {
 		log.Println("Connect layer Push() error\n", err)
 		return err

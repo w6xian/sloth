@@ -20,6 +20,19 @@ import (
 type WsChannelClient struct {
 	nrpc.RpcChannel
 	Conn *websocket.Conn
+	// closeOnce 保证底层连接只被关闭一次：
+	// readPump/writePump 两个 goroutine 的 defer 与外部 Close 可能并发触发
+	closeOnce sync.Once
+}
+
+// closeConn 幂等地关闭底层 WebSocket 连接（并发安全）
+func (c *WsChannelClient) closeConn() {
+	c.closeOnce.Do(func() {
+		if c.Conn != nil {
+			c.Conn.Close()
+			c.Conn = nil
+		}
+	})
 }
 
 func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
@@ -53,9 +66,7 @@ func (c *WsChannelClient) Logout() (err error) {
 func (c *WsChannelClient) Close() error {
 	c.Lock.Lock()
 	defer c.Lock.Unlock()
-	if c.Conn != nil {
-		c.Conn.Close()
-	}
+	c.closeConn()
 	c.UserId = 0
 	c.RoomId = 0
 	c.PAddr = ""

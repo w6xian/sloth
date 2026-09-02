@@ -22,6 +22,7 @@ import (
 	"github.com/w6xian/sloth/v3/internal/ref"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v3/nrpc/wsocket"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -56,16 +57,18 @@ type ServeHandler interface {
 // implements [trpc.ICallRpc]
 type Connect struct {
 	// id         int64
-	ServerId       string
-	client         *ClientRpc
-	server         *ServerRpc
-	serviceMap     map[string]*ref.ServiceFuncs
-	sleepTimes     int
-	times          int
-	cpuNum         int
-	tlsConfig      *tls.Config
-	Option         *option.Options
-	protocols      map[string]ProtocolFactory
+	ServerId   string
+	client     *ClientRpc
+	server     *ServerRpc
+	serviceMap map[string]*ref.ServiceFuncs
+	// serviceMapMu 保护 serviceMap 的并发读写（Register 与 CallFunc/IsRegisteredService）
+	serviceMapMu  sync.RWMutex
+	sleepTimes    int
+	times         int
+	cpuNum        int
+	tlsConfig     *tls.Config
+	Option        *option.Options
+	protocols     map[string]ProtocolFactory
 	protocolCodecs map[string]codec.Codec
 
 	// 多协议监听器
@@ -74,6 +77,8 @@ type Connect struct {
 	proxyHandler func(ctx context.Context, service string) (int64, error)
 	// meta data
 	metaData string
+	// wsServer 由 initWsServerInstance 创建，Serve() 用它挂载 HTTP handler，Close() 用它优雅关闭
+	wsServer *wsocket.WsServer
 }
 
 func (c *Connect) CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, msg []byte) ([]byte, error) {
@@ -101,7 +106,9 @@ func (c *Connect) IsRegisteredService(service string) bool {
 	if len(ns) != 2 {
 		return false
 	}
+	c.serviceMapMu.RLock()
 	_, ok := c.serviceMap[ns[0]]
+	c.serviceMapMu.RUnlock()
 	return ok
 }
 
@@ -168,6 +175,8 @@ func newConnect(opts ...ConnOption) *Connect {
 
 // Register 注册一个服务，name是服务名，rcvr是服务实现，metadata是服务描述
 func (c *Connect) Register(name string, rcvr any, metadata string) error {
+	c.serviceMapMu.Lock()
+	defer c.serviceMapMu.Unlock()
 	if _, ok := c.serviceMap[name]; ok {
 		return fmt.Errorf("service %s already registered", name)
 	}
@@ -240,6 +249,13 @@ func (c *Connect) Serve() error {
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(c.listeners))
 
+	// WS/WSS 共用同一个 WsServer 的 mux router（含 /ws 路由与 OnConnect 校验）。
+	// 此前 http.Serve(listener, nil) 使用 DefaultServeMux，导致上述路由从未生效。
+	handler := http.Handler(nil)
+	if c.wsServer != nil {
+		handler = c.wsServer.Handler()
+	}
+
 	for _, l := range c.listeners {
 		wg.Add(1)
 		go func(listener ProtocolListener) {
@@ -253,7 +269,7 @@ func (c *Connect) Serve() error {
 				// WebSocket 服务
 				c.Log(logger.Info, "starting WebSocket server on %s", listener.Address)
 
-				if err := http.Serve(listener.Listener, nil); err != nil {
+				if err := http.Serve(listener.Listener, handler); err != nil {
 					errChan <- err
 				}
 			case "wss":
@@ -265,7 +281,7 @@ func (c *Connect) Serve() error {
 					return
 				}
 				srv := &http.Server{
-					Handler: nil,
+					Handler: handler,
 				}
 				if err := srv.ServeTLS(listener.Listener, certFile, keyFile); err != nil {
 					errChan <- err
@@ -298,7 +314,7 @@ func (c *Connect) ServeAsync() {
 	}()
 }
 
-// Close 关闭所有监听器
+// Close 优雅关闭：先停止所有监听器，再关闭 WebSocket 活跃连接与 bucket worker 池
 func (c *Connect) Close() error {
 	for _, l := range c.listeners {
 		if l.Listener != nil {
@@ -313,13 +329,20 @@ func (c *Connect) Close() error {
 		}
 	}
 	c.listeners = nil
+	if c.wsServer != nil {
+		if err := c.wsServer.Close(); err != nil {
+			c.Log(logger.Error, "close ws server error: %v", err)
+		}
+	}
 	c.Log(logger.Info, "all listeners closed")
 	return nil
 }
 
-func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) {
-	if c.server.Listen != nil {
-		return
+// Dial 建立客户端连接。返回 error 而非静默降级：未知协议直接报错，
+// 避免配置错误被掩盖（此前未知协议会静默走 WebSocket 且地址不带 scheme）。
+func (c *Connect) Dial(ctx context.Context, network, address string, options ...option.ConnectOption) error {
+	if c.server.getListen() != nil {
+		return errors.New("dial not allowed: server already listening")
 	}
 
 	if factory := c.resolveProtocol(network); factory != nil {
@@ -335,9 +358,9 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 			opts = append(opts, options...)
 			if err := c.initWsClientInstance(ctx, opts...); err != nil {
 				c.Log(logger.Error, "websocket dial error: %v", err)
-				return
+				return err
 			}
-			return
+			return nil
 		}
 	}
 
@@ -355,24 +378,20 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 		opts = append(opts, options...)
 		if err := c.initWsClientInstance(ctx, opts...); err != nil {
 			c.Log(logger.Error, "websocket dial error: %v", err)
-			return
+			return err
 		}
+		return nil
 	default:
-		c.Log(logger.Info, "unknown network type: %s, using WebSocket", network)
-		opts := []option.ConnectOption{
-			option.WithUriPath("/ws"),
-			option.WithAddress(address),
-		}
-		opts = append(opts, options...)
-		if err := c.initWsClientInstance(ctx, opts...); err != nil {
-			c.Log(logger.Error, "websocket dial error: %v", err)
-			return
-		}
+		return fmt.Errorf("unsupported network type: %s", network)
 	}
 }
 
 func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
-	return c.server.Listen.SetAuthInfo(auth)
+	listen := c.server.getListen()
+	if listen == nil {
+		return errors.New("server not found")
+	}
+	return listen.SetAuthInfo(auth)
 }
 
 // CallFunc 执行指定的方法，构造对应的参数，调用服务方法
@@ -388,7 +407,9 @@ func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Respons
 		c.Log(logger.Info, "(%s) method format error", c.ServerId)
 		return nil, errors.New("method format error")
 	}
+	c.serviceMapMu.RLock()
 	serviceFns, ok := c.serviceMap[node.Service]
+	c.serviceMapMu.RUnlock()
 	if !ok {
 		c.Log(logger.Info, "(%s) service not found", c.ServerId)
 		return nil, errors.New("service not found")
