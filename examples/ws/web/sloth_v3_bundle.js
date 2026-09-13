@@ -9,7 +9,7 @@
  *   5. sock_rpc_v3.js
  *
  * Build order exactly matches: examples/ws/web/index_v3.html L17-L21
- * Generated at: 2026-08-17T09:39:31.322Z
+ * Generated at: 2026-09-13T03:03:50.874Z
  */
 (function () {
 "use strict";
@@ -1890,7 +1890,7 @@ function _decodeInternal(arr) {
 function Id(b) {
     const arr = toUint8Array(b);
     if (arr.length < 11) {
-        return typeof BigInt !== 'undefined' ? 0n : 0;
+        return typeof BigInt !== 'undefined' ? BigInt(0) : 0;
     }
     const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
     return readUint64BE(view, 3);
@@ -1970,13 +1970,13 @@ function ParseFnHeader(b) {
 
     if (arr.length < FnHeaderSize) {
         return {
-            action: 0, id: typeof BigInt !== 'undefined' ? 0n : 0, length: 0,
+            action: 0, id: typeof BigInt !== 'undefined' ? BigInt(0) : 0, length: 0,
             error: wrapError(ErrFnTooShort, `need ${FnHeaderSize}, got ${arr.length}`)
         };
     }
     if (arr[0] !== FnMagic1 || arr[1] !== FnMagic2) {
         return {
-            action: 0, id: typeof BigInt !== 'undefined' ? 0n : 0, length: 0,
+            action: 0, id: typeof BigInt !== 'undefined' ? BigInt(0) : 0, length: 0,
             error: wrapError(ErrFnBadMagic, `got 0x${arr[0].toString(16).padStart(2, '0').toUpperCase()}${arr[1].toString(16).padStart(2, '0').toUpperCase()}`)
         };
     }
