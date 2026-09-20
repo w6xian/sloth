@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc/wsocket"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/trpc"
@@ -64,7 +63,8 @@ func TestRegisterDuplicate(t *testing.T) {
 func TestDialUnsupportedNetwork(t *testing.T) {
 	cli := ClientConn(DefaultClient())
 	defer cli.Close()
-	if err := cli.Dial(context.Background(), "tcp", "127.0.0.1:8080"); err == nil {
+	// tcp 已经是受支持的传输（见 nrpc/tcp）；未知/未注册的协议才应报错
+	if err := cli.Dial(context.Background(), "unknown-proto", "127.0.0.1:8080"); err == nil {
 		t.Fatal("Dial with unsupported network should return error")
 	}
 	if err := cli.Dial(context.Background(), "quic", "127.0.0.1:8080"); err == nil {
@@ -125,9 +125,15 @@ func waitClientReady(tb testing.TB, ctx context.Context, cli *Connect) {
 		}
 		// ServerRpc.Listen 在 Dial goroutine 中写入，读取需持锁
 		cli.server.mu.RLock()
-		lc, ok := cli.server.Listen.(*wsocket.LocalClient)
+		lc := cli.server.Listen
 		cli.server.mu.RUnlock()
-		if ok && lc != nil && lc.Client() != nil {
+		// 传输无关的就绪判定：各传输自己实现 Ready()。
+		// 此前这里断言 *wsocket.LocalClient，TCP 客户端永远"没就绪"。
+		if r, ok := lc.(interface{ Ready() bool }); ok {
+			if r.Ready() {
+				return
+			}
+		} else if lc != nil {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

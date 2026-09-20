@@ -6,13 +6,30 @@ package bucket
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/metrics"
+	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/message"
 )
+
+// Pick 按 userId 选出它所属的桶。
+//
+// 分桶规则此前只存在于 wsocket 包里（GetBucket），TCP 传输要用就得再写一遍——
+// 同一种规则两处实现，改一处漏一处就是"同一个用户被分到不同桶"的诡异 bug。
+// 现在所有传输都走这里。
+func Pick(buckets []*Bucket, id int64) *Bucket {
+	if len(buckets) == 0 {
+		return nil
+	}
+	var buf [20]byte
+	key := strconv.AppendInt(buf[:0], id, 10)
+	idx := tools.CityHash32(key, uint32(len(key))) % uint32(len(buckets))
+	return buckets[idx]
+}
 
 // bucketSeq 为桶分配序号，仅用于指标 label 区分（WsServer 按 CPU 数创建多个桶）。
 var bucketSeq atomic.Uint64

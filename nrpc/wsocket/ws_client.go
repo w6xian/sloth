@@ -311,6 +311,9 @@ func (c *LocalClient) sleep(ctx context.Context, d time.Duration) bool {
 }
 
 // Client 返回底层客户端通道（连接建立后非 nil，用于调用方轮询连接就绪状态）
+// Ready 是否已建立 WebSocket 连接（传输无关的就绪判定，供上层/测试轮询）。
+func (c *LocalClient) Ready() bool { return c.Client() != nil }
+
 func (c *LocalClient) Client() trpc.ICall {
 	c.clientMu.RLock()
 	defer c.clientMu.RUnlock()

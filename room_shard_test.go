@@ -35,9 +35,11 @@ func TestRoomAcrossBucketShards(t *testing.T) {
 	defer svr.Close()
 	waitServerReady(t, ctx, addr)
 
-	ws := svr.wsServer
-	if ws == nil {
-		t.Fatal("ws server 未初始化")
+	// 传输实例由 ProtocolFactory 创建并挂在 listener 上：
+	// 此前它藏在 Connect.wsServer 字段里（而且 ws 自己也绕过了工厂）。
+	ws, ok := svr.listeners[0].Server.(*wsocket.WsServer)
+	if !ok || ws == nil {
+		t.Fatalf("传输实例 = %T, want *wsocket.WsServer（ProtocolFactory 没被使用？）", svr.listeners[0].Server)
 	}
 	if len(ws.Buckets) < 2 {
 		t.Skipf("需要至少 2 个 bucket 分片，当前 %d", len(ws.Buckets))

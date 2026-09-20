@@ -25,7 +25,6 @@ import (
 	"github.com/w6xian/sloth/v3/internal/ref"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc/wsocket"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -79,8 +78,6 @@ type Connect struct {
 	proxyHandler func(ctx context.Context, service string) (int64, error)
 	// meta data
 	metaData string
-	// wsServer 由 initWsServerInstance 创建，Serve() 用它挂载 HTTP handler，Close() 用它优雅关闭
-	wsServer *wsocket.WsServer
 	// debugSrv 为 Option.DebugAddr 启动的调试服务（nil 表示未启用）
 	debugSrv *http.Server
 
@@ -142,7 +139,9 @@ func (c *Connect) resolveProtocol(name string) ProtocolFactory {
 	if factory, ok := c.protocols[name]; ok {
 		return factory
 	}
-	return nil
+	// 实例表未命中时回查全局表：此前两套注册机制完全不互通，
+	// 通过全局 RegisterProtocol 注册的实现永远不会被用到（死代码）。
+	return ResolveProtocol(name)
 }
 
 // ServerConn 建服务端连接：参数是由 DefaultServer() 得到的 *ClientRpc。
@@ -173,11 +172,7 @@ func newConnect(opts ...ConnOption) *Connect {
 	svr.client = LinkClientFunc()
 	svr.server = LinkServerFunc()
 	svr.Option = option.NewOptions()
-	svr.protocols = map[string]ProtocolFactory{
-		"ws":        wsProtocolFactory{},
-		"wss":       wsProtocolFactory{},
-		"websocket": wsProtocolFactory{},
-	}
+	svr.protocols = snapshotProtocols()
 	svr.listeners = make([]ProtocolListener, 0)
 	svr.proxyHandler = func(ctx context.Context, service string) (int64, error) {
 		return 0, nil
@@ -236,43 +231,60 @@ func (c *Connect) Register(name string, rcvr any, metadata string) error {
 // Listen 注册协议监听器，不立即启动服务
 // 可以多次调用注册多个协议，最后用 Serve() 启动所有服务
 func (c *Connect) Listen(ctx context.Context, network, address string, opts ...option.ConnectOption) error {
-	if factory := c.resolveProtocol(network); factory != nil {
-		if factory.Name() == "ws" || factory.Name() == "wss" || factory.Name() == "websocket" {
-			ln, err := net.Listen("tcp", address)
-			if err != nil {
-				return err
-			}
-			c.listeners = append(c.listeners, ProtocolListener{
-				Network:  network,
-				Address:  address,
-				Context:  ctx,
-				Listener: ln,
-				Options:  opts,
-			})
-			c.Log(logger.Info, "registered %s listener on %s", factory.Name(), address)
-			return nil
-		}
-	}
-
-	runtime.GOMAXPROCS(c.cpuNum)
-	switch network {
-	case "ws", "wss", "websocket":
-		ln, err := net.Listen("tcp", address)
-		if err != nil {
-			return err
-		}
-		c.listeners = append(c.listeners, ProtocolListener{
-			Network:  network,
-			Address:  address,
-			Context:  ctx,
-			Listener: ln,
-			Options:  opts,
-		})
-		c.Log(logger.Info, "registered WebSocket listener on %s", address)
-		return nil
-	default:
+	factory := c.resolveProtocol(network)
+	if factory == nil {
 		return fmt.Errorf("unsupported network type: %s", network)
 	}
+	// 底层监听：ws/wss/tcp 都跑在 TCP 上。wss 的 TLS 由 http.Server.ServeTLS
+	// 在握手阶段接管，因此这里始终是明文 listener。
+	ln, err := c.makeListener("tcp", address)
+	if err != nil {
+		return err
+	}
+	// 传输实例由工厂创建：此前这里只判断 factory.Name()=="ws" 然后走 ws 硬编码，
+	// CreateServer 从未被调用——抽象在只有一个实现时完全没被使用过。
+	srv, err := c.transportInstance(factory, ctx, address, opts...)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+
+	c.listeners = append(c.listeners, ProtocolListener{
+		Network:  network,
+		Address:  address,
+		Context:  ctx,
+		Listener: ln,
+		Server:   srv,
+		Options:  opts,
+	})
+	if c.client != nil {
+		c.client.setServe(srv)
+	}
+	runtime.GOMAXPROCS(c.cpuNum)
+	c.Log(logger.Info, "registered %s listener on %s", factory.Name(), address)
+	return nil
+}
+
+// transportInstance 取得该协议的传输实例（没有才创建）。
+func (c *Connect) transportInstance(factory ProtocolFactory, ctx context.Context, address string, opts ...option.ConnectOption) (types.IServer, error) {
+	// 同一协议的多条监听地址共用同一个传输实例：ws/wss 原本就共用一个
+	// WsServer（含它的 mux 路由与 bucket 体系），分成两个实例会让广播只覆盖一半。
+	if srv := c.existingTransport(factory.Name()); srv != nil {
+		return srv, nil
+	}
+	return factory.CreateServer(ctx, c, address, opts...)
+}
+
+func (c *Connect) existingTransport(name string) types.IServer {
+	for _, l := range c.listeners {
+		if l.Server == nil {
+			continue
+		}
+		if f := c.resolveProtocol(l.Network); f != nil && f.Name() == name {
+			return l.Server
+		}
+	}
+	return nil
 }
 
 // newHTTPServer 构造带超时保护的 http.Server。
@@ -304,59 +316,66 @@ func (c *Connect) Serve() error {
 		return err
 	}
 
-	// 初始化 WebSocket 服务器
-	for _, l := range c.listeners {
-		if l.Network == "ws" || l.Network == "wss" || l.Network == "websocket" {
-			if err := c.initWsServerInstance(l.Context, l.Options...); err != nil {
-				return err
-			}
-			break
-		}
-	}
-
-	// 创建 HTTP 服务器来处理所有 WebSocket 监听器
+	// 每个 listener 起一个 goroutine，按传输实例的能力分派：
+	//   - HTTP 型传输（ws）：用实例自己的 Handler 起 http.Server，TLS 交给 ServeTLS；
+	//   - 流式传输（tcp）：由实例自己 Accept。
+	// 此前这里按 network 字符串硬编码 ws 分支，其它协议的 listener 会静默空转
+	// （goroutine 直接跑完、没人 Accept 端口）——第二实现才逼出这个默认分支。
 	var wg = &c.serveWg
 	errChan := make(chan error, len(c.listeners))
 	// 标记"已启动"，供 Close() 判断是否需要等待这些 goroutine 退出
 	c.serving.Store(true)
 
-	// WS/WSS 共用同一个 WsServer 的 mux router（含 /ws 路由与 OnConnect 校验）。
-	// 此前 http.Serve(listener, nil) 使用 DefaultServeMux，导致上述路由从未生效。
-	handler := http.Handler(nil)
-	if c.wsServer != nil {
-		handler = c.wsServer.Handler()
-	}
-
 	for _, l := range c.listeners {
 		wg.Add(1)
 		go func(listener ProtocolListener) {
 			defer wg.Done()
+			// listener 结束（通常是 Close）后清理传输实例：关闭活跃连接与 bucket worker。
+			// 以前 WsServer 从不关闭，进程内残留的连接与 worker 只能等 GC。
+			defer func() {
+				if cl, ok := listener.Server.(interface{ Close() error }); ok {
+					_ = cl.Close()
+				}
+			}()
 			runCtx := listener.Context
 			if runCtx == nil {
 				runCtx = context.Background()
 			}
-			switch listener.Network {
-			case "ws", "websocket":
-				// WebSocket 服务
-				c.Log(logger.Info, "starting WebSocket server on %s", listener.Address)
+			_ = runCtx
 
-				// 用显式 http.Server 并设置超时（http.Serve 用的是零值 Server，无任何超时保护）
-				if err := newHTTPServer(handler).Serve(listener.Listener); err != nil {
-					errChan <- err
-				}
-			case "wss":
-				c.Log(logger.Info, "starting WSS server on %s", listener.Address)
-				certFile := strings.TrimSpace(c.Option.TLSCertFile)
-				keyFile := strings.TrimSpace(c.Option.TLSKeyFile)
-				if certFile == "" || keyFile == "" {
-					errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile)")
-					return
-				}
-				srv := newHTTPServer(handler)
-				if err := srv.ServeTLS(listener.Listener, certFile, keyFile); err != nil {
-					errChan <- err
-				}
+			if listener.Server == nil {
+				errChan <- fmt.Errorf("listener %s: no transport instance", listener.Network)
+				return
 			}
+			if h, ok := listener.Server.(interface{ Handler() http.Handler }); ok {
+				c.Log(logger.Info, "starting %s server on %s", listener.Network, listener.Address)
+				// 用显式 http.Server 并设置超时（http.Serve 用的是零值 Server，无任何超时保护）
+				srv := newHTTPServer(h.Handler())
+				var err error
+				if listener.Network == "wss" {
+					certFile := strings.TrimSpace(c.Option.TLSCertFile)
+					keyFile := strings.TrimSpace(c.Option.TLSKeyFile)
+					if certFile == "" || keyFile == "" {
+						errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile)")
+						return
+					}
+					err = srv.ServeTLS(listener.Listener, certFile, keyFile)
+				} else {
+					err = srv.Serve(listener.Listener)
+				}
+				if err != nil {
+					errChan <- err
+				}
+				return
+			}
+			if t, ok := listener.Server.(interface{ Serve(net.Listener) error }); ok {
+				c.Log(logger.Info, "starting %s server on %s", listener.Network, listener.Address)
+				if err := t.Serve(listener.Listener); err != nil {
+					errChan <- err
+				}
+				return
+			}
+			errChan <- fmt.Errorf("listener %s: transport implements neither Handler() nor Serve()", listener.Network)
 		}(l)
 	}
 
@@ -392,11 +411,6 @@ func (c *Connect) Close() error {
 				c.Log(logger.Error, "close listener %s error: %v", l.Address, err)
 			}
 		}
-		if l.Transport != nil {
-			if err := l.Transport.Close(); err != nil {
-				c.Log(logger.Error, "close listener %s error: %v", l.Address, err)
-			}
-		}
 	}
 	// 等待 Serve() 拉起的监听 goroutine 退出：listener 已关闭，http.Server.Serve
 	// 会立即返回，这里不会长阻塞；若 Serve 从未调用（纯客户端），serving 为 false。
@@ -404,11 +418,8 @@ func (c *Connect) Close() error {
 		c.serveWg.Wait()
 	}
 	c.listeners = nil
-	if c.wsServer != nil {
-		if err := c.wsServer.Close(); err != nil {
-			c.Log(logger.Error, "close ws server error: %v", err)
-		}
-	}
+	// 传输实例（WsServer / TcpServer）的关闭由 Serve 的监听 goroutine 在退出时完成，
+	// 并且对每种传输都生效——此前这里只关 ws 那一个实例，换传输就漏掉。
 	if c.debugSrv != nil {
 		if err := c.debugSrv.Close(); err != nil {
 			c.Log(logger.Error, "close debug server error: %v", err)
@@ -426,45 +437,30 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 		return errors.New("dial not allowed: server already listening")
 	}
 
-	if factory := c.resolveProtocol(network); factory != nil {
-		if factory.Name() == "ws" || factory.Name() == "wss" || factory.Name() == "websocket" {
-			scheme := "ws://"
-			if network == "wss" {
-				scheme = "wss://"
-			}
-			opts := []option.ConnectOption{
-				option.WithUriPath("/ws"),
-				option.WithAddress(scheme + address),
-			}
-			opts = append(opts, options...)
-			if err := c.initWsClientInstance(ctx, opts...); err != nil {
-				c.Log(logger.Error, "websocket dial error: %v", err)
-				return err
-			}
-			return nil
-		}
-	}
-
-	runtime.GOMAXPROCS(c.cpuNum)
-	switch network {
-	case "ws", "wss", "websocket":
-		scheme := "ws://"
-		if network == "wss" {
-			scheme = "wss://"
-		}
-		opts := []option.ConnectOption{
-			option.WithUriPath("/ws"),
-			option.WithAddress(scheme + address),
-		}
-		opts = append(opts, options...)
-		if err := c.initWsClientInstance(ctx, opts...); err != nil {
-			c.Log(logger.Error, "websocket dial error: %v", err)
-			return err
-		}
-		return nil
-	default:
+	// 不支持的协议直接返回错误，不再静默降级到 WebSocket
+	factory := c.resolveProtocol(network)
+	if factory == nil {
 		return fmt.Errorf("unsupported network type: %s", network)
 	}
+
+	// 地址形态由各传输自己解释：ws 需要 ws:// scheme 与 /ws 路径，tcp 要裸 host:port。
+	// 之前这段 URL 拼接写在调用方，协议细节泄漏到了抽象之外——每种新协议都要
+	// 在 Connect 里加一段 switch，而且只认 ws，其它协议永远 dial 不出去。
+	call, err := factory.CreateClient(ctx, c, address, options...)
+	if err != nil {
+		c.Log(logger.Error, "%s dial error: %v", network, err)
+		return err
+	}
+	c.server.setListen(call)
+	// 连接由传输自己建立（实现了 ListenAndServe 的那些：ws / tcp）
+	if d, ok := call.(interface{ ListenAndServe(context.Context) error }); ok {
+		if err := d.ListenAndServe(ctx); err != nil {
+			c.Log(logger.Error, "%s dial error: %v", network, err)
+			return err
+		}
+	}
+	runtime.GOMAXPROCS(c.cpuNum)
+	return nil
 }
 
 func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {

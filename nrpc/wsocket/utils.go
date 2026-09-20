@@ -11,7 +11,6 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder/fn"
 	"github.com/w6xian/sloth/v3/decoder/frame"
-	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/nrpc"
 
 	"github.com/gorilla/websocket"
@@ -81,13 +80,9 @@ func bucketKey(id int64) []byte {
 	return strconv.AppendInt(buf[:0], id, 10)
 }
 
+// GetBucket 保留原签名，分桶规则统一委托给 bucket.Pick（所有传输共用）。
 func GetBucket(ctx context.Context, buckets []*bucket.Bucket, id int64) *bucket.Bucket {
-	if len(buckets) == 0 {
-		return nil
-	}
-	key := bucketKey(id)
-	idx := tools.CityHash32(key, uint32(len(key))) % uint32(len(buckets))
-	return buckets[idx]
+	return bucket.Pick(buckets, id)
 }
 
 var ids int32 = 0
