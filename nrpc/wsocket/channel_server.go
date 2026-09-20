@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
@@ -34,6 +35,26 @@ type WsChannelServer struct {
 	// done 由 Close 一次性关闭，writePump 监听它实现服务端主动优雅断开
 	done     chan struct{}
 	doneOnce sync.Once
+	// closed 标记连接是否已关闭，供调用方（如 bucket/ClientRpc）并发安全地快速失败，
+	// 避免向一条已经关闭的连接发起 RPC 后白白阻塞到写超时。
+	closed atomic.Bool
+	// sliceSeq 本连接的分片序号，仅由 writePump 协程访问（无需加锁）
+	sliceSeq uint32
+}
+
+// IsClosed 报告连接是否已关闭（并发安全）。
+func (ch *WsChannelServer) IsClosed() bool {
+	return ch.closed.Load()
+}
+
+// nextSliceName 返回本连接的下一个分片名（00-99 循环）。
+// 全局计数器版本存在多核原子竞争 + 每次 fmt.Sprintf 分配，这里改为连接内自增 + 查表。
+func (ch *WsChannelServer) nextSliceName() string {
+	ch.sliceSeq++
+	if ch.sliceSeq > 99 {
+		ch.sliceSeq = 0
+	}
+	return sliceNames[ch.sliceSeq]
 }
 
 func (ch *WsChannelServer) Next(n ...bucket.IChannel) bucket.IChannel {
@@ -101,6 +122,7 @@ func (ch *WsChannelServer) Close() error {
 	defer ch.Lock.Unlock()
 
 	ch.doneOnce.Do(func() { close(ch.done) })
+	ch.closed.Store(true)
 	if ch.Conn != nil {
 		ch.Conn.Close()
 	}
@@ -140,7 +162,10 @@ func (ch *WsChannelServer) OnError(f func(err error)) {
 }
 
 func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err error) {
+	// 必须 Stop：原实现每个 timer 都会存活到 PWriteWait(10s) 才被回收，
+	// 高频推送下定时器大量堆积（隐性泄漏）。
 	timer := time.NewTimer(ch.PWriteWait)
+	defer timer.Stop()
 	select {
 	case ch.broadcast <- msg:
 	case <-timer.C:

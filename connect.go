@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/w6xian/sloth/v3/internal/codec"
 
@@ -102,12 +103,14 @@ func (c *Connect) UseProxyHandler(proxyHandler func(ctx context.Context, service
 }
 
 func (c *Connect) IsRegisteredService(service string) bool {
-	ns := strings.Split(service, ".")
-	if len(ns) != 2 {
+	// 每次 RPC 调用都会走到这里：strings.Split 会分配一个 []string，
+	// 而这里只需要 "service.method" 的第一段，用 Cut 零分配即可。
+	name, _, ok := strings.Cut(service, ".")
+	if !ok || name == "" {
 		return false
 	}
 	c.serviceMapMu.RLock()
-	_, ok := c.serviceMap[ns[0]]
+	_, ok = c.serviceMap[name]
 	c.serviceMapMu.RUnlock()
 	return ok
 }
@@ -228,6 +231,25 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 	}
 }
 
+// newHTTPServer 构造带超时保护的 http.Server。
+//
+// 背景：http.Serve(ln, h) 内部使用零值 http.Server，没有任何超时限制，
+// 慢速客户端（slowloris）可以长期占住连接直到耗尽服务端资源。
+// 这里只设置握手阶段与空闲阶段的超时：
+//   - ReadHeaderTimeout：限制请求头读取，防御慢速头攻击；
+//   - IdleTimeout：限制 keep-alive 空闲连接存活时间。
+//
+// 不设置 ReadTimeout/WriteTimeout：连接一旦被 Upgrade（Hijack）就不再受其约束，
+// 而普通 HTTP 请求若被截断会带来难以预期的问题，故交由业务侧按需配置。
+func newHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
 // Serve 启动所有注册的协议监听器
 // 阻塞直到所有服务停止
 func (c *Connect) Serve() error {
@@ -269,7 +291,8 @@ func (c *Connect) Serve() error {
 				// WebSocket 服务
 				c.Log(logger.Info, "starting WebSocket server on %s", listener.Address)
 
-				if err := http.Serve(listener.Listener, handler); err != nil {
+				// 用显式 http.Server 并设置超时（http.Serve 用的是零值 Server，无任何超时保护）
+				if err := newHTTPServer(handler).Serve(listener.Listener); err != nil {
 					errChan <- err
 				}
 			case "wss":
@@ -280,9 +303,7 @@ func (c *Connect) Serve() error {
 					errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile)")
 					return
 				}
-				srv := &http.Server{
-					Handler: handler,
-				}
+				srv := newHTTPServer(handler)
 				if err := srv.ServeTLS(listener.Listener, certFile, keyFile); err != nil {
 					errChan <- err
 				}

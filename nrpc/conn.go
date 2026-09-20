@@ -8,7 +8,6 @@ import (
 
 	"github.com/w6xian/sloth/v3/actions"
 	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types/trpc"
@@ -47,7 +46,8 @@ func (cc *RpcChannel) Call(ctx context.Context, header message.Header, mtd strin
 	msg.Header = header
 	msg.Method = mtd
 	msg.Args = args
-	payload := utils.Serialize(msg)
+	// 手写 JSON 编码（零反射），等价于 json.Marshal(msg)
+	payload := msg.MarshalJSONFast()
 	message.PutCallJCO(msg)
 
 	callId := uint64(id.NextId(1))
@@ -78,6 +78,8 @@ func (c *RpcChannel) Send(ctx context.Context, id uint64, payload []byte, err er
 // implements @
 func (c *RpcChannel) Receive(ctx context.Context, payload []byte) error {
 	timer := time.NewTimer(c.PWriteWait)
+	// 必须 Stop（原实现缺失）：每次调用都会残留一个 10s 定时器
+	defer timer.Stop()
 	select {
 	case c.PRpcResult <- payload:
 	case <-ctx.Done():

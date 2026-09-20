@@ -1,9 +1,11 @@
 package frame
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/w6xian/sloth/v3/internal/utils"
 )
@@ -28,8 +30,51 @@ type DataSlice struct {
 	D []byte `json:"d"`
 }
 
+// Bytes 编码为 JSON 文本帧。
+// 原实现走 json.Marshal（反射）：每条消息的每个分片都要付出反射代价。
+// 手写编码器输出字节与 json.Marshal 完全等价（解码端 frame.FromType 用 json.Unmarshal，无需改动）。
 func (s *DataSlice) Bytes() []byte {
-	return serialize(s)
+	return s.AppendJSON(make([]byte, 0, s.jsonSize()))
+}
+
+// jsonSize 预估 JSON 编码长度（含少量余量），用于一次性分配。
+func (s *DataSlice) jsonSize() int {
+	// {"p":0,"n":"xx","t":0,"i":0,"s":0,"d":"base64"}
+	return 64 + base64.StdEncoding.EncodedLen(len(s.D))
+}
+
+// AppendJSON 手写编码 DataSlice，追加到 dst。
+func (s *DataSlice) AppendJSON(dst []byte) []byte {
+	return AppendSliceJSON(dst, *s)
+}
+
+// AppendSliceJSON 是 DataSlice 的手写 JSON 编码器（值传递，便于栈上构造分片）。
+func AppendSliceJSON(dst []byte, s DataSlice) []byte {
+	dst = append(dst, '{')
+	dst = append(dst, '"', 'p', '"', ':')
+	dst = strconv.AppendInt(dst, int64(s.P), 10)
+	dst = append(dst, ',', '"', 'n', '"', ':')
+	dst = appendJSONStr(dst, s.N)
+	dst = append(dst, ',', '"', 't', '"', ':')
+	dst = strconv.AppendInt(dst, int64(s.T), 10)
+	dst = append(dst, ',', '"', 'i', '"', ':')
+	dst = strconv.AppendInt(dst, int64(s.I), 10)
+	dst = append(dst, ',', '"', 's', '"', ':')
+	dst = strconv.AppendInt(dst, int64(s.S), 10)
+	dst = append(dst, ',', '"', 'd', '"', ':')
+	dst = appendJSONBytes(dst, s.D)
+	dst = append(dst, '}')
+	return dst
+}
+
+// 与 encoding/json 字节级等价的转义/base64 编码实现复用 internal/utils，
+// 避免与 message 包的实现出现漂移。
+func appendJSONStr(dst []byte, s string) []byte {
+	return utils.AppendJSONStr(dst, s)
+}
+
+func appendJSONBytes(dst []byte, b []byte) []byte {
+	return utils.AppendJSONBytes(dst, b)
 }
 
 func (s *DataSlice) MuskCheck() byte {

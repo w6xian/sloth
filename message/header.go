@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/tlv"
 )
 
@@ -50,39 +51,15 @@ const (
 	tlvMaxLength    = 2
 )
 
-const hexDigits = "0123456789abcdef"
-
-// jsonStrLen 返回 s 作为 JSON 字符串（含两端引号）编码后的字节数。
+// jsonStrLen / appendJSONStr 复用 internal/utils 的实现：
+// 与 encoding/json 字节级等价（此前未处理 \n \r \t 的短转义与 < > & 的 HTML 转义，
+// 与 tlv.JsonEnpack / json.Marshal 的输出存在细微差异）。
 func jsonStrLen(s string) int {
-	n := len(s) + 2 // 引号
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; {
-		case c == '"' || c == '\\':
-			n++
-		case c < 0x20:
-			n += 5 // \u00XX 共 6 字节，原 1 字节
-		}
-	}
-	return n
+	return utils.JSONStrLen(s)
 }
 
-// appendJSONStr 将 s 以 JSON 字符串形式（含引号）追加到 dst。
 func appendJSONStr(dst []byte, s string) []byte {
-	dst = append(dst, '"')
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; {
-		case c == '"':
-			dst = append(dst, '\\', '"')
-		case c == '\\':
-			dst = append(dst, '\\', '\\')
-		case c < 0x20:
-			dst = append(dst, '\\', 'u', '0', '0', hexDigits[c>>4], hexDigits[c&0x0f])
-		default:
-			dst = append(dst, c)
-		}
-	}
-	dst = append(dst, '"')
-	return dst
+	return utils.AppendJSONStr(dst, s)
 }
 
 // encodeHeader 编码 Header 为 tlv JSON 帧，单次分配。

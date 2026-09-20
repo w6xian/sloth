@@ -90,6 +90,20 @@ func GetHeader(ctx context.Context) (message.Header, error) {
 	return header, nil
 }
 
+// channelClosed 报告连接是否已关闭。
+//
+// 连接层（WsChannelServer/WsChannelClient）可选实现 IsClosed()：
+// bucket 中可能残留一条已被关闭但尚未被 readPump 清理的连接，
+// 直接向它发起 RPC 会一直阻塞到 writeWait/readWait(默认 10s) 才失败，
+// 调用方（尤其是批量调用）会被整体拖慢。这里先做一次无锁快速判定。
+func channelClosed(ch bucket.IChannel) bool {
+	if ch == nil {
+		return true
+	}
+	cc, ok := ch.(interface{ IsClosed() bool })
+	return ok && cc.IsClosed()
+}
+
 // @call client
 func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
@@ -100,6 +114,9 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	ch := b.Channel(userId)
 	if ch == nil {
 		return nil, errors.New("channel not found")
+	}
+	if channelClosed(ch) {
+		return nil, errors.New("channel closed")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -124,6 +141,9 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint6
 	if ch == nil {
 		return nil, errors.New("channel not found")
 	}
+	if channelClosed(ch) {
+		return nil, errors.New("channel closed")
+	}
 	resp, err := ch.SendData(ctx, msgId, data)
 	if err != nil {
 		return nil, err
@@ -141,6 +161,9 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 	ch := b.Channel(userId)
 	if ch == nil {
 		return nil, errors.New("channel not found")
+	}
+	if channelClosed(ch) {
+		return nil, errors.New("channel closed")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -219,6 +242,10 @@ func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg 
 		if ch == nil {
 			return true
 		}
+		// 跳过已关闭连接：否则每个死连接都要白等到 defaultCallTimeout
+		if channelClosed(ch) {
+			return true
+		}
 		sem <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-sem }()
@@ -261,6 +288,10 @@ func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]b
 		}
 		b.RangeChannels(func(ch bucket.IChannel) bool {
 			if ch == nil {
+				return true
+			}
+			// 跳过已关闭连接：全服调用下死连接会被逐个等到超时，拖垮整批
+			if channelClosed(ch) {
 				return true
 			}
 			// 在调用线程内同步拷贝 header 快照：Header 是 map（引用语义），

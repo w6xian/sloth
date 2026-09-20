@@ -95,13 +95,13 @@ func TestServiceMapConcurrent(t *testing.T) {
 
 // ---- 端到端集成测试 ----
 
-// waitServerReady 反复探测 WS 端口直到 HTTP server 就绪。
-func waitServerReady(t *testing.T, ctx context.Context, addr string) {
-	t.Helper()
+// waitServerReady 反复探测 WS 端口直到 HTTP server 就绪（testing.TB 便于 benchmark 复用）。
+func waitServerReady(tb testing.TB, ctx context.Context, addr string) {
+	tb.Helper()
 	for {
 		select {
 		case <-ctx.Done():
-			t.Fatalf("server %s not ready: %v", addr, ctx.Err())
+			tb.Fatalf("server %s not ready: %v", addr, ctx.Err())
 		default:
 		}
 		conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/ws", nil)
@@ -114,12 +114,12 @@ func waitServerReady(t *testing.T, ctx context.Context, addr string) {
 }
 
 // waitClientReady 轮询客户端底层通道直到连接建立（LocalClient.Client() 非 nil）。
-func waitClientReady(t *testing.T, ctx context.Context, cli *Connect) {
-	t.Helper()
+func waitClientReady(tb testing.TB, ctx context.Context, cli *Connect) {
+	tb.Helper()
 	for {
 		select {
 		case <-ctx.Done():
-			t.Fatalf("client not ready: %v", ctx.Err())
+			tb.Fatalf("client not ready: %v", ctx.Err())
 		default:
 		}
 		// ServerRpc.Listen 在 Dial goroutine 中写入，读取需持锁

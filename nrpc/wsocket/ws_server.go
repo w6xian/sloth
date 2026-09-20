@@ -15,7 +15,6 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/tools"
-	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
@@ -55,6 +54,12 @@ type WsServer struct {
 	perIP     map[string]int64
 	globalCnt atomic.Int64
 	closed    bool
+
+	// upgrader 在首次握手时按当前配置构建并复用。
+	// Upgrader 本身无每连接状态（缓冲区大小与校验函数都是只读的），
+	// 原实现每次握手都新建一个并重新装配闭包，属于纯浪费。
+	upgraderMu sync.Mutex
+	upgrader   *websocket.Upgrader
 }
 
 // 实现 options.ConnectOption
@@ -246,8 +251,9 @@ func (s *WsServer) Bucket(userId int64) *bucket.Bucket {
 	if s.bucketIdx == 0 {
 		return nil
 	}
-	userIdStr := fmt.Sprintf("%d", userId)
-	idx := tools.CityHash32([]byte(userIdStr), uint32(len(userIdStr))) % s.bucketIdx
+	// 与 GetBucket 共用零分配的 bucketKey（原实现每次 fmt.Sprintf + []byte 转换）
+	key := bucketKey(userId)
+	idx := tools.CityHash32(key, uint32(len(key))) % s.bucketIdx
 	return s.Buckets[idx]
 }
 
@@ -312,39 +318,54 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	})
 	return nil
 }
-func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	var upGrader = websocket.Upgrader{
-		ReadBufferSize:  s.ReadBufferSize,
-		WriteBufferSize: s.WriteBufferSize,
+// getUpgrader 惰性构建并复用 Upgrader（并发安全）。
+func (s *WsServer) getUpgrader() *websocket.Upgrader {
+	s.upgraderMu.Lock()
+	defer s.upgraderMu.Unlock()
+	if s.upgrader == nil {
+		s.upgrader = &websocket.Upgrader{
+			ReadBufferSize:  s.ReadBufferSize,
+			WriteBufferSize: s.WriteBufferSize,
+			CheckOrigin:     s.checkOrigin,
+		}
 	}
-	// 构建header
-	header := make(http.Header)
-	for k, v := range s.Header {
-		header[k] = []string{v}
-	}
+	return s.upgrader
+}
 
-	upGrader.CheckOrigin = func(r *http.Request) bool {
-		if r == nil {
-			return false
+// checkOrigin 校验跨域来源。
+func (s *WsServer) checkOrigin(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	// 未配置 originDomain 时默认放行：浏览器之外的客户端（原生、游戏客户端等）
+	// 通常不带 Origin 头，若默认拒绝则所有未显式配置来源的连接都无法建立。
+	if len(s.originDomain) == 0 {
+		return true
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return false
+	}
+	// originDomain 中* 表示允许所有域名
+	if array.InArray("*", s.originDomain) {
+		return true
+	}
+	return array.InArray(u.Host, s.originDomain)
+}
+
+func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	upGrader := s.getUpgrader()
+	// 构建header（无自定义响应头时不分配 map）
+	var header http.Header
+	if len(s.Header) > 0 {
+		header = make(http.Header, len(s.Header))
+		for k, v := range s.Header {
+			header[k] = []string{v}
 		}
-		// 未配置 originDomain 时默认放行：浏览器之外的客户端（原生、游戏客户端等）
-		// 通常不带 Origin 头，若默认拒绝则所有未显式配置来源的连接都无法建立。
-		if len(s.originDomain) == 0 {
-			return true
-		}
-		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		if origin == "" {
-			return true
-		}
-		u, err := url.Parse(origin)
-		if err != nil || strings.TrimSpace(u.Host) == "" {
-			return false
-		}
-		// originDomain 中* 表示允许所有域名
-		if array.InArray("*", s.originDomain) {
-			return true
-		}
-		return array.InArray(u.Host, s.originDomain)
 	}
 	conn, err := upGrader.Upgrade(w, r, header)
 	if err != nil {
@@ -384,57 +405,61 @@ func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannel
 		ch.Close()
 	}()
 
+	// conn 在连接生命周期内不会被改写（服务端侧无并发写），取一次即可，
+	// 避免每个 select 分支都重复读字段
+	conn := ch.Conn
 	for {
 		select {
 		case <-ch.done:
 			return
 		case msg, ok := <-ch.broadcast:
-			if ch.Conn == nil {
+			if conn == nil {
 				return
 			}
 			//write data dead time , like http timeout , default 10s
-			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
-				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.Conn, utils.Serialize(msg), 512); err != nil {
+			// 手写 JSON 编码（零反射），等价于 json.Marshal(msg)
+			if err := slicesTextSend(ch.nextSliceName(), conn, msg.MarshalJSONFast(), 512); err != nil {
 				return
 			}
 		case payload, ok := <-ch.PRpcCaller:
-			if ch.Conn == nil {
+			if conn == nil {
 				return
 			}
 			//write data dead time , like http timeout , default 10s
-			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
-				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := slicesTextSend(getSliceName(), ch.Conn, payload, 512); err != nil {
+			if err := slicesTextSend(ch.nextSliceName(), conn, payload, 512); err != nil {
 				return
 			}
 		case payload, ok := <-ch.PRpcBacker:
-			if ch.Conn == nil {
+			if conn == nil {
 				return
 			}
 			//write data dead time , like http timeout , default 10s
-			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
 			if !ok {
-				ch.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
-			if err := slicesTextSend(getSliceName(), ch.Conn, payload, 512); err != nil {
+			if err := slicesTextSend(ch.nextSliceName(), conn, payload, 512); err != nil {
 				return
 			}
 		case <-ticker.C:
-			if ch.Conn == nil {
+			if conn == nil {
 				return
 			}
 			//heartbeat，if ping error will exit and close current websocket conn
-			ch.Conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
-			if err := ch.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			conn.SetWriteDeadline(time.Now().Add(s.WriteWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		case <-ctx.Done():

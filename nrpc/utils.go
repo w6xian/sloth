@@ -32,9 +32,14 @@ func HandleFn(ctx context.Context, r *http.Request, w *http.Response, svr types.
 	switch action {
 	case actions.ACTION_CALL:
 		fx := message.GetCallJCO()
+		// fx 的 Header/Args 会同步传入 CallFunc，调用返回后即可归还对象池。
+		// 原实现取到池对象后从不归还，池退化成"每次新建"，GC 压力翻倍。
+		defer message.PutCallJCO(fx)
 		err := json.Unmarshal(body, fx)
 		if err != nil {
-			log.Println(logger.Error, "server readPump，json.Unmarshal err:%v", err)
+			// 原实现用 log.Println(logger.Error, "…%v", err)：
+			// Println 不做格式化，日志级别被当成普通参数打印，真实错误信息丢失。
+			log.Printf("%v server readPump，json.Unmarshal err: %v", logger.Error, err)
 			return err
 		}
 		if !conn.IsRegisteredService(fx.Method) {
@@ -63,26 +68,47 @@ func HandleFn(ctx context.Context, r *http.Request, w *http.Response, svr types.
 	return nil
 }
 
+// defaultTimeout 超时配置为 0（未设置）时的兜底值，避免 timer 立即触发把正常调用判成超时。
+const defaultTimeout = 10 * time.Second
+
 // 服务器调用客户端方法
 func CallFuncWithResult(ctx context.Context, msgId uint64, payload []byte, sender DataChannel, timeout TimeOut) ([]byte, error) {
 
-	ticker := time.NewTicker(timeout.Write)
-	defer ticker.Stop()
+	writeTimeout := timeout.Write
+	if writeTimeout <= 0 {
+		writeTimeout = defaultTimeout
+	}
+	// 用 Timer 而非 Ticker：
+	// Ticker 的通道会缓存一次到期信号，Reset 并不会排空它，
+	// 写入阶段遗留的到期信号会让下一阶段立刻"假超时"（并发 RPC 下偶发 call timeout）。
+	timer := time.NewTimer(writeTimeout)
+	defer timer.Stop()
 	// 发送调用请求
 	select {
-	case <-ticker.C:
+	case <-timer.C:
 		return []byte{}, fmt.Errorf("call timeout")
 	case sender.Write <- payload:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	ticker.Reset(timeout.Write)
+	// 复用 timer 前必须排空已到期的信号（Stop 返回 false 表示信号已发出/已被取走）
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	replyTimeout := timeout.Read
+	if replyTimeout <= 0 {
+		replyTimeout = writeTimeout
+	}
+	timer.Reset(replyTimeout)
 	// 等待调用结果
 	for {
 		select {
 		case <-ctx.Done():
 			return []byte{}, ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 			return []byte{}, fmt.Errorf("reply timeout")
 		case raw, ok := <-sender.Read:
 			if !ok {
