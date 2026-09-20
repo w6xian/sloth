@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder/ag"
-	"github.com/w6xian/sloth/v3/decoder/frame"
-	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/decoder/ag"
+	"github.com/w6xian/sloth/v4/decoder/frame"
+	"github.com/w6xian/sloth/v4/message"
 )
 
 // mockChannel 最小化实现 bucket.IChannel，用于 Room benchmark。

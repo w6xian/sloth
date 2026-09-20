@@ -5,8 +5,8 @@ import (
 	"crypto/tls"
 	"net"
 
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types"
 )
 
 // ProtocolListener 协议监听器

@@ -46,8 +46,14 @@ type Options struct {
 	MaxConnsGlobal int64
 	MaxConnsPerIP  int64
 	MaxConnsWS     int64
-	// MaxConnsTCP/MaxConnsKCP 为后续 TCP/KCP 协议预留（协议实现后生效）。
-	MaxConnsTCP int64
+	MaxConnsTCP    int64
+	MaxConnsQUIC   int64
+	// MaxConnsKCP 为 KCP 预留：协议尚未实现，设了也不会生效。
+	//
+	// 分协议限额与全局限额是**两道独立的闸**（取更严的那个），不是"加起来"：
+	// 每种传输的 server 实例只服务一种协议，因此它的连接数既是全局的一份，
+	// 也要受本传输上限约束。单 IP 限额（MaxConnsPerIP）目前只在 ws 生效——
+	// 它依赖 HTTP 请求头取 IP，TCP/QUIC 要另做按 IP 计数。
 	MaxConnsKCP int64
 	// TrustProxyHeaders 为 true 时，从 X-Forwarded-For / X-Real-IP 解析客户端 IP，
 	// 用于 MaxConnsPerIP 计数。仅在可信反向代理之后部署时开启，否则可被伪造绕过。
@@ -86,6 +92,7 @@ func NewOptions() *Options {
 		MaxConnsPerIP:     0,
 		MaxConnsWS:        0,
 		MaxConnsTCP:       0,
+		MaxConnsQUIC:      0,
 		MaxConnsKCP:       0,
 		TrustProxyHeaders: false,
 		TLSCertFile:       "",

@@ -3,7 +3,7 @@ package sloth
 import (
 	"encoding/base64"
 
-	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/logger"
 	"github.com/w6xian/tlv"
 )
 

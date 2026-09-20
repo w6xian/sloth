@@ -12,10 +12,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/auth"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types/auth"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 // ---- 测试服务 ----

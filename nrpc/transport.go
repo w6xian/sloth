@@ -1,8 +1,8 @@
 package nrpc
 
 import (
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/types/auth"
 )
 
 // 这里原本还有 Transport / Listener 两个接口（"各协议实现此接口"），但它们

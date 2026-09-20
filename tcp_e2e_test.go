@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/logger"
 )
 
 // 本文件是 TCP 传输的端到端验证。

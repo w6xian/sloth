@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/actions"
-	"github.com/w6xian/sloth/v3/decoder/fn"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/errs"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/actions"
+	"github.com/w6xian/sloth/v4/decoder/fn"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/errs"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 type RpcChannel struct {

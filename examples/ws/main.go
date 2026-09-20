@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/v3"
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/utils"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/slots"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v4"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/slots"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/auth"
 	"github.com/w6xian/tlv"
 )
 

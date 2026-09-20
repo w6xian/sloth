@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder"
-	"github.com/w6xian/sloth/v3/decoder/ag"
-	"github.com/w6xian/sloth/v3/internal/errs"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/decoder"
+	"github.com/w6xian/sloth/v4/decoder/ag"
+	"github.com/w6xian/sloth/v4/internal/errs"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/types"
 )
 
 // ClientRpc 是「打给客户端」的 RPC 调用端，由服务端程序持有

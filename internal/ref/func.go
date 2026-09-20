@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/w6xian/sloth/v3/internal/errs"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/utils"
-	"github.com/w6xian/sloth/v3/internal/utils/array"
+	"github.com/w6xian/sloth/v4/internal/errs"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/internal/utils/array"
 )
 
 // Register 注册服务

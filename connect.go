@@ -16,19 +16,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/internal/errs"
+	"github.com/w6xian/sloth/v4/internal/errs"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/internal/ref"
-	"github.com/w6xian/sloth/v3/internal/utils/id"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/auth"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/decoder"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/internal/ref"
+	"github.com/w6xian/sloth/v4/internal/utils/id"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/auth"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 type ContextType string

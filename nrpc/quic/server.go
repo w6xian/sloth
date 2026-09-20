@@ -19,16 +19,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc"
-	"github.com/w6xian/sloth/v3/nrpc/stream"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/handler"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/nrpc"
+	"github.com/w6xian/sloth/v4/nrpc/stream"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types/handler"
+	"github.com/w6xian/sloth/v4/types/trpc"
 
 	"github.com/gorilla/mux"
 )
@@ -72,19 +72,21 @@ type QuicServer struct {
 	// queueSize 每条连接的队列容量（option.WithChannelQueueSize 可配）
 	queueSize int
 	maxGlobal int64
-	m         quicMetrics
+	// maxLocal 本传输的限额（MaxConnsQUIC），与 maxGlobal 是两道独立的闸
+	maxLocal int64
+	m        quicMetrics
 }
 
 // ── option.IConnectOption ──────────────────────────────────────────────
 // 与 TCP 一样：没有 URI / Origin / mux 路由这些 HTTP 概念，对应选项只能忽略。
 
-func (s *QuicServer) SetUriPath(path string) error                               { return nil }
-func (s *QuicServer) SetRouter(router *mux.Router) error                         { return nil }
-func (s *QuicServer) SetAddress(address string) error                            { return nil }
-func (s *QuicServer) SetHeader(key string, value string) error                   { return nil }
-func (s *QuicServer) SetOrigin(args ...string) error                             { return nil }
+func (s *QuicServer) SetUriPath(path string) error                                { return nil }
+func (s *QuicServer) SetRouter(router *mux.Router) error                          { return nil }
+func (s *QuicServer) SetAddress(address string) error                             { return nil }
+func (s *QuicServer) SetHeader(key string, value string) error                    { return nil }
+func (s *QuicServer) SetOrigin(args ...string) error                              { return nil }
 func (s *QuicServer) SetClientHandleMessage(h handler.IClientHandleMessage) error { return nil }
-func (s *QuicServer) SetCodec(c codec.Codec)                                     { s.Codec = c }
+func (s *QuicServer) SetCodec(c codec.Codec)                                      { s.Codec = c }
 
 // SetServerHandleMessage 对 QUIC 无效：HTTP 版钩子的每个方法都带 *http.Request，
 // QUIC 没有 HTTP 握手可传。返回 nil 但打日志，避免用户以为回调已生效。
@@ -126,6 +128,7 @@ func NewQuicServer(server trpc.ICallRpc, opts ...option.ConnectOption) *QuicServ
 	s.WriteWait = opt.WriteWait
 	s.ReadWait = opt.ReadWait
 	s.maxGlobal = opt.MaxConnsGlobal
+	s.maxLocal = opt.MaxConnsQUIC
 	s.conns = make(map[*stream.Channel]struct{})
 	s.queueSize = opt.ChannelQueueSize
 	if s.queueSize <= 0 {
@@ -196,12 +199,16 @@ func (s *QuicServer) Serve(ln net.Listener) error {
 	}
 }
 
+// acquireConn 占一个连接名额，超过限额返回 false。
+//
+// 与 TCP 传输同一套语义：全局（MaxConnsGlobal）与本传输（MaxConnsQUIC）
+// 两道闸，取更严的那个。单 IP 限额仅 ws 生效（见 TcpServer.acquireConn）。
 func (s *QuicServer) acquireConn() bool {
-	if s.maxGlobal <= 0 {
+	if s.maxGlobal <= 0 && s.maxLocal <= 0 {
 		return true
 	}
 	cur := s.globalCnt.Add(1)
-	if cur > s.maxGlobal {
+	if (s.maxGlobal > 0 && cur > s.maxGlobal) || (s.maxLocal > 0 && cur > s.maxLocal) {
 		s.globalCnt.Add(-1)
 		return false
 	}

@@ -144,6 +144,12 @@ func WithMaxConnsTCP(max int64) ConnOption {
 	}
 }
 
+func WithMaxConnsQUIC(max int64) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.MaxConnsQUIC = max
+	}
+}
+
 func WithMaxConnsKCP(max int64) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.MaxConnsKCP = max

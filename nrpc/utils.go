@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/w6xian/sloth/v3/actions"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/actions"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 // RPC 服务端指标（包级注册，label 固定）。

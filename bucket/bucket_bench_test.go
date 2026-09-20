@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/message"
 )
 
 // discardLogs 关闭广播队列满时的限流日志：

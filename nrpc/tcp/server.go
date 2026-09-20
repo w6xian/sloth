@@ -18,16 +18,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc"
-	"github.com/w6xian/sloth/v3/nrpc/stream"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/handler"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/nrpc"
+	"github.com/w6xian/sloth/v4/nrpc/stream"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types/handler"
+	"github.com/w6xian/sloth/v4/types/trpc"
 
 	"github.com/gorilla/mux"
 )
@@ -67,6 +67,8 @@ type TcpServer struct {
 	// queueSize 每条连接的队列容量（option.WithChannelQueueSize 可配）
 	queueSize int
 	maxGlobal int64
+	// maxLocal 本传输的限额（MaxConnsTCP），与 maxGlobal 是两道独立的闸
+	maxLocal int64
 	m         tcpMetrics
 }
 
@@ -75,13 +77,13 @@ type TcpServer struct {
 // 这也是抽象的第二课：选项接口把 HTTP 专有项塞进了通用接口，
 // 每种新传输都要被迫实现一堆"什么都做不了"的方法。
 
-func (s *TcpServer) SetUriPath(path string) error                               { return nil }
-func (s *TcpServer) SetRouter(router *mux.Router) error                         { return nil }
-func (s *TcpServer) SetAddress(address string) error                            { return nil }
-func (s *TcpServer) SetHeader(key string, value string) error                   { return nil }
-func (s *TcpServer) SetOrigin(args ...string) error                             { return nil }
+func (s *TcpServer) SetUriPath(path string) error                                { return nil }
+func (s *TcpServer) SetRouter(router *mux.Router) error                          { return nil }
+func (s *TcpServer) SetAddress(address string) error                             { return nil }
+func (s *TcpServer) SetHeader(key string, value string) error                    { return nil }
+func (s *TcpServer) SetOrigin(args ...string) error                              { return nil }
 func (s *TcpServer) SetClientHandleMessage(h handler.IClientHandleMessage) error { return nil }
-func (s *TcpServer) SetCodec(c codec.Codec)                                     { s.Codec = c }
+func (s *TcpServer) SetCodec(c codec.Codec)                                      { s.Codec = c }
 
 // SetServerHandleMessage 对 TCP 无效：HTTP 版钩子的每个方法都带 *http.Request，
 // TCP 没有 HTTP 握手可传（抽象泄漏，见 handler.TcpHandleMessage 注释）。
@@ -129,6 +131,7 @@ func NewTcpServer(server trpc.ICallRpc, opts ...option.ConnectOption) *TcpServer
 	s.WriteWait = opt.WriteWait
 	s.ReadWait = opt.ReadWait
 	s.maxGlobal = opt.MaxConnsGlobal
+	s.maxLocal = opt.MaxConnsTCP
 	s.conns = make(map[*TcpChannel]struct{})
 	s.queueSize = opt.ChannelQueueSize
 	if s.queueSize <= 0 {
@@ -203,12 +206,17 @@ func (s *TcpServer) Serve(ln net.Listener) error {
 	}
 }
 
+// acquireConn 占一个连接名额，超过限额返回 false。
+//
+// 两道闸：全局（MaxConnsGlobal）与本传输（MaxConnsTCP），取更严的那个——
+// 与 ws 传输的语义一致（见 wsocket.WsServer.acquireConn）。
+// 单 IP 限额目前只对 ws 生效：它靠 HTTP 请求头取 IP，这里要另做按 IP 计数。
 func (s *TcpServer) acquireConn() bool {
-	if s.maxGlobal <= 0 {
+	if s.maxGlobal <= 0 && s.maxLocal <= 0 {
 		return true
 	}
 	cur := s.globalCnt.Add(1)
-	if cur > s.maxGlobal {
+	if (s.maxGlobal > 0 && cur > s.maxGlobal) || (s.maxLocal > 0 && cur > s.maxLocal) {
 		s.globalCnt.Add(-1)
 		return false
 	}

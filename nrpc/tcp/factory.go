@@ -4,9 +4,9 @@ import (
 	"context"
 	"net"
 
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 // GetTcpServer 创建 TCP 服务端实例（与 wsocket.GetWsServer 对称）。

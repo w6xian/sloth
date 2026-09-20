@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/w6xian/sloth/v3/decoder/ag"
+	"github.com/w6xian/sloth/v4/decoder/ag"
 )
 
 type T struct {

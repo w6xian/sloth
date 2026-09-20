@@ -8,10 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/decoder/fn"
-	"github.com/w6xian/sloth/v3/decoder/frame"
-	"github.com/w6xian/sloth/v3/nrpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/decoder/fn"
+	"github.com/w6xian/sloth/v4/decoder/frame"
+	"github.com/w6xian/sloth/v4/nrpc"
 
 	"github.com/gorilla/websocket"
 	"github.com/w6xian/tlv"

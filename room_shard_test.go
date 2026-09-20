@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/nrpc/wsocket"
-	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/nrpc/wsocket"
+	"github.com/w6xian/sloth/v4/types"
 )
 
 // TestRoomAcrossBucketShards 同一房间的成员分布在不同 bucket 分片时，

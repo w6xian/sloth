@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/w6xian/sloth/v3/decoder"
-	"github.com/w6xian/sloth/v3/decoder/ag"
-	"github.com/w6xian/sloth/v3/internal/errs"
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/types/auth"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/decoder"
+	"github.com/w6xian/sloth/v4/decoder/ag"
+	"github.com/w6xian/sloth/v4/internal/errs"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/types/auth"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 // ServerRpc 是「打给服务端」的 RPC 调用端，由客户端程序持有。

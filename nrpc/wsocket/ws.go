@@ -3,9 +3,9 @@ package wsocket
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 func GetWsServer(ctx context.Context, c trpc.ICallRpc, options ...option.ConnectOption) types.IServer {

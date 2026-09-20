@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/types/auth"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/types/auth"
 )
 
 // TestGetBucketStableAndBoundary 分桶一致性：同一 userId 必须恒定命中同一分片。

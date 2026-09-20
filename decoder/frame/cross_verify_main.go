@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	frame "github.com/w6xian/sloth/v3/decoder/frame"
+	frame "github.com/w6xian/sloth/v4/decoder/frame"
 )
 
 type testCase struct {

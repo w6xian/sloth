@@ -10,16 +10,16 @@ import (
 	"time"
 
 	quicgo "github.com/quic-go/quic-go"
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc"
-	"github.com/w6xian/sloth/v3/nrpc/stream"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/auth"
-	"github.com/w6xian/sloth/v3/types/handler"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/nrpc"
+	"github.com/w6xian/sloth/v4/nrpc/stream"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types/auth"
+	"github.com/w6xian/sloth/v4/types/handler"
+	"github.com/w6xian/sloth/v4/types/trpc"
 
 	"github.com/gorilla/mux"
 )
@@ -264,9 +264,9 @@ func (c *QuicClient) Close() error {
 // emptyBucket 客户端侧的 types.IBucket 空实现（与 ws / tcp 客户端一致）。
 type emptyBucket struct{}
 
-func (emptyBucket) Bucket(userId int64) *bucket.Bucket                   { return nil }
-func (emptyBucket) Channel(userId int64) bucket.IChannel                 { return nil }
-func (emptyBucket) Room(roomId int64) *bucket.Room                       { return nil }
+func (emptyBucket) Bucket(userId int64) *bucket.Bucket                    { return nil }
+func (emptyBucket) Channel(userId int64) bucket.IChannel                  { return nil }
+func (emptyBucket) Room(roomId int64) *bucket.Room                        { return nil }
 func (emptyBucket) Broadcast(ctx context.Context, msg *message.Msg) error { return nil }
 
 // 编译期断言：客户端必须满足 trpc.ICall 与 option 接口。

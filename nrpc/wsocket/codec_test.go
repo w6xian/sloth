@@ -3,8 +3,8 @@ package wsocket
 import (
 	"testing"
 
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/option"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/option"
 )
 
 // stubCodec 只认以 'X' 开头的帧。

@@ -1,4 +1,4 @@
-# Sloth v3
+# Sloth v4
 
 Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传统 RPC 一样调用远端方法，也可以像 IM/网关一样按 Room 做广播/推送。
 
@@ -7,7 +7,7 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 - WebSocket：`ws / wss`（适合浏览器、跨语言）
 - TCP：`tcp / tcp4 / tcp6`（FN 帧分帧的裸字节流，适合两端同构、不需要浏览器的场景；无断线重连，见下）
 - QUIC：`quic`（UDP + TLS 1.3，弱网与网络切换场景友好；强制 TLS，见下）
-- KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境） (v3暂不支持)
+- KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境）—— 未实现，仅占位
 
 > `grpc` 仍是占位符（未实现真正的 gRPC 协议栈）。
 
@@ -31,20 +31,20 @@ conn.Dial(ctx, sloth.TCP, "localhost:8991")
 - 反射式服务注册：`Register("v1", &Svc{}, "")`，通过 `v1.Method` 直接调用
 - Header / Auth：header 透传、登录后可设置 `AuthInfo`
 - Bucket / Room：面向海量连接的分桶与房间广播
-- 安全：服务端 IP 黑名单 + 连接数限制（全局 / 分协议 / 单 IP）
+- 安全：服务端 IP 黑名单 + 连接数限制（全局 / 分协议；单 IP 限额目前仅 ws 生效——它依赖 HTTP 请求头取 IP）
 - 诊断：内置 `pprof.Info` 服务方法，返回内存/连接/room 等信息（含 `next_gc`）
 
 ## 安装
 
 ```bash
-go get github.com/w6xian/sloth/v3
+go get github.com/w6xian/sloth/v4
 ```
 
 ## 快速开始
 
 ### 启动服务端（WS）
 
-示例见 [examples/ws/main.go](file:///d:/var/o4p/github.com/sloth/v3/examples/ws/main.go)：
+示例见 [examples/ws/main.go](examples/ws/main.go)：
 
 ```go
 ctx := context.Background()
@@ -70,13 +70,13 @@ if err := conn.Serve(); err != nil {
 
 ### 启动客户端并调用
 
-示例见 [examples/ws/client/main.go](file:///d:/var/o4p/github.com/sloth/v2/examples/ws/client/main.go)：
+示例见 [examples/ws/client/main.go](examples/ws/client/main.go)：
 
 ```go
 client := sloth.DefaultClient()
 conn := sloth.ClientConn(client)
 
-go conn.Dial(ctx, "ws", "localhost:8992")
+go conn.Dial(ctx, sloth.WEBSOCKET, "localhost:8990")
 
 time.Sleep(time.Second)
 data, err := client.Call(ctx, "v1.Sign", []byte("sign"))
@@ -115,6 +115,7 @@ go run ./examples/quic/client
 | 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 |
 | `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用 | 握手完成后立刻返回（握手有 10s 上限） |
 | 多路复用 | 一连接 = 一逻辑连接 | 一连接 = 一逻辑连接 | 一个 QUIC 连接可开多条流，每条流 = 一逻辑连接 |
+| 连接限额 | 全局 / `MaxConnsWS` / 单 IP | 全局 / `MaxConnsTCP` | 全局 / `MaxConnsQUIC` |
 
 **TCP / QUIC 无断线重连不是遗漏，而是未定的语义问题**：重连后要不要自动重新 Sign、连接身份是否重建、断连期间的房间广播要不要补发 —— 这些都得先定义清楚。在语义确定前不做，是避免埋一个"看起来能自动恢复、实际身份是错的"的坑。需要自动重连的场景请先用 `ws`，或在应用层自行包装"重连 + 重新 Sign"。
 

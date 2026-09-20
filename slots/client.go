@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/w6xian/sloth/v3"
-	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v4"
+	"github.com/w6xian/sloth/v4/types"
 )
 
 // handles client-side WebSocket events

@@ -1,4 +1,4 @@
-module github.com/w6xian/sloth/v3
+module github.com/w6xian/sloth/v4
 
 go 1.25.3
 

@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v4/decoder/fn"
 )
 
 var (

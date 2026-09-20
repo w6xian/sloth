@@ -10,10 +10,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/internal/tools"
-	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/internal/tools"
+	"github.com/w6xian/sloth/v4/message"
 )
 
 // Pick 按 userId 选出它所属的桶。

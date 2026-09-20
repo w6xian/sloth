@@ -9,16 +9,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/metrics"
-	"github.com/w6xian/sloth/v3/message"
-	"github.com/w6xian/sloth/v3/nrpc"
-	"github.com/w6xian/sloth/v3/nrpc/stream"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/auth"
-	"github.com/w6xian/sloth/v3/types/handler"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/nrpc"
+	"github.com/w6xian/sloth/v4/nrpc/stream"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types/auth"
+	"github.com/w6xian/sloth/v4/types/handler"
+	"github.com/w6xian/sloth/v4/types/trpc"
 
 	"github.com/gorilla/mux"
 )
@@ -32,11 +32,11 @@ type TcpClientHandleMessage = handler.TcpClientHandleMessage
 type TcpClient struct {
 	nrpc.RpcConn
 
-	address  string
-	handler  TcpClientHandleMessage
-	ch       atomic.Pointer[TcpChannel]
-	authMu   sync.RWMutex
-	auth     *auth.AuthInfo
+	address   string
+	handler   TcpClientHandleMessage
+	ch        atomic.Pointer[TcpChannel]
+	authMu    sync.RWMutex
+	auth      *auth.AuthInfo
 	queueSize int
 	closeOnce sync.Once
 	closeChan chan struct{}
@@ -231,14 +231,14 @@ func (c *TcpClient) Close() error {
 // 仅为满足 HandleFn 的形参（与 wsocket.LocalClient 的做法一致）。
 type emptyBucket struct{}
 
-func (emptyBucket) Bucket(userId int64) *bucket.Bucket              { return nil }
-func (emptyBucket) Channel(userId int64) bucket.IChannel            { return nil }
-func (emptyBucket) Room(roomId int64) *bucket.Room                  { return nil }
+func (emptyBucket) Bucket(userId int64) *bucket.Bucket                    { return nil }
+func (emptyBucket) Channel(userId int64) bucket.IChannel                  { return nil }
+func (emptyBucket) Room(roomId int64) *bucket.Room                        { return nil }
 func (emptyBucket) Broadcast(ctx context.Context, msg *message.Msg) error { return nil }
 
 // 编译期断言：客户端必须满足 trpc.ICall 与 option 接口。
 var (
-	_ trpc.ICall          = (*TcpClient)(nil)
+	_ trpc.ICall            = (*TcpClient)(nil)
 	_ option.IConnectOption = (*TcpClient)(nil)
 )
 

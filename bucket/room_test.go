@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v4/message"
 )
 
 // mockChannel 最小化实现 IChannel，供 Room 测试使用。

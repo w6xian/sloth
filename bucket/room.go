@@ -5,8 +5,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/w6xian/sloth/v3/internal/logger"
-	"github.com/w6xian/sloth/v3/message"
+	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/message"
 )
 
 const NoRoom = -1

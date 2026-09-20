@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/w6xian/sloth/v3/internal/utils"
+	"github.com/w6xian/sloth/v4/internal/utils"
 )
 
 const TextMessage byte = 0x01

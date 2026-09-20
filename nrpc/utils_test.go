@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v3/actions"
-	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v4/actions"
+	"github.com/w6xian/sloth/v4/decoder/fn"
 )
 
 // ---------------------------------------------------------------------------

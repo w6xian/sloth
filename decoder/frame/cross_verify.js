@@ -80,7 +80,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	frame "github.com/w6xian/sloth/v3/decoder/frame"
+	frame "github.com/w6xian/sloth/v4/decoder/frame"
 )
 func main() {
 	arg := os.Getenv("CROSS_VERIFY_HEX_FILE")

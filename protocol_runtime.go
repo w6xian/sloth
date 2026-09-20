@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/w6xian/sloth/v3/nrpc/quic"
-	"github.com/w6xian/sloth/v3/nrpc/tcp"
-	"github.com/w6xian/sloth/v3/nrpc/wsocket"
-	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
-	"github.com/w6xian/sloth/v3/types/trpc"
+	"github.com/w6xian/sloth/v4/nrpc/quic"
+	"github.com/w6xian/sloth/v4/nrpc/tcp"
+	"github.com/w6xian/sloth/v4/nrpc/wsocket"
+	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/types"
+	"github.com/w6xian/sloth/v4/types/trpc"
 )
 
 // ProtocolFactory 抽象协议实现。所有协议都只需要实现服务器/客户端创建逻辑。

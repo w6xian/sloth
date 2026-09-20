@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/w6xian/sloth/v3/bucket"
-	"github.com/w6xian/sloth/v3/types"
+	"github.com/w6xian/sloth/v4/bucket"
+	"github.com/w6xian/sloth/v4/types"
 )
 
 type IServerHandleMessage interface {

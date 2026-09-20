@@ -1,6 +1,6 @@
 package sloth
 
-import "github.com/w6xian/sloth/v3/internal/errs"
+import "github.com/w6xian/sloth/v4/internal/errs"
 
 // 错误判定。
 //

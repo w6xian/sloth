@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/w6xian/sloth/v3/decoder/fn"
+	"github.com/w6xian/sloth/v4/decoder/fn"
 )
 
 func TestReadFrame_OK(t *testing.T) {

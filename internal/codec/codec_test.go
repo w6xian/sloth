@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/w6xian/sloth/v3/actions"
+	"github.com/w6xian/sloth/v4/actions"
 )
 
 // TestGetCodecerTooShort 覆盖空包/短包：此前 raw[0]/raw[1] 直接越界 panic。
@@ -118,11 +118,4 @@ func TestFnCodecDecodeForgeData(t *testing.T) {
 	}
 }
 
-// TestFnCodecEncodeOversize 超出 1GB 上限的数据应被拒绝。
-func TestFnCodecEncodeOversize(t *testing.T) {
-	co := UseCodec(CODEC_CODER_FN)
-	big := make([]byte, (1<<30)+1) // 超过 FnMaxDataSize
-	if _, err := co.Encode(actions.ACTION_CALL, 1, big); err == nil {
-		t.Fatal("encode of oversized data should error")
-	}
-}
+

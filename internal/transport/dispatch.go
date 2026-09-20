@@ -3,7 +3,7 @@ package transport
 import (
 	"context"
 
-	"github.com/w6xian/sloth/v3/internal/codec"
+	"github.com/w6xian/sloth/v4/internal/codec"
 )
 
 // RouteHandler is the protocol-neutral hook for dispatching a frame.
