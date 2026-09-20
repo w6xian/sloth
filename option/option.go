@@ -95,6 +95,22 @@ func WithTcpHandleMessage(h handler.TcpHandleMessage) ConnectOption {
 	}
 }
 
+// WithTcpClientHandleMessage 给非 HTTP 传输（TCP / QUIC）的**客户端**注入
+// 连接事件钩子，是 WithTcpHandleMessage（服务端）的对称入口。
+//
+// 同样走"可选接口"：只有实现了 SetTcpClientHandleMessage 的客户端才会收到。
+// HTTP 版客户端钩子（WithClientHandleMessage）对它们无效——那些方法带
+// *http.Response，非 HTTP 传输没有握手响应可传。
+func WithTcpClientHandleMessage(h handler.TcpClientHandleMessage) ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface {
+			SetTcpClientHandleMessage(handler.TcpClientHandleMessage)
+		}); ok {
+			v.SetTcpClientHandleMessage(h)
+		}
+	}
+}
+
 // WithChannelQueueSize 设置每条连接的队列容量（待发 RPC / 回包 / 广播）。
 //
 // 容量是背压的第一道闸门：太小→突发流量下频繁"队列满"；

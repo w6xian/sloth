@@ -3,14 +3,15 @@
 // 它存在的意义不只是"多支持一种协议"，而是**检验传输层抽象**：
 // ProtocolFactory 此前只有一个 ws 实现，而且连 ws 自己都没走它（connect.go 里
 // 是判断 factory.Name()=="ws" 再走硬编码分支），抽象从未被真正使用过。
-// 通常第一版抽象要到第二个实现时才暴露问题，这里已经暴露了三处，见各文件注释。
+// 通常第一版抽象要到第二个实现时才暴露问题，这里已经暴露了四处，见各文件注释。
+//
+// 本包现在只保留"TCP 特有"的部分（accept 循环、连接限额、服务端/客户端外壳），
+// 与字节流打交道的通用逻辑（分帧、读写泵、per-call 回包分发）已抽到
+// nrpc/stream —— QUIC 的每条 stream 用的是同一份实现。
 package tcp
 
 import (
-	"bufio"
 	"context"
-	"errors"
-	"fmt"
 	"net"
 	"runtime"
 	"sync"
@@ -23,8 +24,8 @@ import (
 	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
+	"github.com/w6xian/sloth/v3/nrpc/stream"
 	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/handler"
 	"github.com/w6xian/sloth/v3/types/trpc"
 
@@ -38,14 +39,14 @@ import (
 type TcpHandleMessage = handler.TcpHandleMessage
 
 // defaultQueueSize 每条连接各队列的默认容量（与 wsocket 一致）。
-const defaultQueueSize = 10
+const defaultQueueSize = stream.DefaultQueueSize
 
 type tcpMetrics struct {
 	connGauge      *metrics.GaugeFunc
 	connRejected   *metrics.Counter
-	pumpRecovers   *metrics.Counter
-	frameErrors    *metrics.Counter
 	broadcastDrops *metrics.Counter
+	// stream 读写泵用的计数器：指标名带 tcp，因此由本传输自己注册。
+	stream stream.Metrics
 }
 
 // TcpServer TCP 服务端：实现 types.IServer，可直接接入 bucket 体系与上层 RPC。
@@ -74,13 +75,13 @@ type TcpServer struct {
 // 这也是抽象的第二课：选项接口把 HTTP 专有项塞进了通用接口，
 // 每种新传输都要被迫实现一堆"什么都做不了"的方法。
 
-func (s *TcpServer) SetUriPath(path string) error                                    { return nil }
-func (s *TcpServer) SetRouter(router *mux.Router) error                              { return nil }
-func (s *TcpServer) SetAddress(address string) error                                 { return nil }
-func (s *TcpServer) SetHeader(key string, value string) error                        { return nil }
-func (s *TcpServer) SetOrigin(args ...string) error                                  { return nil }
+func (s *TcpServer) SetUriPath(path string) error                               { return nil }
+func (s *TcpServer) SetRouter(router *mux.Router) error                         { return nil }
+func (s *TcpServer) SetAddress(address string) error                            { return nil }
+func (s *TcpServer) SetHeader(key string, value string) error                   { return nil }
+func (s *TcpServer) SetOrigin(args ...string) error                             { return nil }
 func (s *TcpServer) SetClientHandleMessage(h handler.IClientHandleMessage) error { return nil }
-func (s *TcpServer) SetCodec(c codec.Codec)                                       { s.Codec = c }
+func (s *TcpServer) SetCodec(c codec.Codec)                                     { s.Codec = c }
 
 // SetServerHandleMessage 对 TCP 无效：HTTP 版钩子的每个方法都带 *http.Request，
 // TCP 没有 HTTP 握手可传（抽象泄漏，见 handler.TcpHandleMessage 注释）。
@@ -98,7 +99,7 @@ func (s *TcpServer) SetServerHandleMessage(h handler.IServerHandleMessage) error
 	return nil
 }
 
-// SetServerHandleMessage 注入 TCP 钩子。HTTP 版钩子（带 *http.Request）无法用于
+// SetTcpHandleMessage 注入 TCP 钩子。HTTP 版钩子（带 *http.Request）无法用于
 // TCP，这里只接受 TCP 版钩子；传 HTTP 钩子会被忽略。
 func (s *TcpServer) SetTcpHandleMessage(h TcpHandleMessage) { s.handler = h }
 
@@ -151,9 +152,11 @@ func (s *TcpServer) registerMetrics() {
 		return float64(s.globalCnt.Load())
 	})
 	s.m.connRejected = metrics.NewCounter("sloth_tcp_conn_rejected_total", "因超过连接限额被拒的连接数")
-	s.m.pumpRecovers = metrics.NewCounter("sloth_tcp_pump_recovers_total", "读写循环 panic 被兜住的次数")
-	s.m.frameErrors = metrics.NewCounter("sloth_tcp_frame_errors_total", "帧解析失败次数（含 magic 错误与超长帧）")
 	s.m.broadcastDrops = metrics.NewCounter("sloth_tcp_broadcast_drops_total", "广播时因连接队列满而丢弃的次数")
+	s.m.stream = stream.Metrics{
+		PumpRecovers: metrics.NewCounter("sloth_tcp_pump_recovers_total", "读写循环 panic 被兜住的次数"),
+		FrameErrors:  metrics.NewCounter("sloth_tcp_frame_errors_total", "帧解析失败次数（含 magic 错误与超长帧）"),
+	}
 }
 
 // ListenAndServe 保存父 context。
@@ -187,7 +190,7 @@ func (s *TcpServer) Serve(ln net.Listener) error {
 			// listener 被关闭（正常退出路径）
 			return err
 		}
-		ip := clientIP(conn.RemoteAddr())
+		ip := stream.ClientIP(conn.RemoteAddr())
 		if !s.acquireConn() {
 			s.m.connRejected.Inc()
 			logger.Warnw(nil, "tcp conn rejected: limit reached", "remote", conn.RemoteAddr())
@@ -256,7 +259,7 @@ func (s *TcpServer) serveConn(ch *TcpChannel) {
 		go func() { _ = s.handler.OnReady(ctx, s, ch) }()
 	}
 
-	runPump(ctx, ch, s.dispatch(ch), s.m)
+	stream.RunPump(ctx, ch, s.dispatch(ch), s.m.stream)
 }
 
 // dispatch 返回本连接入站帧的处理函数：与 ws 走同一个 nrpc.DispatchMessage，
@@ -365,253 +368,16 @@ func (s *TcpServer) Broadcast(ctx context.Context, msg *message.Msg) error {
 
 // ── 连接通道 ─────────────────────────────────────────────────────────
 
-// TcpChannel 一条 TCP 连接。服务端与客户端共用：两端都是
-// "读帧 → dispatch / 写队列 → 写帧"，差异只在入站分发与身份语义。
-type TcpChannel struct {
-	nrpc.RpcChannel
-
-	conn     net.Conn
-	bcast    chan *message.Msg
-	done     chan struct{}
-	doneOnce sync.Once
-	closed   atomic.Bool
-	// head 本连接复用的帧头缓冲（readFrame 用）
-	head headBuf
-	// reader 带缓冲的读端：减少小帧场景下的 read 系统调用
-	reader *bufio.Reader
-
-	// bucket 链表字段（仅服务端语义；客户端恒为空）
-	_room   *bucket.Room
-	_next   bucket.IChannel
-	_prev   bucket.IChannel
-	_userId int64
-	_sign   string
-
-	errHandler func(err error)
-	queueSize  int
-}
+// TcpChannel 一条 TCP 连接：直接复用公共字节流实现（见 nrpc/stream）。
+// QUIC 的每条 stream 用的是同一个 stream.Channel——两者在 sloth 眼里都是
+// "一段按 FN 帧分帧的字节流"，没有理由维护两份实现。
+type TcpChannel = stream.Channel
 
 func newTcpChannel(connect trpc.ICallRpc, conn net.Conn, ip string, queueSize int) *TcpChannel {
-	if queueSize <= 0 {
-		queueSize = defaultQueueSize
-	}
-	ch := new(TcpChannel)
-	ch.Connect = connect
-	ch.conn = conn
-	ch.PAddr = ip
-	ch.PWriteWait = 10 * time.Second
-	ch.PReadWait = 10 * time.Second
-	ch.bcast = make(chan *message.Msg, queueSize)
-	ch.PRpcCaller = make(chan []byte, queueSize)
-	ch.PRpcBacker = make(chan []byte, queueSize)
-	ch.PSend = make(chan *message.Msg, queueSize)
-	ch.done = make(chan struct{})
-	ch.reader = bufio.NewReaderSize(conn, 4096)
-	ch.queueSize = queueSize
-	ch.errHandler = func(err error) {
-		logger.Errorw(nil, "tcp channel error", "err", err)
-	}
-	ch.InitCalls() // per-call 回包分发表：SendData 依赖，未初始化会直接失败
-	return ch
-}
-
-func (ch *TcpChannel) OnError(f func(err error)) { ch.errHandler = f }
-
-func (ch *TcpChannel) IsClosed() bool { return ch.closed.Load() }
-
-func (ch *TcpChannel) Next(n ...bucket.IChannel) bucket.IChannel {
-	if len(n) > 0 {
-		ch._next = n[0]
-	}
-	return ch._next
-}
-
-func (ch *TcpChannel) Prev(p ...bucket.IChannel) bucket.IChannel {
-	if len(p) > 0 {
-		ch._prev = p[0]
-	}
-	return ch._prev
-}
-
-func (ch *TcpChannel) Room(r ...*bucket.Room) *bucket.Room {
-	if len(r) > 0 {
-		ch._room = r[0]
-	}
-	return ch._room
-}
-
-func (ch *TcpChannel) UserId(u ...int64) int64 {
-	if len(u) > 0 {
-		ch._userId = u[0]
-	}
-	return ch._userId
-}
-
-func (ch *TcpChannel) Token(t ...string) string {
-	if len(t) > 0 {
-		ch._sign = t[0]
-	}
-	return ch._sign
-}
-
-func (ch *TcpChannel) Logout() { ch._userId = 0 }
-
-// GetAuthInfo 服务端语义：身份由业务在登录 RPC 里通过 bucket.Put 写入。
-func (ch *TcpChannel) GetAuthInfo() (*auth.AuthInfo, error) {
-	if ch._userId == 0 {
-		return nil, errors.New("tcp channel: user id is 0")
-	}
-	if ch._room == nil {
-		return nil, errors.New("tcp channel: room is nil")
-	}
-	if ch._sign == "" {
-		return nil, errors.New("tcp channel: sign is empty")
-	}
-	return &auth.AuthInfo{
-		UserId: ch._userId,
-		RoomId: ch._room.Id,
-		Token:  ch._sign,
-	}, nil
-}
-
-func (ch *TcpChannel) SetAuthInfo(a *auth.AuthInfo) error {
-	return errors.New("tcp channel: server does not support set auth info")
-}
-
-// Push 投递一条推送消息（服务端广播 / 客户端上行都走这里）。
-// 只入队，不直接写连接——写由 writePump 串行完成（net.Conn 不支持并发写）。
-func (ch *TcpChannel) Push(ctx context.Context, msg *message.Msg) error {
-	if ch.closed.Load() {
-		return fmt.Errorf("tcp push on closed channel: %w", errConnClosed)
-	}
-	timer := time.NewTimer(ch.PWriteWait)
-	defer timer.Stop()
-	select {
-	case ch.bcast <- msg:
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("tcp push queue full: %w", errQueueFull)
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (ch *TcpChannel) Close() error {
-	ch.Lock.Lock()
-	defer ch.Lock.Unlock()
-
-	ch.doneOnce.Do(func() { close(ch.done) })
-	// 唤醒所有等回包的调用：否则它们要干等到超时才返回
-	ch.CloseCalls()
-	ch.closed.Store(true)
-	if ch.conn != nil {
-		_ = ch.conn.Close()
-	}
-	return nil
+	return stream.NewChannel(connect, conn, ip, queueSize)
 }
 
 var (
-	errConnClosed = errors.New("connection closed")
-	errQueueFull  = errors.New("queue full")
+	errConnClosed = stream.ErrConnClosed
+	errQueueFull  = stream.ErrQueueFull
 )
-
-// runPump 启动读写泵，阻塞到连接结束。
-//
-// 读：按 FN 帧分帧 → 交给 dispatch（服务端是 HandleFn/业务钩子，客户端是回包分发）。
-// 写：串行消费 bcast / PRpcCaller / PRpcBacker —— 单一写者，无需加锁。
-func runPump(ctx context.Context, ch *TcpChannel, dispatch func(context.Context, []byte) error, m tcpMetrics) {
-	defer func() {
-		if err := recover(); err != nil {
-			m.pumpRecovers.Inc()
-			logger.Errorw(ctx, "tcp pump recover", "err", err, "remote", ch.PAddr)
-		}
-	}()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		writePump(ctx, ch)
-	}()
-
-	readPump(ctx, ch, dispatch, m)
-
-	// 读循环结束即连接结束：通知写循环退出并等它收尾
-	_ = ch.Close()
-	<-done
-}
-
-// readPump 读循环：分帧 + 分发。
-func readPump(ctx context.Context, ch *TcpChannel, dispatch func(context.Context, []byte) error, m tcpMetrics) {
-	for {
-		frame, err := readFrame(ch.reader, ch.head[:])
-		if err != nil {
-			// 连接正常关闭（EOF）或超时都走这里；不区分，交给上层清理
-			if ch.errHandler != nil && !errors.Is(err, net.ErrClosed) {
-				ch.errHandler(err)
-			}
-			return
-		}
-		if err := dispatch(ctx, frame); err != nil {
-			m.frameErrors.Inc()
-			logger.Warnw(ctx, "tcp dispatch failed", "err", err, "remote", ch.PAddr)
-		}
-	}
-}
-
-// writePump 写循环：串行写出所有待发数据。
-func writePump(ctx context.Context, ch *TcpChannel) {
-	for {
-		select {
-		case <-ch.done:
-			return
-		case <-ctx.Done():
-			return
-		case msg := <-ch.bcast:
-			if err := ch.write(msg.MarshalJSONFast()); err != nil {
-				return
-			}
-		case payload := <-ch.PRpcCaller:
-			// 本端主动发起的 RPC 请求
-			if err := ch.write(payload); err != nil {
-				return
-			}
-		case payload := <-ch.PRpcBacker:
-			// 对端 RPC 调用的回包
-			if err := ch.write(payload); err != nil {
-				return
-			}
-		case msg := <-ch.PSend:
-			if msg == nil {
-				continue
-			}
-			if err := ch.write(msg.MarshalJSONFast()); err != nil {
-				return
-			}
-		}
-	}
-}
-
-// write 写一帧并刷新。FN 帧自带 length，对端按它分帧。
-func (ch *TcpChannel) write(payload []byte) error {
-	if len(payload) == 0 {
-		return nil
-	}
-	if ch.PWriteWait > 0 {
-		if err := ch.conn.SetWriteDeadline(time.Now().Add(ch.PWriteWait)); err != nil {
-			return err
-		}
-	}
-	_, err := ch.conn.Write(payload)
-	return err
-}
-
-// clientIP 从远端地址里取 IP（去掉端口）。
-func clientIP(addr net.Addr) string {
-	if addr == nil {
-		return ""
-	}
-	if host, _, err := net.SplitHostPort(addr.String()); err == nil {
-		return host
-	}
-	return addr.String()
-}

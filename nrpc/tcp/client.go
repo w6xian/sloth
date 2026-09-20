@@ -14,6 +14,7 @@ import (
 	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
+	"github.com/w6xian/sloth/v3/nrpc/stream"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/handler"
@@ -23,13 +24,9 @@ import (
 )
 
 // TcpClientHandleMessage 客户端连接事件钩子（无 HTTP 依赖，理由同服务端钩子）。
-type TcpClientHandleMessage interface {
-	OnConnect(ctx context.Context, addr string) error
-	OnReady(ctx context.Context, ch bucket.IChannel) error
-	OnData(ctx context.Context, ch bucket.IChannel, msg []byte) error
-	OnClose(ctx context.Context, ch bucket.IChannel) error
-	OnError(ctx context.Context, ch bucket.IChannel, err error) error
-}
+// 接口本体在 types/handler：option 要用它构造 ConnectOption，
+// 而 option 不能被传输包反向 import（会成环）。
+type TcpClientHandleMessage = handler.TcpClientHandleMessage
 
 // TcpClient TCP 客户端：实现 trpc.ICall，可直接接入 ServerRpc 的调用链。
 type TcpClient struct {
@@ -43,7 +40,7 @@ type TcpClient struct {
 	queueSize int
 	closeOnce sync.Once
 	closeChan chan struct{}
-	m         tcpMetrics
+	m         stream.Metrics
 }
 
 // ── option.IConnectOption ─────────────────────────────────────────────
@@ -100,8 +97,10 @@ func NewTcpClient(connect trpc.ICallRpc, opts ...option.ConnectOption) *TcpClien
 }
 
 func (c *TcpClient) registerMetrics() {
-	c.m.pumpRecovers = metrics.NewCounter("sloth_tcp_client_pump_recovers_total", "客户端读写循环 panic 被兜住的次数")
-	c.m.frameErrors = metrics.NewCounter("sloth_tcp_client_frame_errors_total", "客户端帧解析失败次数")
+	c.m = stream.Metrics{
+		PumpRecovers: metrics.NewCounter("sloth_tcp_client_pump_recovers_total", "客户端读写循环 panic 被兜住的次数"),
+		FrameErrors:  metrics.NewCounter("sloth_tcp_client_frame_errors_total", "客户端帧解析失败次数"),
+	}
 }
 
 // ListenAndServe 建立连接并在后台服务它，连接失败同步返回 error。
@@ -118,7 +117,7 @@ func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tcp dial %s: %w", c.address, err)
 	}
-	ch := newTcpChannel(c.Connect, conn, clientIP(conn.RemoteAddr()), c.queueSize)
+	ch := newTcpChannel(c.Connect, conn, stream.ClientIP(conn.RemoteAddr()), c.queueSize)
 	if c.WriteWait > 0 {
 		ch.PWriteWait = c.WriteWait
 	}
@@ -145,7 +144,7 @@ func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 		if c.handler != nil {
 			_ = c.handler.OnReady(ctx, ch)
 		}
-		runPump(ctx, ch, c.dispatch(ch), c.m)
+		stream.RunPump(ctx, ch, c.dispatch(ch), c.m)
 	}()
 	return nil
 }

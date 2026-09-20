@@ -29,3 +29,15 @@ func (s *Connect) makeListener(network, address string) (ln net.Listener, err er
 	}
 	return ln, err
 }
+
+// makeListenerFor 按传输类型造底层监听器。
+//
+// 默认走 TCP（ws / wss / tcp 都跑在 TCP 上）；QUIC 实现了 ListenerFactory，
+// 由它自己造 UDP 监听器——硬编码 net.Listen("tcp") 会让 QUIC 的监听地址
+// 变成一个根本不收 QUIC 包的 TCP 端口（握手永不成功，且没有任何报错）。
+func (s *Connect) makeListenerFor(factory ProtocolFactory, address string) (net.Listener, error) {
+	if lf, ok := factory.(ListenerFactory); ok {
+		return lf.MakeListener(address, s.tlsConfig)
+	}
+	return s.makeListener("tcp", address)
+}

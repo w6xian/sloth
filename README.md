@@ -6,9 +6,24 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 
 - WebSocket：`ws / wss`（适合浏览器、跨语言）
 - TCP：`tcp / tcp4 / tcp6`（FN 帧分帧的裸字节流，适合两端同构、不需要浏览器的场景；无断线重连，见下）
+- QUIC：`quic`（UDP + TLS 1.3，弱网与网络切换场景友好；强制 TLS，见下）
 - KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境） (v3暂不支持)
 
-> `quic / grpc` 仍是占位符（未实现真正的 QUIC / gRPC 协议栈）。
+> `grpc` 仍是占位符（未实现真正的 gRPC 协议栈）。
+
+network 参数可以直接用包级常量（无类型字符串常量，传给 `Listen / Dial` 无需转换）：
+
+| 常量 | 值 | 说明 |
+|---|---|---|
+| `sloth.WEBSOCKET`（简写 `sloth.WS`） | `ws` | WebSocket |
+| `sloth.WSS` | `wss` | WebSocket over TLS |
+| `sloth.TCP` | `tcp` | 裸 TCP |
+| `sloth.QUIC` | `quic` | QUIC（`sloth.QUIK` 是拼写兼容别名，正确写法是 QUIC） |
+
+```go
+conn.Listen(ctx, sloth.QUIC, "localhost:8992")
+conn.Dial(ctx, sloth.TCP, "localhost:8991")
+```
 
 ## 特性
 
@@ -79,22 +94,36 @@ go run ./examples/ws/client
 # TCP
 go run ./examples/tcp
 go run ./examples/tcp/client
+
+# QUIC（服务端运行时生成自签证书，客户端跳过校验，仅示例）
+go run ./examples/quic
+go run ./examples/quic/client
 ```
 
 ## 传输层差异与已知限制
 
-换传输只需改 `Listen / Dial` 的 network 参数，业务代码（codec、dispatch、bucket、房间广播）完全共用 —— 逐行对比 [examples/ws](examples/ws) 与 [examples/tcp](examples/tcp) 即可看出差异有多小。目前已知的差异：
+换传输只需改 `Listen / Dial` 的 network 参数，业务代码（codec、dispatch、bucket、房间广播）完全共用 —— 逐行对比 [examples/ws](examples/ws)、[examples/tcp](examples/tcp) 与 [examples/quic](examples/quic) 即可看出差异有多小。目前已知的差异：
 
-| | WebSocket | TCP |
-|---|---|---|
-| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | **无**：连接断开后需调用方自行重建连接并重新 Sign |
-| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（方法带对端地址，无 HTTP 依赖） |
-| 客户端连接回调 | `option.WithClientHandleMessage` | 无效：接口方法绑死 `*http.Response`，TCP 没有 HTTP 握手，传了会被忽略 |
-| HTTP 概念 | mux router / origin / uri path | 无 |
-| 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 |
-| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用 |
+| | WebSocket | TCP | QUIC |
+|---|---|---|---|
+| 底层传输 | TCP | TCP | **UDP** |
+| TLS | 可选（`wss`） | 未内置（可自行包 `tls.Conn`） | **强制**：加密由 TLS 1.3 承担，没有证书握不了手 |
+| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | **无** | **无** |
+| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） |
+| 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` |
+| HTTP 概念 | mux router / origin / uri path | 无 | 无 |
+| 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 |
+| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用 | 握手完成后立刻返回（握手有 10s 上限） |
+| 多路复用 | 一连接 = 一逻辑连接 | 一连接 = 一逻辑连接 | 一个 QUIC 连接可开多条流，每条流 = 一逻辑连接 |
 
-**TCP 无断线重连不是遗漏，而是未定的语义问题**：重连后要不要自动重新 Sign、连接身份是否重建、断连期间的房间广播要不要补发 —— 这些都得先定义清楚。在语义确定前不做，是避免埋一个"看起来能自动恢复、实际身份是错的"的坑。需要自动重连的场景请先用 `ws`，或在应用层自行包装"重连 + 重新 Sign"。
+**TCP / QUIC 无断线重连不是遗漏，而是未定的语义问题**：重连后要不要自动重新 Sign、连接身份是否重建、断连期间的房间广播要不要补发 —— 这些都得先定义清楚。在语义确定前不做，是避免埋一个"看起来能自动恢复、实际身份是错的"的坑。需要自动重连的场景请先用 `ws`，或在应用层自行包装"重连 + 重新 Sign"。
+
+### QUIC 的几点补充说明
+
+- **证书是必填项**：`Listen` / `Dial` 之前都要给一份 `*tls.Config`（`sloth.WithTLSConfig(...)`）。样例用运行时生成的自签证书 + 客户端 `InsecureSkipVerify`，只为能直接跑；生产请用正式证书并正常校验。
+- **一条连接可以跑多条流**：服务端把每条 QUIC 流铺平成一条独立连接（见 `nrpc/quic/listener.go`），因此多路复用是天然可用的——当前客户端一条连接只开一条流，需要更多流时自行开即可。
+- **空闲与保活**：默认 `MaxIdleTimeout=60s`、`KeepAlivePeriod=15s`。保活周期必须小于 idle 超时，否则中间设备（NAT / 防火墙）会静默丢掉 UDP 映射——移动网络下尤其常见。
+- **端口要放 UDP**：QUIC 监听的是 UDP 端口，安全组 / 防火墙别只放 TCP。
 
 ## 编码/协议说明（实用向）
 

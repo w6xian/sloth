@@ -2,6 +2,7 @@ package sloth
 
 import (
 	"context"
+	"crypto/tls"
 	"time"
 )
 
@@ -188,6 +189,17 @@ func WithTLSCertKey(certFile string, keyFile string) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.TLSCertFile = certFile
 		ch.Option.TLSKeyFile = keyFile
+	}
+}
+
+// WithTLSConfig 直接设置 TLS 配置。
+//
+// wss 只需证书文件路径（WithTLSCertKey）；QUIC 必须用这个：QUIC 的加密由
+// TLS 1.3 承担，服务端要带证书、客户端要决定校验策略（是否信任自签证书），
+// 两者都只能通过 *tls.Config 表达。
+func WithTLSConfig(conf *tls.Config) ConnOption {
+	return func(ch *Connect) {
+		ch.tlsConfig = conf
 	}
 }
 

@@ -125,6 +125,14 @@ func (c *Connect) Options() *option.Options {
 	return c.Option
 }
 
+// TLSConfig 返回连接上配置的 TLS 配置（未配置时为 nil）。
+//
+// 传输层会读它：wss 用它做 ServeTLS，QUIC 更是离不开——QUIC 的加密由
+// TLS 1.3 承担，没有证书连握手都完成不了。
+func (c *Connect) TLSConfig() *tls.Config {
+	return c.tlsConfig
+}
+
 func (c *Connect) RegisterProtocol(name string, factory ProtocolFactory) {
 	if c.protocols == nil {
 		c.protocols = make(map[string]ProtocolFactory)
@@ -235,9 +243,10 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 	if factory == nil {
 		return fmt.Errorf("unsupported network type: %s", network)
 	}
-	// 底层监听：ws/wss/tcp 都跑在 TCP 上。wss 的 TLS 由 http.Server.ServeTLS
-	// 在握手阶段接管，因此这里始终是明文 listener。
-	ln, err := c.makeListener("tcp", address)
+	// 底层监听：默认 TCP（ws/wss/tcp 都跑在 TCP 上，wss 的 TLS 由
+	// http.Server.ServeTLS 在握手阶段接管，因此这里始终是明文 listener）；
+	// QUIC 走 ListenerFactory，自己造 UDP 监听器。
+	ln, err := c.makeListenerFor(factory, address)
 	if err != nil {
 		return err
 	}

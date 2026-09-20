@@ -1,4 +1,4 @@
-package tcp
+package stream
 
 import (
 	"bufio"
@@ -17,9 +17,9 @@ func TestReadFrame_OK(t *testing.T) {
 	}
 	var h headBuf
 	r := bufio.NewReader(bytes.NewReader(frame))
-	got, err := readFrame(r, h[:])
+	got, err := ReadFrame(r, h[:])
 	if err != nil {
-		t.Fatalf("readFrame: %v", err)
+		t.Fatalf("ReadFrame: %v", err)
 	}
 	if !bytes.Equal(got, frame) {
 		t.Fatalf("got %v, want %v", got, frame)
@@ -28,20 +28,20 @@ func TestReadFrame_OK(t *testing.T) {
 
 // TestReadFrame_StreamNotShifted 连续多帧：字节流必须逐帧对齐，不能错位。
 func TestReadFrame_StreamNotShifted(t *testing.T) {
-	var stream bytes.Buffer
+	var buf bytes.Buffer
 	want := make([][]byte, 0, 3)
 	for i := 0; i < 3; i++ {
 		f, err := fn.Encode(uint8(i+1), uint64(i), bytes.Repeat([]byte{byte('a' + i)}, i*100))
 		if err != nil {
 			t.Fatalf("encode: %v", err)
 		}
-		stream.Write(f)
+		buf.Write(f)
 		want = append(want, f)
 	}
 	var h headBuf
-	r := bufio.NewReader(&stream)
+	r := bufio.NewReader(&buf)
 	for i, w := range want {
-		got, err := readFrame(r, h[:])
+		got, err := ReadFrame(r, h[:])
 		if err != nil {
 			t.Fatalf("frame %d: %v", i, err)
 		}
@@ -49,7 +49,7 @@ func TestReadFrame_StreamNotShifted(t *testing.T) {
 			t.Fatalf("frame %d mismatch: got %d bytes, want %d", i, len(got), len(w))
 		}
 	}
-	if _, err := readFrame(r, h[:]); err != io.EOF {
+	if _, err := ReadFrame(r, h[:]); err != io.EOF {
 		t.Fatalf("tail read err = %v, want io.EOF", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestReadFrame_BadInput(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var h headBuf
 			r := bufio.NewReader(bytes.NewReader(c.raw))
-			if _, err := readFrame(r, h[:]); err == nil {
+			if _, err := ReadFrame(r, h[:]); err == nil {
 				t.Fatal("expected error")
 			} else if c.want != nil && !isErr(err, c.want) {
 				t.Fatalf("err = %v, want %v", err, c.want)

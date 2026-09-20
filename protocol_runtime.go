@@ -2,9 +2,13 @@ package sloth
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"net"
 	"strings"
 	"sync"
 
+	"github.com/w6xian/sloth/v3/nrpc/quic"
 	"github.com/w6xian/sloth/v3/nrpc/tcp"
 	"github.com/w6xian/sloth/v3/nrpc/wsocket"
 	"github.com/w6xian/sloth/v3/option"
@@ -25,6 +29,17 @@ type ProtocolFactory interface {
 	Name() string
 	CreateServer(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (types.IServer, error)
 	CreateClient(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (trpc.ICall, error)
+}
+
+// ListenerFactory 传输自己创建底层监听器（可选能力）。
+//
+// 上层默认 net.Listen("tcp", address)，这对 ws/wss/tcp 都成立——它们跑在 TCP 上。
+// QUIC 跑在 UDP 上，而且一次 Accept 拿到的是"连接"、真正承载 RPC 的是"流"，
+// 所以它必须自己造监听器。这是**第三个实现**逼出来的扩展点：
+// 前两种传输下，"监听器 = TCP listener"这个隐含假设从没被质疑过。
+// 不实现该接口的传输继续走默认路径。
+type ListenerFactory interface {
+	MakeListener(address string, tlsConf *tls.Config) (net.Listener, error)
 }
 
 type wsProtocolFactory struct{ secure bool }
@@ -70,6 +85,39 @@ func (tcpProtocolFactory) CreateClient(ctx context.Context, c trpc.ICallRpc, add
 	return tcp.GetTcpClient(ctx, c, opts...), nil
 }
 
+// quicProtocolFactory QUIC（UDP）传输。
+//
+// 与另两个工厂的差异只有一处：它额外实现了 ListenerFactory，
+// 因为底层不是 TCP listener（见 ListenerFactory 注释）。
+type quicProtocolFactory struct{}
+
+func (quicProtocolFactory) Name() string { return "quic" }
+
+// MakeListener QUIC 跑在 UDP 上，监听器由传输自己造。
+// tlsConf 为 nil 时 quic.Listen 会直接报错——QUIC 没有 TLS 就无法握手。
+func (quicProtocolFactory) MakeListener(address string, tlsConf *tls.Config) (net.Listener, error) {
+	return quic.MakeListener(address, tlsConf)
+}
+
+func (quicProtocolFactory) CreateServer(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (types.IServer, error) {
+	return quic.GetQuicServer(ctx, c, opts...), nil
+}
+
+func (quicProtocolFactory) CreateClient(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (trpc.ICall, error) {
+	// QUIC 的 TLS 是必填项：客户端同样要有一份 tls.Config，
+	// 证书校验策略（是否跳过自签证书）由业务自己定。
+	var tlsConf *tls.Config
+	if cc, ok := c.(interface{ TLSConfig() *tls.Config }); ok {
+		tlsConf = cc.TLSConfig()
+	}
+	if tlsConf == nil {
+		return nil, errors.New("quic requires TLS: set sloth.WithTLSConfig(...) before Dial")
+	}
+	cli := quic.NewQuicClient(c, append([]option.ConnectOption{option.WithAddress(address)}, opts...)...)
+	cli.SetTLSConfig(tlsConf)
+	return cli, nil
+}
+
 var (
 	protocolRegistryMu sync.RWMutex
 	protocolRegistry   = map[string]ProtocolFactory{
@@ -77,6 +125,7 @@ var (
 		"wss":       wsProtocolFactory{secure: true},
 		"websocket": wsProtocolFactory{},
 		"tcp":       tcpProtocolFactory{},
+		"quic":      quicProtocolFactory{},
 	}
 )
 

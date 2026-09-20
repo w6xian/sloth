@@ -41,6 +41,20 @@ type TcpHandleMessage interface {
 	OnError(ctx context.Context, s types.IBucket, ch bucket.IChannel, err error) error
 }
 
+// TcpClientHandleMessage 非 HTTP 传输（TCP / QUIC）的**客户端**连接事件钩子，
+// 与 TcpHandleMessage 对称：没有 *http.Response，客户端也没有 bucket 体系，
+// 所以参数里是 bucket.IChannel 而不是 types.IBucket。
+//
+// 之前这套接口定义在 nrpc/tcp 包内，QUIC 接入时只能再抄一份——两份一模一样的
+// 接口意味着 option 层无法用同一个入口注入，因此提到这里与服务端钩子并列。
+type TcpClientHandleMessage interface {
+	OnConnect(ctx context.Context, addr string) error
+	OnReady(ctx context.Context, ch bucket.IChannel) error
+	OnData(ctx context.Context, ch bucket.IChannel, msg []byte) error
+	OnClose(ctx context.Context, ch bucket.IChannel) error
+	OnError(ctx context.Context, ch bucket.IChannel, err error) error
+}
+
 type IHandleMessage interface {
 	OnConnect(ctx context.Context, r *http.Request, w *http.Response) error
 	OnReady(ctx context.Context, r *http.Request, w *http.Response, c types.IActionHandler, ch types.IConnInfo) error
