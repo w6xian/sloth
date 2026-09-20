@@ -2,6 +2,7 @@ package fn
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 )
@@ -308,6 +309,78 @@ func TestDecodeFn_IgnoresTrailingBytes(t *testing.T) {
 	}
 	if dec.Action != orig.Action || dec.ID != orig.ID || !bytes.Equal(dec.Data, orig.Data) {
 		t.Errorf("DecodeFn with trailing bytes mismatch: got %+v, want %+v", dec, orig)
+	}
+}
+
+// TestData_ShortFnFrame 回归：magic 正确但帧头未收全时 IsFn 返回 true，
+// Data 不能再直接切片（原实现会越界 panic）。
+func TestData_ShortFnFrame(t *testing.T) {
+	cases := [][]byte{
+		{FnMagic1, FnMagic2},
+		{FnMagic1, FnMagic2, 0x01},
+		append([]byte{FnMagic1, FnMagic2}, make([]byte, FnHeaderSize-3)...),
+	}
+	for _, b := range cases {
+		if !IsFn(b) {
+			t.Fatalf("IsFn(%v) = false, 前置条件不成立", b)
+		}
+		if got := Data(b); got != nil {
+			t.Fatalf("Data(%d 字节残帧) = %v, want nil（不能越界切片）", len(b), got)
+		}
+	}
+}
+
+// TestFrameVerdictsConsistent 对同一个完整帧，各解析入口的判定必须一致。
+//
+// 这是把 magic/长度校验收敛到 parseHeader 的意义所在：此前 ValidateFn、
+// Decode、DecodeFn、IsFn 各写一套判断，同一个帧可能出现"校验通过但解不开"
+// 或"解开了但校验不认"的不一致。
+//
+// ParseFnHeader 只看帧头、不校验载荷长度，因此单独断言。
+func TestFrameVerdictsConsistent(t *testing.T) {
+	good, err := EncodeFn(&FnFrame{Action: 1, ID: 7, Data: []byte("abc")})
+	if err != nil {
+		t.Fatalf("encode good frame: %v", err)
+	}
+	oversized := make([]byte, FnHeaderSize)
+	oversized[0], oversized[1], oversized[2] = FnMagic1, FnMagic2, 1
+	binary.BigEndian.PutUint32(oversized[11:15], FnMaxDataSize+1)
+	truncated := good[:len(good)-1]
+	badMagic := append([]byte{0x00, 0x00}, good[2:]...)
+	badMagic = append([]byte(nil), badMagic...)
+
+	cases := []struct {
+		name      string
+		b         []byte
+		valid     bool
+		headValid bool // ParseFnHeader 是否应成功
+	}{
+		{"good", good, true, true},
+		{"oversized", oversized, false, true},
+		{"truncated", truncated, false, true},
+		{"bad_magic", badMagic, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ValidateFn(c.b) == nil; got != c.valid {
+				t.Errorf("ValidateFn ok = %v, want %v", got, c.valid)
+			}
+			if got := IsFn(c.b); got != c.valid {
+				t.Errorf("IsFn = %v, want %v", got, c.valid)
+			}
+			if _, _, _, err := Decode(c.b); (err == nil) != c.valid {
+				t.Errorf("Decode ok = %v, want %v (err=%v)", err == nil, c.valid, err)
+			}
+			if _, err := DecodeFn(c.b); (err == nil) != c.valid {
+				t.Errorf("DecodeFn ok = %v, want %v (err=%v)", err == nil, c.valid, err)
+			}
+			if _, _, _, err := ParseFnHeader(c.b); (err == nil) != c.headValid {
+				t.Errorf("ParseFnHeader ok = %v, want %v (err=%v)", err == nil, c.headValid, err)
+			}
+			if _, err := Action(c.b); (err == nil) != c.headValid {
+				t.Errorf("Action ok = %v, want %v (err=%v)", err == nil, c.headValid, err)
+			}
+		})
 	}
 }
 

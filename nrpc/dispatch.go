@@ -17,8 +17,9 @@ type RouteArgs struct {
 	Data        []byte
 	OnFn        RouteMessage
 	OnData      RouteMessage
-	Codec       codec.Codec
-	MessageType int
+	// Codec 为 nil 时按帧内容自动识别（codec.Select）；
+	// 非 nil 时由它判定帧归属（option.WithCodec 注入的场景）。
+	Codec codec.Codec
 }
 
 func DispatchMessage(args RouteArgs) error {

@@ -21,17 +21,32 @@ const CODEC_PRE = 0x40
 const CODEC_FN = 0x46
 const CODEC_CODER_FN = "@F"
 
+// registry 已注册的 codec。
+//
+// "这段字节是什么帧"只由各 codec 的 Detect 回答，识别规则只有一份：
+// 以前路由环节（FrameRouter）和解码环节（HandleFn）各判一次、规则还不一样
+// （一个按 magic、一个按 IsFn 的完整校验），同一个畸形帧会在两个环节被判成
+// 两种不同的类型。现在两处都调 Select。
+var registry = []Codec{fnCodec{}}
+
+// Select 选出能处理该帧的 codec，是**唯一的帧识别入口**。
+// 返回 false 表示该帧不属于任何已注册协议（例如裸业务数据、TLV 帧）。
+func Select(raw []byte) (Codec, bool) {
+	for _, c := range registry {
+		if c.Detect(raw) {
+			return c, true
+		}
+	}
+	return nil, false
+}
+
+// GetCodecer 兼容旧调用：识别帧并返回 codec。
+// 新代码请用 Select —— "不匹配"是正常结果，用 bool 比 error 更贴切。
 func GetCodecer(raw []byte) (Codec, error) {
-	// 网络字节流不可信：长度不足 2 字节时直接返回错误，避免 raw[0]/raw[1] 越界 panic
-	if len(raw) < 2 {
-		return nil, errors.New("frame too short")
+	if c, ok := Select(raw); ok {
+		return c, nil
 	}
-	prev := raw[0]
-	proto := raw[1]
-	// @F [64 70]
-	if prev == CODEC_PRE && proto == CODEC_FN {
-		return &fnCodec{}, nil
-	}
+	// 网络字节流不可信：短帧/未知 magic 都属于"不认识"，不该 panic
 	return nil, errors.New("not support")
 }
 

@@ -618,6 +618,8 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			Context: ctx,
 			Request: resp.Request,
 			Data:    m,
+			// 用户通过 option.WithCodec 注入的 codec（nil = 自动识别）
+			Codec: c.Codec,
 			OnFn: func(ctx context.Context, raw []byte) error {
 				return nrpc.HandleFn(ctx, nil, resp, nil, c.Connect, ch, raw)
 			},

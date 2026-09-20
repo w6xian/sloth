@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/w6xian/sloth/v3/internal/codec"
 	"github.com/w6xian/sloth/v3/internal/errs"
 
 	"github.com/w6xian/sloth/v3/bucket"
@@ -72,8 +71,7 @@ type Connect struct {
 	cpuNum        int
 	tlsConfig     *tls.Config
 	Option        *option.Options
-	protocols     map[string]ProtocolFactory
-	protocolCodecs map[string]codec.Codec
+	protocols map[string]ProtocolFactory
 
 	// 多协议监听器
 	listeners []ProtocolListener

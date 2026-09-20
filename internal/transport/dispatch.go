@@ -32,13 +32,21 @@ func (r *FrameRouter) Dispatch(ctx context.Context, raw []byte) error {
 	if raw == nil {
 		return nil
 	}
-	if r.codec != nil && r.codec.Detect(raw) {
-		if r != nil && r.FnHandler != nil {
+	// 帧识别统一走 codec.Select（与 HandleFn 的解码入口同一个判定），
+	// 避免"路由认为是业务数据、解码又当成 FN 帧"这类分叉。
+	c := r.codec
+	if c == nil {
+		c, _ = codec.Select(raw)
+	} else if !c.Detect(raw) {
+		c = nil
+	}
+	if c != nil {
+		if r.FnHandler != nil {
 			return r.FnHandler(ctx, raw)
 		}
 		return nil
 	}
-	if r != nil && r.DataHandler != nil {
+	if r.DataHandler != nil {
 		return r.DataHandler(ctx, raw)
 	}
 	return nil

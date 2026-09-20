@@ -41,7 +41,7 @@ func tlvValue(b []byte) (v []byte, err error) {
 	}()
 	// fast-path：本框架的 FN 帧自带 magic，绝不可能是 TLV 帧。
 	// 绝大多数入站消息都是 FN 帧，先判掉可以避开下面那把全局锁。
-	if len(b) >= 2 && b[0] == fn.FnMagic1 && b[1] == fn.FnMagic2 {
+	if fn.HasMagic(b) {
 		return nil, errors.New("not a tlv frame")
 	}
 	if len(b) < 2 {

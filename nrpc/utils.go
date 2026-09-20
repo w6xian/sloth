@@ -4,14 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/w6xian/sloth/v3/actions"
-	"github.com/w6xian/sloth/v3/decoder/fn"
 	"github.com/w6xian/sloth/v3/internal/codec"
-	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/message"
@@ -32,12 +29,13 @@ var (
 )
 
 func HandleFn(ctx context.Context, r *http.Request, w *http.Response, svr types.IBucket, conn trpc.IConnecter, ch IDataHandler, data []byte) error {
-	// use injected codec for decoding so FrameRouter codec can be swapped later
-	co, err := codec.GetCodecer(data)
-	if err != nil {
+	// 与 FrameRouter 的路由判定共用同一个入口（codec.Select）：
+	// 走到这里的帧必然已被判定为 FN 帧，不会再出现"路由说不是、解码说是"的分叉。
+	co, ok := codec.Select(data)
+	if !ok {
 		// 取不到编解码器通常是报文格式不认识，属于调用方问题，用 Warn 而非 Error
-		logger.Warnw(ctx, "rpc codec lookup failed", "err", err)
-		return err
+		logger.Warnw(ctx, "rpc codec lookup failed", "len", len(data))
+		return errUnsupportedFrame
 	}
 	action, id, body, err := co.Decode(data)
 	if err != nil {
@@ -109,67 +107,7 @@ func handleCall(ctx context.Context, r *http.Request, w *http.Response, svr type
 // defaultTimeout 超时配置为 0（未设置）时的兜底值，避免 timer 立即触发把正常调用判成超时。
 const defaultTimeout = 10 * time.Second
 
-// 服务器调用客户端方法
-func CallFuncWithResult(ctx context.Context, msgId uint64, payload []byte, sender DataChannel, timeout TimeOut) ([]byte, error) {
+// errUnsupportedFrame 帧不属于任何已注册协议（连 magic 都不认识）。
+var errUnsupportedFrame = errors.New("unsupported rpc frame")
 
-	writeTimeout := timeout.Write
-	if writeTimeout <= 0 {
-		writeTimeout = defaultTimeout
-	}
-	// 用 Timer 而非 Ticker：
-	// Ticker 的通道会缓存一次到期信号，Reset 并不会排空它，
-	// 写入阶段遗留的到期信号会让下一阶段立刻"假超时"（并发 RPC 下偶发 call timeout）。
-	timer := time.NewTimer(writeTimeout)
-	defer timer.Stop()
-	// 发送调用请求
-	select {
-	case <-timer.C:
-		return []byte{}, fmt.Errorf("call timeout: %w after %s", errs.ErrTimeout, writeTimeout)
-	case sender.Write <- payload:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	// 复用 timer 前必须排空已到期的信号（Stop 返回 false 表示信号已发出/已被取走）
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
-	}
-	replyTimeout := timeout.Read
-	if replyTimeout <= 0 {
-		replyTimeout = writeTimeout
-	}
-	timer.Reset(replyTimeout)
-	// 等待调用结果
-	for {
-		select {
-		case <-ctx.Done():
-			return []byte{}, ctx.Err()
-		case <-timer.C:
-			return []byte{}, fmt.Errorf("reply timeout: %w after %s", errs.ErrTimeout, replyTimeout)
-		case raw, ok := <-sender.Read:
-			if !ok {
-				return []byte{}, fmt.Errorf("rpc result closed: %w", errs.ErrConnClosed)
-			}
-			action, aerr := fn.Action(raw)
-			if aerr != nil {
-				return []byte{}, aerr
-			}
-			switch action {
-			case actions.ACTION_REPLY_SUCCESS:
-				if fn.Id(raw) != msgId {
-					continue
-				}
-				return fn.Data(raw), nil
-			case actions.ACTION_REPLY_ERROR:
-				if fn.Id(raw) != msgId {
-					continue
-				}
-				return []byte{}, errors.New(string(fn.Data(raw)))
-			default:
-				return []byte{}, fmt.Errorf("action not match")
-			}
-		}
-	}
-}
+

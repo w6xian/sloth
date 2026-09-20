@@ -122,6 +122,8 @@ func (s *WsServer) dispatch(job *inboundJob) {
 		Context: job.ctx,
 		Request: job.req,
 		Data:    job.data,
+		// 用户通过 option.WithCodec 注入的 codec（nil = 按帧内容自动识别）
+		Codec: s.Codec,
 		OnFn: func(ctx context.Context, raw []byte) error {
 			return nrpc.HandleFn(ctx, job.req, nil, s, s.Connect, ch, raw)
 		},
