@@ -64,13 +64,13 @@ type Connect struct {
 	server     *ServerRpc
 	serviceMap map[string]*ref.ServiceFuncs
 	// serviceMapMu 保护 serviceMap 的并发读写（Register 与 CallFunc/IsRegisteredService）
-	serviceMapMu  sync.RWMutex
-	sleepTimes    int
-	times         int
-	cpuNum        int
-	tlsConfig     *tls.Config
-	Option        *option.Options
-	protocols map[string]ProtocolFactory
+	serviceMapMu sync.RWMutex
+	sleepTimes   int
+	times        int
+	cpuNum       int
+	tlsConfig    *tls.Config
+	Option       *option.Options
+	protocols    map[string]ProtocolFactory
 
 	// 多协议监听器
 	listeners []ProtocolListener
@@ -267,11 +267,35 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 		Options:  opts,
 	})
 	if c.client != nil {
-		c.client.setServe(srv)
+		c.client.setServe(c.serveInstance())
 	}
 	runtime.GOMAXPROCS(c.cpuNum)
 	c.Log(logger.Info, "registered %s listener on %s", factory.Name(), address)
 	return nil
+}
+
+// serveInstance 返回对外暴露的传输实例。
+//
+// 只有一个传输时就是它本身（保持原有类型，调用方若做类型断言也不受影响）；
+// 多个传输时返回合成实例——否则每次 Listen 覆盖 ClientRpc.Serve，
+// 只有最后注册的协议能收到服务端推送（见 multiServer 的说明）。
+func (c *Connect) serveInstance() types.IServer {
+	seen := make(map[types.IServer]struct{}, len(c.listeners))
+	list := make([]types.IServer, 0, len(c.listeners))
+	for _, l := range c.listeners {
+		if l.Server == nil {
+			continue
+		}
+		if _, ok := seen[l.Server]; ok {
+			continue
+		}
+		seen[l.Server] = struct{}{}
+		list = append(list, l.Server)
+	}
+	if len(list) == 1 {
+		return list[0]
+	}
+	return newMultiServer(list...)
 }
 
 // transportInstance 取得该协议的传输实例（没有才创建）。
@@ -315,14 +339,41 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	}
 }
 
+// secureNetwork 该网络是否在监听器之上还要做 TLS 握手（目前只有 wss/https）。
+//
+// 独立于 Connect.tlsConfig 判断：同一份 TLS 配置可能同时供 QUIC 使用，
+// 不能因为"配了 TLS"就把 ws / tcp 端口也变成 TLS。
+func secureNetwork(network string) bool {
+	switch strings.ToLower(strings.TrimSpace(network)) {
+	case "wss", "https":
+		return true
+	}
+	return false
+}
+
+// isServeErr 判断监听循环的退出错误是否值得上报给 Serve 的调用方。
+//
+// Close() 关掉 listener 后，Accept / http.Server.Serve 一律返回 net.ErrClosed，
+// 这是**预期的退出路径**而不是故障。多协议同时监听时这类错误会有 N 条
+// （每个 listener 一条），不滤掉的话正常关闭也会被当成错误返回。
+func isServeErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed)
+}
+
 // Serve 启动所有注册的协议监听器
 // 阻塞直到所有服务停止
 func (c *Connect) Serve() error {
 	if len(c.listeners) == 0 {
 		return errors.New("no listeners registered, call Listen() first")
 	}
+	// 调试服务是附属能力（metrics / pprof），不是业务链路的一部分：
+	// 端口被占用（同一台机器上跑多个实例时很常见）不该让整个服务起不来，
+	// 因此这里只降级为告警——此前它会让 Serve() 直接返回错误、进程退出。
 	if err := c.startDebugServer(); err != nil {
-		return err
+		c.Log(logger.Warning, "debug server disabled: %v", err)
 	}
 
 	// 每个 listener 起一个 goroutine，按传输实例的能力分派：
@@ -361,25 +412,33 @@ func (c *Connect) Serve() error {
 				// 用显式 http.Server 并设置超时（http.Serve 用的是零值 Server，无任何超时保护）
 				srv := newHTTPServer(h.Handler())
 				var err error
-				if listener.Network == "wss" {
-					certFile := strings.TrimSpace(c.Option.TLSCertFile)
-					keyFile := strings.TrimSpace(c.Option.TLSKeyFile)
-					if certFile == "" || keyFile == "" {
-						errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile)")
-						return
+				if secureNetwork(listener.Network) {
+					// TLS 两个来源：显式 *tls.Config（WithTLSConfig，可与 QUIC 共用同一份）
+					// 或证书文件（WithTLSCertKey）。都没有才报错。
+					switch {
+					case c.tlsConfig != nil:
+						srv.TLSConfig = c.tlsConfig.Clone()
+						err = srv.ServeTLS(listener.Listener, "", "")
+					default:
+						certFile := strings.TrimSpace(c.Option.TLSCertFile)
+						keyFile := strings.TrimSpace(c.Option.TLSKeyFile)
+						if certFile == "" || keyFile == "" {
+							errChan <- fmt.Errorf("wss requires TLS cert/key file, set WithTLSCertKey(certFile, keyFile) or WithTLSConfig(...)")
+							return
+						}
+						err = srv.ServeTLS(listener.Listener, certFile, keyFile)
 					}
-					err = srv.ServeTLS(listener.Listener, certFile, keyFile)
 				} else {
 					err = srv.Serve(listener.Listener)
 				}
-				if err != nil {
+				if isServeErr(err) {
 					errChan <- err
 				}
 				return
 			}
 			if t, ok := listener.Server.(interface{ Serve(net.Listener) error }); ok {
 				c.Log(logger.Info, "starting %s server on %s", listener.Network, listener.Address)
-				if err := t.Serve(listener.Listener); err != nil {
+				if err := t.Serve(listener.Listener); isServeErr(err) {
 					errChan <- err
 				}
 				return
@@ -460,7 +519,8 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 		c.Log(logger.Error, "%s dial error: %v", network, err)
 		return err
 	}
-	c.server.setListen(call)
+	// 连同协议名一起登记：之后每次调用都会自动带上 sloth-protocol 头
+	c.server.setListen(call, network)
 	// 连接由传输自己建立（实现了 ListenAndServe 的那些：ws / tcp）
 	if d, ok := call.(interface{ ListenAndServe(context.Context) error }); ok {
 		if err := d.ListenAndServe(ctx); err != nil {

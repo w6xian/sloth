@@ -98,7 +98,28 @@ go run ./examples/tcp/client
 # QUIC（服务端运行时生成自签证书，客户端跳过校验，仅示例）
 go run ./examples/quic
 go run ./examples/quic/client
+
+# 多协议同时监听：一个进程同时开 ws / tcp / quic，三条链路共用同一份服务注册表
+go run ./examples/multi
+go run ./examples/multi/client
 ```
+
+### 多协议同时监听
+
+同一个 `Connect` 上可以 `Listen` 多条协议，一次 `Serve()` 全部拉起，业务侧无感：
+
+```go
+drpc := sloth.ServerConn(server, sloth.WithTLSConfig(tlsConf)) // QUIC 需要 TLS
+drpc.Listen(ctx, sloth.WS,   "localhost:8990", wsOpts...)
+drpc.Listen(ctx, sloth.TCP,  "localhost:8991", streamOpts...)
+drpc.Listen(ctx, sloth.QUIC, "localhost:8992", streamOpts...)
+go drpc.Serve()
+```
+
+- 三条链路共用同一份服务注册表，客户端从哪条协议连上来都能调到全部方法；
+- 服务端主动推送（`Call` / `CallRoom` / `CallBucket` / `Broadcast`）会**覆盖三条链路**——
+  连接分桶是每个传输各自持有的，库内部用一个合成实例跨传输查找；
+- 给 QUIC 配的 TLS 只作用于 QUIC（与 `wss`），ws / tcp 端口仍是明文。
 
 ## 传输层差异与已知限制
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,6 +100,44 @@ func GetHeader(ctx context.Context) (message.Header, error) {
 	return header, nil
 }
 
+// GetProtocol 取对端所在链路的协议名（ws / tcp / quic），可直接与 WS / TCP /
+// QUIC 常量比对。取值来自 HeaderProtocol 头，由客户端库在每次调用时写入，
+// 业务代码既不用传也不用能改。
+//
+// 多协议同时监听时用它区分调用来自哪条链路：同一个方法、同样的入参，
+// 从不同协议进来长得完全一样，只有这个头能区分。
+//
+// 拿不到（头部缺失，例如对端是更老的版本）时返回 error，不要忽略后按
+// "默认协议"处理——那正是"三条链路被当成一条"的来源。
+func GetProtocol(ctx context.Context) (string, error) {
+	header, err := GetHeader(ctx)
+	if err != nil {
+		return "", err
+	}
+	p := strings.TrimSpace(header.Get(HeaderProtocol))
+	if p == "" {
+		return "", fmt.Errorf("protocol not found in header %q", HeaderProtocol)
+	}
+	return strings.ToLower(p), nil
+}
+
+// serverChannel 按 userId 取到该用户的连接。
+//
+// 为什么不能只写 serve.Bucket(userId).Channel(userId)：桶是**每个传输各自持有**
+// 的（ws 连接在 ws 的桶里，tcp 连接在 tcp 的桶里，quic 亦然）。多协议同时监听时
+// 传输实例是一个合成实例，先选桶只会命中其中一个传输——表现为"某条协议的连接
+// 永远收不到服务端推送"。因此合成实例提供可选能力 ChannelOf 跨传输查找；
+// 单传输时走原来的路径，行为完全不变。
+func serverChannel(serve types.IServer, userId int64) bucket.IChannel {
+	if v, ok := any(serve).(interface{ ChannelOf(int64) bucket.IChannel }); ok {
+		return v.ChannelOf(userId)
+	}
+	if b := serve.Bucket(userId); b != nil {
+		return b.Channel(userId)
+	}
+	return nil
+}
+
 // channelClosed 报告连接是否已关闭。
 //
 // 连接层（WsChannelServer/WsChannelClient）可选实现 IsClosed()：
@@ -119,8 +158,7 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 	if serve == nil {
 		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
-	b := serve.Bucket(userId)
-	ch := b.Channel(userId)
+	ch := serverChannel(serve, userId)
 	if ch == nil {
 		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
@@ -194,8 +232,7 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint6
 	if serve == nil {
 		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
-	b := serve.Bucket(proxyService)
-	ch := b.Channel(proxyService)
+	ch := serverChannel(serve, proxyService)
 	if ch == nil {
 		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
@@ -215,8 +252,7 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 	if serve == nil {
 		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
-	b := serve.Bucket(userId)
-	ch := b.Channel(userId)
+	ch := serverChannel(serve, userId)
 	if ch == nil {
 		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
@@ -243,8 +279,7 @@ func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data 
 	if serve == nil {
 		return
 	}
-	b := serve.Bucket(userId)
-	ch := b.Channel(userId)
+	ch := serverChannel(serve, userId)
 	if ch == nil {
 		return
 	}

@@ -2,7 +2,6 @@ package sloth
 
 import (
 	"context"
-	"crypto/tls"
 	"net"
 
 	"github.com/w6xian/sloth/v4/option"
@@ -19,25 +18,20 @@ type ProtocolListener struct {
 	Options   []option.ConnectOption // 连接	 选项
 }
 
-// block can be nil if the caller wishes to skip encryption in kcp.
-// tlsConfig can be nil iff we are not using network "quic".
-func (s *Connect) makeListener(network, address string) (ln net.Listener, err error) {
-	if s.tlsConfig == nil {
-		ln, err = net.Listen(network, address)
-	} else {
-		ln, err = tls.Listen(network, address, s.tlsConfig)
-	}
-	return ln, err
-}
-
 // makeListenerFor 按传输类型造底层监听器。
 //
-// 默认走 TCP（ws / wss / tcp 都跑在 TCP 上）；QUIC 实现了 ListenerFactory，
+// 默认走明文 TCP（ws / wss / tcp 都跑在 TCP 上）；QUIC 实现了 ListenerFactory，
 // 由它自己造 UDP 监听器——硬编码 net.Listen("tcp") 会让 QUIC 的监听地址
 // 变成一个根本不收 QUIC 包的 TCP 端口（握手永不成功，且没有任何报错）。
+//
+// 是否套 TLS 一律由传输自己决定，**不看 Connect.tlsConfig 是否为 nil**：
+// QUIC 强制要求 tlsConfig，照它判断会把同 Connect 上的 ws / tcp 端口一起
+// 变成 TLS 监听器，明文客户端全部握手失败且不报错。TLS 该在哪一层生效：
+// wss → http.Server.ServeTLS（握手阶段），QUIC → quic-go 内部，
+// 两者都不需要 TLS listener。
 func (s *Connect) makeListenerFor(factory ProtocolFactory, address string) (net.Listener, error) {
 	if lf, ok := factory.(ListenerFactory); ok {
 		return lf.MakeListener(address, s.tlsConfig)
 	}
-	return s.makeListener("tcp", address)
+	return net.Listen("tcp", address)
 }
