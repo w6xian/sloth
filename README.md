@@ -5,7 +5,7 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 目前项目内已落地的传输层：
 
 - WebSocket：`ws / wss`（适合浏览器、跨语言）
-- TCP：`tcp / tcp4 / tcp6`(v3暂不支持)
+- TCP：`tcp / tcp4 / tcp6`（FN 帧分帧的裸字节流，适合两端同构、不需要浏览器的场景；无断线重连，见下）
 - KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境） (v3暂不支持)
 
 > `quic / grpc` 仍是占位符（未实现真正的 QUIC / gRPC 协议栈）。
@@ -72,9 +72,29 @@ _ = err
 ## 运行示例
 
 ```bash
+# WebSocket
 go run ./examples/ws
 go run ./examples/ws/client
+
+# TCP
+go run ./examples/tcp
+go run ./examples/tcp/client
 ```
+
+## 传输层差异与已知限制
+
+换传输只需改 `Listen / Dial` 的 network 参数，业务代码（codec、dispatch、bucket、房间广播）完全共用 —— 逐行对比 [examples/ws](examples/ws) 与 [examples/tcp](examples/tcp) 即可看出差异有多小。目前已知的差异：
+
+| | WebSocket | TCP |
+|---|---|---|
+| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | **无**：连接断开后需调用方自行重建连接并重新 Sign |
+| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（方法带对端地址，无 HTTP 依赖） |
+| 客户端连接回调 | `option.WithClientHandleMessage` | 无效：接口方法绑死 `*http.Response`，TCP 没有 HTTP 握手，传了会被忽略 |
+| HTTP 概念 | mux router / origin / uri path | 无 |
+| 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 |
+| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用 |
+
+**TCP 无断线重连不是遗漏，而是未定的语义问题**：重连后要不要自动重新 Sign、连接身份是否重建、断连期间的房间广播要不要补发 —— 这些都得先定义清楚。在语义确定前不做，是避免埋一个"看起来能自动恢复、实际身份是错的"的坑。需要自动重连的场景请先用 `ws`，或在应用层自行包装"重连 + 重新 Sign"。
 
 ## 编码/协议说明（实用向）
 

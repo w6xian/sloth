@@ -24,7 +24,6 @@ import (
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
 	"github.com/w6xian/sloth/v3/option"
-	"github.com/w6xian/sloth/v3/types"
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/handler"
 	"github.com/w6xian/sloth/v3/types/trpc"
@@ -32,18 +31,11 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// TcpHandleMessage TCP 传输的连接事件钩子。
+// TcpHandleMessage 是 handler.TcpHandleMessage 的别名。
 //
-// 注意这里没有 *http.Request / *http.Response：现有 handler.IServerHandleMessage
-// 的每个方法都带着 HTTP 对象，那是 WebSocket 的实现细节漏进了抽象里——TCP 没有
-// HTTP 握手可传。**第二实现的第一课：钩子接口不能绑死某一层协议。**
-type TcpHandleMessage interface {
-	OnConnect(ctx context.Context, addr string) error
-	OnReady(ctx context.Context, s types.IBucket, ch bucket.IChannel) error
-	OnData(ctx context.Context, s types.IBucket, ch bucket.IChannel, msg []byte) error
-	OnClose(ctx context.Context, s types.IBucket, ch bucket.IChannel) error
-	OnError(ctx context.Context, s types.IBucket, ch bucket.IChannel, err error) error
-}
+// 接口本体定义在 types/handler：option.WithTcpHandleMessage 要引用它构造 option，
+// 而 option 不能被传输包反向 import（会成环）。
+type TcpHandleMessage = handler.TcpHandleMessage
 
 // defaultQueueSize 每条连接各队列的默认容量（与 wsocket 一致）。
 const defaultQueueSize = 10
@@ -90,9 +82,21 @@ func (s *TcpServer) SetOrigin(args ...string) error                             
 func (s *TcpServer) SetClientHandleMessage(h handler.IClientHandleMessage) error { return nil }
 func (s *TcpServer) SetCodec(c codec.Codec)                                       { s.Codec = c }
 
-// SetServerHandleMessage 只接受 TCP 版钩子：HTTP 版钩子的每个方法都带
-// *http.Request，TCP 没有 HTTP 握手可传（抽象泄漏，见 TcpHandleMessage 注释）。
-func (s *TcpServer) SetServerHandleMessage(h handler.IServerHandleMessage) error { return nil }
+// SetServerHandleMessage 对 TCP 无效：HTTP 版钩子的每个方法都带 *http.Request，
+// TCP 没有 HTTP 握手可传（抽象泄漏，见 handler.TcpHandleMessage 注释）。
+//
+// 这里只能返回 nil（IConnectOption 的签名如此，option 层还会把返回值丢掉），
+// 所以至少要打日志——否则用户以为回调挂上了，实际永远不触发。
+func (s *TcpServer) SetServerHandleMessage(h handler.IServerHandleMessage) error {
+	if h != nil {
+		ctx := s.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		logger.Warnw(ctx, "SetServerHandleMessage is ignored on tcp transport, use option.WithTcpHandleMessage instead")
+	}
+	return nil
+}
 
 // SetServerHandleMessage 注入 TCP 钩子。HTTP 版钩子（带 *http.Request）无法用于
 // TCP，这里只接受 TCP 版钩子；传 HTTP 钩子会被忽略。

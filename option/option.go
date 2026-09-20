@@ -80,6 +80,21 @@ func WithCodec(c codec.Codec) ConnectOption {
 	}
 }
 
+// WithTcpHandleMessage 给非 HTTP 传输（TCP）注入连接事件钩子。
+//
+// 为什么是独立的一个 option：IConnectOption.SetServerHandleMessage 的形参写死了
+// handler.IServerHandleMessage（每个方法都带 *http.Request），TCP 没有 HTTP 握手，
+// 传它进去会被静默忽略。这个 option 走"可选接口"：只有实现了
+// SetTcpHandleMessage 的传输才会收到（与 WithChannelQueueSize 同一套路），
+// WebSocket 传输传了也不会有效果——它本来就有 HTTP 版钩子。
+func WithTcpHandleMessage(h handler.TcpHandleMessage) ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface{ SetTcpHandleMessage(handler.TcpHandleMessage) }); ok {
+			v.SetTcpHandleMessage(h)
+		}
+	}
+}
+
 // WithChannelQueueSize 设置每条连接的队列容量（待发 RPC / 回包 / 广播）。
 //
 // 容量是背压的第一道闸门：太小→突发流量下频繁"队列满"；
