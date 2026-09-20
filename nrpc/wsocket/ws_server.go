@@ -37,6 +37,10 @@ type wsMetrics struct {
 	upgradeErrors     *metrics.Counter
 	handshakeRejected *metrics.Counter
 	pumpRecovers      *metrics.Counter
+	// dispatchRecovers 业务 handler panic 被 dispatch 兜住的次数
+	dispatchRecovers *metrics.Counter
+	// queueFullDrops 因连接队列满而被丢弃的投递次数（背压强度）
+	queueFullDrops *metrics.Counter
 }
 
 type WsServer struct {
@@ -70,6 +74,14 @@ type WsServer struct {
 	debug bool
 	m     wsMetrics
 
+	// pool 入站消息执行池：handler 不在 readPump 内联执行，
+	// 一条慢消息不会堵住该连接的所有后续入站（详见 dispatchPool 的说明）。
+	pool *dispatchPool
+	// connSeq 连接序号，用于把每条连接稳定地绑定到某个 worker（保序，见 inboundJob.shard）
+	connSeq atomic.Uint64
+	// queueSize 每条连接的队列容量（来自 option.ChannelQueueSize）
+	queueSize int
+
 	// upgrader 在首次握手时按当前配置构建并复用。
 	// Upgrader 本身无每连接状态（缓冲区大小与校验函数都是只读的），
 	// 原实现每次握手都新建一个并重新装配闭包，属于纯浪费。
@@ -97,6 +109,13 @@ func (s *WsServer) SetHeader(key string, value string) error {
 func (s *WsServer) SetOrigin(args ...string) error {
 	s.originDomain = append(s.originDomain, args...)
 	return nil
+}
+
+// SetChannelQueueSize 设置服务端每条连接的队列容量（见 option.WithChannelQueueSize）。
+func (s *WsServer) SetChannelQueueSize(n int) {
+	if n > 0 {
+		s.queueSize = n
+	}
 }
 
 func (s *WsServer) SetServerHandleMessage(handler handler.IServerHandleMessage) error {
@@ -155,6 +174,9 @@ func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 	s.perIP = make(map[string]int64)
 	s.id = int(wsServerSeq.Add(1) - 1)
 	s.registerMetrics()
+	// 入站消息执行池：handler 移出 readPump（见 dispatchPool 说明）
+	s.pool = newDispatchPool(opt.WorkerNum, opt.WorkerQueueSize)
+	s.queueSize = opt.ChannelQueueSize
 
 	for _, opt := range opts {
 		opt(s)
@@ -182,6 +204,10 @@ func (s *WsServer) registerMetrics() {
 		"OnConnect 校验未通过被拒绝的连接次数")
 	s.m.pumpRecovers = metrics.NewCounter("sloth_ws_pump_recovers_total"+label,
 		"readPump/writePump 从 panic 中恢复的次数")
+	s.m.dispatchRecovers = metrics.NewCounter("sloth_ws_dispatch_recovers_total"+label,
+		"业务 handler 执行 panic 被恢复的次数")
+	s.m.queueFullDrops = metrics.NewCounter("sloth_ws_queue_full_drops_total"+label,
+		"因连接队列满而丢弃的投递次数")
 }
 
 // Handler 返回 HTTP handler（mux router），供 Serve() 挂载到 http.Server。
@@ -288,6 +314,10 @@ func (s *WsServer) Close() error {
 			b.Close()
 		}
 	}
+	// 停止入站 worker：先关连接（不再有新消息），再收池
+	if s.pool != nil {
+		s.pool.close()
+	}
 	return nil
 }
 
@@ -308,6 +338,11 @@ func (s *WsServer) Channel(userId int64) bucket.IChannel {
 	return nil
 }
 
+// Room 返回指定房间；找不到返回 nil。
+//
+// 注意：连接是按 userId 分桶的，而同一房间的成员 userId 通常落在不同桶，
+// 因此每个桶都可能有一个同 roomId 的 Room 分片。本方法只返回找到的第一个分片
+// （保持接口的单值语义），需要覆盖全房间请用 Rooms。
 func (s *WsServer) Room(roomId int64) *bucket.Room {
 	for _, b := range s.Buckets {
 		if b == nil {
@@ -318,6 +353,23 @@ func (s *WsServer) Room(roomId int64) *bucket.Room {
 		}
 	}
 	return nil
+}
+
+// Rooms 返回该房间在所有 bucket 分片上的 Room 对象（已解散的分片会被跳过）。
+//
+// 房间成员按 userId 分散在各分片里，只调用其中一个分片会漏掉其它分片的成员
+// （表现为"房间广播有人收不到"）。需要面向整个房间的操作必须走这里。
+func (s *WsServer) Rooms(roomId int64) []*bucket.Room {
+	rooms := make([]*bucket.Room, 0, len(s.Buckets))
+	for _, b := range s.Buckets {
+		if b == nil {
+			continue
+		}
+		if room := b.Room(roomId); room != nil && !room.IsDrop() {
+			rooms = append(rooms, room)
+		}
+	}
+	return rooms
 }
 func (s *WsServer) AllBuckets() []*bucket.Bucket {
 	return s.Buckets
@@ -437,9 +489,12 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	// 该连接后续所有日志自动带上客户端 IP
 	ctx = logger.WithFields(ctx, "ip", ip)
 	// 一个连接一个channel
-	ch := NewWsChannelServer(s.Connect)
+	ch := NewWsChannelServer(s.Connect, WithServerQueueSize(s.queueSize),
+		WithServerQueueFullHook(func() { s.m.queueFullDrops.Inc() }))
 	//default broadcast size eq 512
 	ch.Conn = conn
+	// 绑定 worker：同一条连接的消息恒定落在同一个 worker 上，保证按序执行
+	ch.shard = uint32(s.connSeq.Add(1))
 	ch.PAddr = ip
 	s.addConn(ch)
 	// 需要确认客户端是否合法，一个是JWT,一个是ClientID
@@ -595,21 +650,10 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 		if v, err := tlvValue(m); err == nil {
 			m = v
 		}
-		if err := nrpc.DispatchMessage(nrpc.RouteArgs{
-			Context: ctx,
-			Request: r,
-			Data:    m,
-			OnFn: func(ctx context.Context, raw []byte) error {
-				return nrpc.HandleFn(ctx, r, nil, s, s.Connect, ch, raw)
-			},
-			OnData: func(ctx context.Context, raw []byte) error {
-				if s.handler == nil {
-					return nil
-				}
-				return s.handler.OnData(ctx, r, s, ch, messageType, raw)
-			},
-		}); err != nil && s.handler != nil {
-			s.handler.OnError(ctx, r, s, ch, err)
+		// 交给 worker 池执行：readPump 立刻回去读下一条，慢 handler 不再堵住本连接。
+		// 同一连接的消息按 shard 固定到同一个 worker，仍然严格按序执行。
+		if !s.submitInbound(ctx, ch, r, byte(messageType), m) {
+			return
 		}
 	}
 }

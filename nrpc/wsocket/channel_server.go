@@ -41,6 +41,20 @@ type WsChannelServer struct {
 	closed atomic.Bool
 	// sliceSeq 本连接的分片序号，仅由 writePump 协程访问（无需加锁）
 	sliceSeq uint32
+	// shard 本连接绑定的入站 worker 序号（建连时确定，终身不变）。
+	// 同一连接的所有消息都交给同一个 worker，因此业务看到的是按序到达。
+	shard uint32
+	// queueSize 本连接各队列的容量（可配置，见 WithServerQueueSize）
+	queueSize int
+	// onQueueFull 队列满时的观测钩子（可为空），用于统计被背压丢弃的投递
+	onQueueFull func()
+}
+
+// queueFull 报告一次"因队列满而投递失败"，供上层观测背压强度。
+func (ch *WsChannelServer) queueFull() {
+	if ch.onQueueFull != nil {
+		ch.onQueueFull()
+	}
 }
 
 // IsClosed 报告连接是否已关闭（并发安全）。
@@ -123,6 +137,8 @@ func (ch *WsChannelServer) Close() error {
 	defer ch.Lock.Unlock()
 
 	ch.doneOnce.Do(func() { close(ch.done) })
+	// 唤醒所有还在等回包的调用：否则它们要干等到超时（默认 10s）才返回
+	ch.CloseCalls()
 	ch.closed.Store(true)
 	if ch.Conn != nil {
 		ch.Conn.Close()
@@ -137,11 +153,9 @@ func (ch *WsChannelServer) Close() error {
 func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *WsChannelServer) {
 	c = new(WsChannelServer)
 	c.Lock = sync.Mutex{}
-	c.broadcast = make(chan *message.Msg, 10)
-	c.PRpcCaller = make(chan []byte, 10)
-	c.PRpcBacker = make(chan []byte, 10)
-	c.PRpcResult = make(chan []byte, 10)
+	c.queueSize = defaultChannelQueueSize
 	c.done = make(chan struct{})
+	c.InitCalls() // per-call 回包分发表（SendData 依赖，未初始化会直接失败）
 	c.Next(nil)
 	c.Prev(nil)
 	c.pongTimeout = 54 * time.Second
@@ -155,6 +169,11 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	for _, opt := range opts {
 		opt(c)
 	}
+	// 队列按最终配置创建（option 可能改过 queueSize / 注入了队列满钩子）
+	c.broadcast = make(chan *message.Msg, c.queueSize)
+	c.PRpcCaller = make(chan []byte, c.queueSize)
+	c.PRpcBacker = make(chan []byte, c.queueSize)
+	c.PRpcResult = make(chan []byte, c.queueSize) // 已废弃：回包走 pending 分发
 	return
 }
 
@@ -170,6 +189,7 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 	select {
 	case ch.broadcast <- msg:
 	case <-timer.C:
+		ch.queueFull()
 		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	case <-ctx.Done():
 		return ctx.Err()

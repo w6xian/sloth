@@ -63,8 +63,8 @@ func newTestChannelServer(t *testing.T) *WsChannelServer {
 	return ch
 }
 
-func newTestChannelClient(t *testing.T) *WsChannelClient {
-	c := NewWsChannelClient(nil)
+func newTestChannelClient(t *testing.T, opts ...ChannelClientOption) *WsChannelClient {
+	c := NewWsChannelClient(nil, opts...)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
@@ -200,11 +200,13 @@ func TestChannelClientCloseConcurrent(t *testing.T) {
 	}
 }
 
-// TestChannelClientPushQueueFull 客户端发送队列（cap=5）打满后 Push 返回 ctx 错误。
+// TestChannelClientPushQueueFull 发送队列打满后 Push 返回 ctx 错误。
+// 显式指定容量再填满：默认值是可配置项，测试不应绑死某个具体数字。
 func TestChannelClientPushQueueFull(t *testing.T) {
-	c := newTestChannelClient(t)
+	const cap = 2
+	c := newTestChannelClient(t, WithClientQueueSize(cap))
 	msg := message.NewTextMessage([]byte("hi"))
-	for i := 0; i < 5; i++ {
+	for i := 0; i < cap; i++ {
 		if err := c.Push(context.Background(), msg); err != nil {
 			t.Fatalf("push %d should succeed, err: %v", i, err)
 		}

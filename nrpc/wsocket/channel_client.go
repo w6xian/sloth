@@ -31,6 +31,17 @@ type WsChannelClient struct {
 	closed    atomic.Bool
 	// sliceSeq 本连接的分片序号，仅由 writePump 协程访问（无需加锁）
 	sliceSeq uint32
+	// queueSize 本连接各队列的容量（可配置，见 WithClientQueueSize）
+	queueSize int
+	// onQueueFull 队列满时的观测钩子（可为空），用于统计被背压丢弃的投递
+	onQueueFull func()
+}
+
+// queueFull 报告一次"因队列满而投递失败"，供上层观测背压强度。
+func (c *WsChannelClient) queueFull() {
+	if c.onQueueFull != nil {
+		c.onQueueFull()
+	}
 }
 
 // getConn 并发安全地取当前底层连接（已关闭则为 nil）。
@@ -76,20 +87,23 @@ func (c *WsChannelClient) nextSliceName() string {
 func NewWsChannelClient(connect trpc.ICallRpc, opts ...ChannelClientOption) (c *WsChannelClient) {
 	c = new(WsChannelClient)
 	c.Lock = sync.Mutex{}
-	c.PSend = make(chan *message.Msg, 5)
-	c.PRpcCaller = make(chan []byte, 10)
-	c.PRpcBacker = make(chan []byte, 10)
-	c.PRpcResult = make(chan []byte, 10)
+	c.queueSize = defaultChannelQueueSize
 	c.UserId = 0
 	c.Conn = nil
 	c.PWriteWait = 10 * time.Second
 	c.PReadWait = 10 * time.Second
 	c.Sign = ""
 	c.Connect = connect
+	c.InitCalls() // per-call 回包分发表（SendData 依赖，未初始化会直接失败）
 	c.PDefaultHeader = message.Header{}
 	for _, opt := range opts {
 		opt(c)
 	}
+	// 队列按最终配置创建（option 可能改过 queueSize / 注入了队列满钩子）
+	c.PSend = make(chan *message.Msg, c.queueSize)
+	c.PRpcCaller = make(chan []byte, c.queueSize)
+	c.PRpcBacker = make(chan []byte, c.queueSize)
+	c.PRpcResult = make(chan []byte, c.queueSize) // 已废弃：回包走 pending 分发
 	return
 }
 
@@ -104,6 +118,8 @@ func (c *WsChannelClient) Logout() (err error) {
 func (c *WsChannelClient) Close() error {
 	c.Lock.Lock()
 	defer c.Lock.Unlock()
+	// 唤醒所有还在等回包的调用：否则它们要干等到超时（默认 10s）才返回
+	c.CloseCalls()
 	c.closeConn()
 	c.UserId = 0
 	c.RoomId = 0
@@ -122,6 +138,7 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 	select {
 	case c.PSend <- msg:
 	case <-timer.C:
+		c.queueFull()
 		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	case <-ctx.Done():
 		return ctx.Err()

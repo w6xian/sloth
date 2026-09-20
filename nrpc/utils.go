@@ -25,6 +25,9 @@ var (
 	rpcReplies      = metrics.NewCounter(`sloth_rpc_calls_total{action="reply"}`, "服务端收到的 RPC 响应次数")
 	rpcInvalid      = metrics.NewCounter(`sloth_rpc_calls_total{action="invalid"}`, "无法识别的 action 次数")
 	rpcDecodeErrors = metrics.NewCounter("sloth_rpc_decode_errors_total", "RPC 报文解码失败次数")
+	// rpcOrphanReplies 收到但找不到等待者的回包（对端超时/重复回包）。
+	// 持续上涨通常意味着：调用超时设得太短，或对端在重发。
+	rpcOrphanReplies = metrics.NewCounter("sloth_rpc_orphan_replies_total", "找不到等待者的 RPC 回包数")
 	rpcCallDuration = metrics.NewHistogram("sloth_rpc_call_duration_seconds", "服务端处理单次 RPC 调用耗时（秒）", nil)
 )
 

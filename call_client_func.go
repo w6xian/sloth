@@ -266,13 +266,38 @@ const defaultCallTimeout = 5 * time.Second
 // callRoomConcurrency CallRoom 并发调用上限，防止房间成员过多时 goroutine 爆炸。
 const callRoomConcurrency = 64
 
+// serverRooms 返回该房间在所有 bucket 分片上的 Room 对象（已解散的分片会被跳过）。
+//
+// 连接是按 userId 分桶的，而同一房间的成员 userId 通常落在不同分片，
+// 每个分片都可能各持有一个同 roomId 的 Room。只调用 Room(roomId) 拿到第一个
+// 分片会漏掉其它分片的成员——表现为"房间广播有人收不到"。
+// 不支持列举分片的实现退化为单个结果（保持 types.IServer 的接口语义）。
+func serverRooms(serve types.IServer, roomId int64) []*bucket.Room {
+	if v, ok := any(serve).(interface {
+		Rooms(roomId int64) []*bucket.Room
+	}); ok {
+		return v.Rooms(roomId)
+	}
+	if r := serve.Room(roomId); r != nil && !r.IsDrop() {
+		return []*bucket.Room{r}
+	}
+	return nil
+}
+
+// rangeRoomChannels 依次遍历该房间在所有分片上的成员（见 serverRooms 的说明）。
+func rangeRoomChannels(rooms []*bucket.Room, fn func(ch bucket.IChannel) bool) {
+	for _, room := range rooms {
+		room.Range(fn)
+	}
+}
+
 func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
 		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
-	room := serve.Room(roomId)
-	if room == nil || room.IsDrop() {
+	rooms := serverRooms(serve, roomId)
+	if len(rooms) == 0 {
 		return nil, errors.New("room not found")
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
@@ -286,7 +311,7 @@ func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg 
 	// 并发调用 + 每成员独立超时：总耗时 ≈ 最慢单次调用，而非 成员数×超时。
 	sem := make(chan struct{}, callRoomConcurrency)
 	var wg sync.WaitGroup
-	room.Range(func(ch bucket.IChannel) bool {
+	rangeRoomChannels(rooms, func(ch bucket.IChannel) bool {
 		if ch == nil {
 			return true
 		}
@@ -379,11 +404,9 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 	if serve == nil {
 		return
 	}
-	room := serve.Room(roomId)
-	if room == nil {
-		return
-	}
-	if room.IsDrop() {
+	// 覆盖所有分片：只推一个分片会漏掉其它分片里的房间成员
+	rooms := serverRooms(serve, roomId)
+	if len(rooms) == 0 {
 		return
 	}
 	cmd := message.CmdReq{
@@ -393,7 +416,9 @@ func (c *ClientRpc) Room(ctx context.Context, roomId int64, action int, data str
 		Data:   data,
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
-	room.Broadcast(ctx, msg)
+	for _, room := range rooms {
+		room.Broadcast(ctx, msg)
+	}
 }
 
 func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {

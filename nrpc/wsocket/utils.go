@@ -2,11 +2,14 @@ package wsocket
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/decoder/fn"
 	"github.com/w6xian/sloth/v3/decoder/frame"
 	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/nrpc"
@@ -15,17 +18,37 @@ import (
 	"github.com/w6xian/tlv"
 )
 
+// tlvMu 串行化对 tlv 库的调用。
+//
+// tlv 库本身不是并发安全的：newOption() 返回的是一个**全局共享**的 option 对象，
+// 并且会往它的 encoder 字段里写（vendor/github.com/w6xian/tlv/option.go:32-36）。
+// 多个 readPump goroutine 同时解析会数据竞争，还会互相污染编码状态。
+// 依赖库改不了，只能在调用侧用一把锁把它串行起来。
+var tlvMu sync.Mutex
+
 // tlvValue 解出 TLV 帧的 Value 段。
 //
-// tlv 是外部库，Deserialize 对畸形输入会 panic（slice 越界）。报文来自网络，
-// 解密/分片重组后仍可能是任意字节，这里统一兜住：panic 转成 error，
-// 由调用方按"不是 TLV 帧"处理（原样透传），而不是把进程打挂。
+// 两件事要兜住：
+//  1. tlv 是外部库，Deserialize 对畸形输入会 panic（slice 越界）→ 转成 error；
+//  2. tlv 库有共享状态，并发调用有数据竞争 → 走 tlvMu 串行化。
+// 报文来自网络，解密/分片重组后仍可能是任意字节，失败一律按"不是 TLV 帧"
+// 处理（原样透传），而不是把进程打挂。
 func tlvValue(b []byte) (v []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			v, err = nil, fmt.Errorf("tlv decode panic: %v", r)
 		}
 	}()
+	// fast-path：本框架的 FN 帧自带 magic，绝不可能是 TLV 帧。
+	// 绝大多数入站消息都是 FN 帧，先判掉可以避开下面那把全局锁。
+	if len(b) >= 2 && b[0] == fn.FnMagic1 && b[1] == fn.FnMagic2 {
+		return nil, errors.New("not a tlv frame")
+	}
+	if len(b) < 2 {
+		return nil, errors.New("too short for a tlv frame")
+	}
+	tlvMu.Lock()
+	defer tlvMu.Unlock()
 	f, e := tlv.Deserialize(b)
 	if e != nil {
 		return nil, e

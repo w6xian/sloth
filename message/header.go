@@ -143,6 +143,9 @@ func (h Header) Clone() Header {
 	return clone
 }
 
+// tlvMu 串行化对 tlv 库的调用，原因见 NewHeaderFromBV 内的注释。
+var tlvMu sync.Mutex
+
 func NewHeaderFromBV(bv []byte) (h Header, err error) {
 	// tlv.JsonUnpack 对畸形输入会 panic（slice 越界），
 	// 网络字节流不可信，这里兜底转成 error，避免服务端进程崩溃。
@@ -153,6 +156,13 @@ func NewHeaderFromBV(bv []byte) (h Header, err error) {
 		}
 	}()
 	h = Header{}
+	// tlv 库内部复用全局共享的 option 对象并修改其字段，并发调用既有数据竞争
+	// 也会互相污染状态（见 vendor/github.com/w6xian/tlv/option.go:32-36），
+	// 依赖库改不了，只能在调用侧串行化。
+	// 必须用 defer 解锁：tlv.JsonUnpack 对畸形输入会 panic，
+	// 直接写的 Unlock 会被 panic 跳过，锁永久持有（后续调用全部死锁）。
+	tlvMu.Lock()
+	defer tlvMu.Unlock()
 	bv, err = tlv.JsonUnpack(bv)
 	if err != nil {
 		return nil, err

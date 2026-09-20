@@ -58,6 +58,9 @@ type LocalClient struct {
 	// 让服务端把新连接重新注册进 bucket。这是"断线重连后服务端调不通"的根治手段。
 	reloginMu sync.RWMutex
 	relogin   func(ctx context.Context) error
+
+	// queueSize 连接队列容量（见 option.WithChannelQueueSize）
+	queueSize int
 }
 
 // 实现 options.ConnectOption
@@ -79,6 +82,13 @@ func (c *LocalClient) SetHeader(key string, value string) error {
 func (c *LocalClient) SetOrigin(origins ...string) error {
 	return nil
 }
+// SetChannelQueueSize 设置客户端连接的队列容量（见 option.WithChannelQueueSize）。
+func (c *LocalClient) SetChannelQueueSize(n int) {
+	if n > 0 {
+		c.queueSize = n
+	}
+}
+
 // SetServerHandleMessage 在客户端无意义（客户端没有"服务端消息处理器"这一角色）。
 // 原实现直接 panic：库内 panic 会把调用方进程打挂，且无法被业务 recover 判断，
 // 这里改为返回 error，由调用方决定如何处理。
@@ -346,7 +356,7 @@ func (c *LocalClient) ClientWs(ctx context.Context, conn *websocket.Conn, resp *
 	// 链接session
 	closeChan := make(chan struct{}, 1)
 	// 全局client websocket连接
-	wsConn := NewWsChannelClient(c.Connect)
+	wsConn := NewWsChannelClient(c.Connect, WithClientQueueSize(c.queueSize))
 	//default broadcast size eq 512
 	wsConn.Conn = conn
 	wsConn.RoomId = 0

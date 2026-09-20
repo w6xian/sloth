@@ -80,6 +80,19 @@ func WithCodec(c codec.Codec) ConnectOption {
 	}
 }
 
+// WithChannelQueueSize 设置每条连接的队列容量（待发 RPC / 回包 / 广播）。
+//
+// 容量是背压的第一道闸门：太小→突发流量下频繁"队列满"；
+// 太大→内存占用高、延迟被缓冲掩盖。默认 10。
+// 仅对实现 SetChannelQueueSize 的传输层生效（ws 服务端与客户端均支持）。
+func WithChannelQueueSize(n int) ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface{ SetChannelQueueSize(int) }); ok {
+			v.SetChannelQueueSize(n)
+		}
+	}
+}
+
 // WithDebugHandler 把调试端点（/debug/metrics、/debug/pprof/*、/debug/vars）
 // 挂到当前服务端的 HTTP 路由上，与业务端口共用监听地址。
 //

@@ -32,6 +32,17 @@ type Options struct {
 	// KeepAlive is the duration for which the server allows a client to keep the connection alive.
 	KeepAlive bool
 
+	// WorkerNum 处理入站消息的 worker 数量。每条连接按哈希固定到某个 worker，
+	// 因此同连接严格按序、不同连接并行。0 表示按 GOMAXPROCS 自动（最少 4）。
+	WorkerNum int
+	// WorkerQueueSize 每个 worker 的待处理队列长度；队列满时投递阻塞（背压）。
+	// 0 表示默认 256。
+	WorkerQueueSize int
+	// ChannelQueueSize 每条连接的各队列容量（待发 RPC / 回包 / 广播）。
+	// 决定对端处理不过来时能缓冲多少：太小→突发时频繁队列满，
+	// 太大→内存占用高且延迟被掩盖。0 表示默认 10。
+	ChannelQueueSize int
+
 	MaxConnsGlobal int64
 	MaxConnsPerIP  int64
 	MaxConnsWS     int64
