@@ -5,12 +5,17 @@ package bucket
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/message"
 )
+
+// bucketSeq 为桶分配序号，仅用于指标 label 区分（WsServer 按 CPU 数创建多个桶）。
+var bucketSeq atomic.Uint64
 
 type Bucket struct {
 	cLock sync.RWMutex       // protect the channels for chs
@@ -19,7 +24,11 @@ type Bucket struct {
 	rooms       map[int64]*Room // bucket room channels
 	routines    []chan *message.PushRoomMsgRequest
 	routinesNum atomic.Uint64
-	dropped     atomic.Uint64 // 广播投递累计丢弃数（用于日志限流）
+	dropped     atomic.Uint64 // 广播投递累计丢弃数（用于日志限流与指标）
+
+	// id 桶序号；broadcastTotal 成功投递计数（丢弃数走 b.dropped）
+	id             int
+	broadcastTotal *metrics.Counter
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -41,6 +50,8 @@ func NewBucket(opts ...BucketOption) (b *Bucket) {
 		opt(b)
 	}
 
+	b.id = int(bucketSeq.Add(1) - 1)
+	b.registerMetrics()
 	b.chs = make(map[int64]IChannel, b.ChannelSize)
 	b.routines = make([]chan *message.PushRoomMsgRequest, b.RoutineAmount)
 	b.rooms = make(map[int64]*Room, b.RoomSize)
@@ -52,6 +63,31 @@ func NewBucket(opts ...BucketOption) (b *Bucket) {
 		go b.PushRoom(b.ctx, c)
 	}
 	return
+}
+
+// registerMetrics 注册本桶指标。
+//
+// 在线连接数/房间数用 GaugeFunc（拉模式）而非在 Put/Delete 埋点：
+// 埋点需要在两条路径上对称记账，任一处遗漏都会让计数永久漂移；
+// 回调只在被抓取时执行一次，也不侵入热路径。
+func (b *Bucket) registerMetrics() {
+	label := fmt.Sprintf(`{bucket="%d"}`, b.id)
+	b.broadcastTotal = metrics.NewCounter("sloth_bucket_broadcast_total"+label,
+		"成功投递到 worker 队列的广播次数")
+	metrics.NewGaugeFunc("sloth_bucket_channels"+label, "桶内当前在线连接数", func() float64 {
+		b.cLock.RLock()
+		defer b.cLock.RUnlock()
+		return float64(len(b.chs))
+	})
+	metrics.NewGaugeFunc("sloth_bucket_rooms"+label, "桶内当前房间数", func() float64 {
+		b.cLock.RLock()
+		defer b.cLock.RUnlock()
+		return float64(len(b.rooms))
+	})
+	metrics.NewGaugeFunc("sloth_bucket_broadcast_dropped_total"+label,
+		"因 worker 队列满被丢弃的广播累计次数", func() float64 {
+			return float64(b.dropped.Load())
+		})
 }
 
 // Close 停止所有 worker goroutine 并等待其退出。
@@ -267,13 +303,16 @@ func (b *Bucket) BroadcastRoom(pushRoomMsgReq *message.PushRoomMsgRequest) bool 
 	num := b.routinesNum.Add(1) % b.RoutineAmount
 	select {
 	case b.routines[num] <- pushRoomMsgReq:
+		b.broadcastTotal.Inc()
 		return true
 	default:
-		// 队列满说明下游消费不过来。日志走标准库 log 包（全局互斥锁），
-		// 若逐条打印会在大流量下形成日志风暴并反噬热路径，故限流：
+		// 队列满说明下游消费不过来。逐条打印会在大流量下形成日志风暴
+		// （日志写入持全局互斥锁，会反噬热路径），故限流：
 		// 仅首次与每满 1024 次丢弃打一条，携带累计计数。
+		// 精确累计值从指标 sloth_bucket_broadcast_dropped_total 读取。
 		if n := b.dropped.Add(1); n == 1 || n%1024 == 0 {
-			log.Printf("bucket broadcast room queue full, room:%d dropped(total:%d)", pushRoomMsgReq.RoomId, n)
+			logger.Errorw(nil, "bucket broadcast queue full", "bucket", b.id,
+				"room", pushRoomMsgReq.RoomId, "dropped", n)
 		}
 		return false
 	}

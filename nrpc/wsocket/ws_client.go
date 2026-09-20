@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
@@ -158,9 +158,12 @@ func (c *LocalClient) savedAuth() *auth.AuthInfo {
 	return c.lastAuth
 }
 
+// log 输出一行带级别的日志。
+//
+// 原实现先丢弃 level（_ = level）再用 log.Println 打印：
+// 级别被完全忽略，且 format 与 args 被并列打印（"%s" 原样出现在日志里）。
 func (c *LocalClient) log(level logger.LogLevel, line string, args ...any) {
-	_ = level
-	log.Println("[LocalClient]", line, args)
+	logger.Logf(level, nil, line, args...)
 }
 
 func signalClose(closeChan chan struct{}) {
@@ -182,7 +185,13 @@ const (
 
 // dialErrLog 拨号失败日志采样计数：弱网期间失败会连续发生，
 // 全量打印会形成日志风暴，故仅首次与每满 20 次记录一条。
-var dialErrLog atomic.Uint64
+// 精确累计值见指标 sloth_client_dial_errors_total。
+var (
+	dialErrLog atomic.Uint64
+
+	clientDialErrors = metrics.NewCounter("sloth_client_dial_errors_total", "客户端拨号失败次数")
+	clientReconnects = metrics.NewCounter("sloth_client_reconnects_total", "客户端重连尝试次数")
+)
 
 // backoff 计算第 attempt 次（从 0 开始）失败后的等待时长，带 ±25% 抖动。
 func backoff(attempt int) time.Duration {
@@ -228,6 +237,8 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 			if !c.KeepAlive {
 				return err
 			}
+			clientDialErrors.Inc()
+			clientReconnects.Inc()
 			if n := dialErrLog.Add(1); n == 1 || n%20 == 0 {
 				c.log(logger.Error, "connect server %s err: %v (failures:%d)", addr, err, n)
 			}
@@ -241,7 +252,7 @@ func (c *LocalClient) ListenAndServe(ctx context.Context) error {
 		// 调用OnConnect
 		if c.handler != nil {
 			if err := c.handler.OnConnect(ctx, resp); err != nil {
-				log.Printf("OnConnect err %v", err)
+				logger.Errorw(ctx, "ws client OnConnect rejected", "addr", addr, "err", err)
 				_ = conn.Close()
 				return err
 			}
@@ -554,7 +565,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		// 来自服务器的消息
 		messageType, msg, err := conn.ReadMessage()
 		if err != nil {
-			c.log(logger.Error, err.Error())
+			// 原实现 c.log(logger.Error, err.Error())：把动态错误串当 format，
+			// 错误文本里的 % 会被当成占位符，输出成 %!x(MISSING)。
+			logger.Errorw(ctx, "ws client readPump read failed", "err", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				if c.handler != nil {
 					c.handler.OnError(ctx, resp, c, ch, err)

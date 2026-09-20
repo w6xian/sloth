@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,10 +11,16 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/decoder/ag"
+	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types"
 )
 
+// ClientRpc 是「打给客户端」的 RPC 调用端，由服务端程序持有
+// （按 userId 单推、CallRoom 房间推、CallBucket 全服推）。
+//
+// 名字里的 Client 指的是**调用目标**，不是持有者；对应入口是 DefaultServer()，
+// 建连接用 ServerConn(server)。另见 ServerRpc 的说明。
 type ClientRpc struct {
 	// mu 保护 Serve 字段：Serve() 在服务 goroutine 中写入，
 	// Call/CallRoom 等可能在另一 goroutine 读取
@@ -46,6 +51,9 @@ func LinkClientFunc(opts ...IRpcOption) *ClientRpc {
 	return DefaultServer(opts...)
 }
 
+// DefaultServer 返回服务端程序使用的 RPC 调用端（*ClientRpc，调用目标是客户端）。
+// 名字里的 Server 指使用者，ClientRpc 里的 Client 指调用目标，别按"谁持有"理解，
+// 详见 ClientRpc 的注释。
 func DefaultServer(opts ...IRpcOption) *ClientRpc {
 
 	cli := &ClientRpc{
@@ -123,11 +131,60 @@ func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...a
 		return nil, err
 	}
 
-	resp, err := ch.Call(ctx, c.Header.Clone(), mtd, args...)
+	// 每次调用一条独立 trace：写入 Header 随请求发给客户端（键 X-Trace-Id），
+	// 使两端日志可跨进程串联。
+	hdr, put := callHeader(ctx, c.Header, nil, "")
+	defer put()
+
+	resp, err := ch.Call(ctx, hdr, mtd, args...)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// newTrace 返回 ctx 上已有的 trace id，没有则新生成一个（不修改 ctx，避免额外分配）。
+func newTrace(ctx context.Context) string {
+	if id := logger.TraceID(ctx); id != "" {
+		return id
+	}
+	return logger.NewTraceID()
+}
+
+// callHeader 组装单次 RPC 调用的请求头：共享头 + 调用方头 + 本次 trace id。
+// ServerRpc / ClientRpc 两个方向共用，避免各自复制一份后漏改。
+//
+// 三个容易踩的点集中在这里，调用方不必重复处理：
+//  1. shared 是 RPC 对象上的共享 map（c.Header），并发调用同时写会 race，
+//     必须拷贝出副本再写；
+//  2. header 是调用方传进来的 map，同样不能直接写，否则污染调用方后续复用；
+//  3. 需要合并两份时从 sync.Pool 取对象，返回的 put 必须在本次调用结束后调用，
+//     归还后不得再持有该引用（Clone 出来的是普通 map，put 为空函数）。
+//
+// trace 传空串表示按 ctx 取/生成一条新的；批量调用（CallRoom/CallBucket）
+// 传入固定 trace 可让整批共用同一条，便于对端按 trace 聚合日志。
+func callHeader(ctx context.Context, shared, header message.Header, trace string) (message.Header, func()) {
+	if trace == "" {
+		trace = newTrace(ctx)
+	}
+	var merged message.Header
+	put := func() {}
+	if len(shared) != 0 {
+		// 两份都要：取池对象合并，省一次 map 分配
+		merged = message.GetHeader()
+		for k, v := range shared {
+			merged[k] = v
+		}
+		for k, v := range header {
+			merged[k] = v
+		}
+		put = func() { message.PutHeader(merged) }
+	} else {
+		// 只有调用方的头：直接拷贝（Header.Clone 对 nil 也返回可用的空 map）
+		merged = header.Clone()
+	}
+	merged.Set(logger.TraceHeader, trace)
+	return merged, put
 }
 
 // @call clientNet
@@ -170,29 +227,16 @@ func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, u
 		return nil, err
 	}
 
-	usePoolHeader := false
-	mergedHeader := header
-	if len(c.Header) != 0 {
-		usePoolHeader = true
-		mergedHeader = message.GetHeader()
-		for k, v := range c.Header {
-			mergedHeader[k] = v
-		}
-		for k, v := range header {
-			mergedHeader[k] = v
-		}
-	}
-	if usePoolHeader {
-		defer message.PutHeader(mergedHeader)
-	}
+	// 与 Call 一致：合并共享头与调用方头，并注入本次调用的 trace。
+	hdr, put := callHeader(ctx, c.Header, header, "")
+	defer put()
 
-	resp, err := ch.Call(ctx, mergedHeader, mtd, args...)
+	resp, err := ch.Call(ctx, hdr, mtd, args...)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
-
 func (c *ClientRpc) Channel(ctx context.Context, userId int64, action int, data string) {
 	serve := c.getServe()
 	if serve == nil {
@@ -235,6 +279,9 @@ func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg 
 		return nil, err
 	}
 
+	// 一次房间调用共用一条 trace id：服务端日志可关联到同一次批量调用
+	trace := newTrace(ctx)
+
 	// 并发调用 + 每成员独立超时：总耗时 ≈ 最慢单次调用，而非 成员数×超时。
 	sem := make(chan struct{}, callRoomConcurrency)
 	var wg sync.WaitGroup
@@ -251,8 +298,11 @@ func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg 
 			defer func() { <-sem }()
 			callCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
 			defer cancel()
-			if _, err := ch.Call(callCtx, c.Header.Clone(), mtd, args...); err != nil {
-				log.Printf("room call err:%s", err.Error())
+			// 每 goroutine 独立拷贝后再写 trace：共享 c.Header 直接写会有 race
+			hdr, put := callHeader(ctx, c.Header, nil, trace)
+			defer put()
+			if _, err := ch.Call(callCtx, hdr, mtd, args...); err != nil {
+				logger.Errorw(callCtx, "room call failed", "method", mtd, "err", err, "trace", trace)
 			}
 		})
 		return true
@@ -279,6 +329,8 @@ func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]b
 	if err != nil {
 		return nil, err
 	}
+	// 一次全服调用共用一条 trace id
+	trace := newTrace(ctx)
 
 	sem := make(chan struct{}, callRoomConcurrency)
 	var wg sync.WaitGroup
@@ -298,15 +350,18 @@ func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]b
 			// 若在 goroutine 内才 Clone，调用方于 CallBucket 执行期间修改 c.Header
 			// 仍会与 Clone 的读产生 race；提前拷贝后 goroutine 只读自己的副本，
 			// 配合调用方"改 header → 调用 → 返回后再改"的串行模式即完全安全。
-			header := c.Header.Clone()
+			// 拷贝出来的对象（池对象或 Clone）由该 goroutine 归还。
+			hdr, put := callHeader(ctx, c.Header, nil, trace)
 			sem <- struct{}{}
 			wg.Go(func() {
 				defer func() { <-sem }()
+				defer put()
 				callCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
 				defer cancel()
-				if _, err := ch.Call(callCtx, header, mtd, args...); err != nil {
+				if _, err := ch.Call(callCtx, hdr, mtd, args...); err != nil {
 					if n := callBucketErrLog.Add(1); n == 1 || n%128 == 0 {
-						log.Printf("bucket call err:%s", err.Error())
+						logger.Errorw(callCtx, "bucket call failed", "method", mtd,
+							"err", err, "failures", n, "trace", trace)
 					}
 				}
 			})
@@ -353,7 +408,7 @@ func (c *ClientRpc) Broadcast(ctx context.Context, action int, data string) {
 	}
 	msg := message.NewTextMessage(cmd.Bytes())
 	if err := serve.Broadcast(ctx, msg); err != nil {
-		log.Printf("broadcast err:%s", err.Error())
+		logger.Errorw(ctx, "broadcast failed", "err", err)
 		return
 	}
 }

@@ -2,9 +2,13 @@ package sloth
 
 import (
 	"context"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/w6xian/sloth/v3/internal/logger"
 )
 
 // 端到端 RPC 吞吐基准：真实 WS 连接 + 完整编解码链路（客户端 → 服务端 → 客户端）。
@@ -13,6 +17,10 @@ import (
 // startBenchEnv 启动真实 WS 服务端与已连接的客户端。
 func startBenchEnv(b *testing.B) (ctx context.Context, cli *Connect) {
 	b.Helper()
+	// 连接关闭/重连必然产生 ERROR 日志，会插在 benchmark 输出里并把计时打乱
+	logger.SetOutput(io.Discard)
+	b.Cleanup(func() { logger.SetOutput(os.Stderr) })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 
 	svr := ServerConn(DefaultServer())

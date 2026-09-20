@@ -5,10 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/internal/ref"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
@@ -80,6 +81,8 @@ type Connect struct {
 	metaData string
 	// wsServer 由 initWsServerInstance 创建，Serve() 用它挂载 HTTP handler，Close() 用它优雅关闭
 	wsServer *wsocket.WsServer
+	// debugSrv 为 Option.DebugAddr 启动的调试服务（nil 表示未启用）
+	debugSrv *http.Server
 }
 
 func (c *Connect) CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, msg []byte) ([]byte, error) {
@@ -136,11 +139,16 @@ func (c *Connect) resolveProtocol(name string) ProtocolFactory {
 	return nil
 }
 
+// ServerConn 建服务端连接：参数是由 DefaultServer() 得到的 *ClientRpc。
+// 名字指**本进程扮演的角色**（这里是服务端），参数类型里的 Client 指调用目标，
+// 两者不是同一层含义，详见 ClientRpc / ServerRpc 的注释。
 func ServerConn(client *ClientRpc, opts ...ConnOption) *Connect {
 	opts = append(opts, Client(client))
 	return newConnect(opts...)
 }
 
+// ClientConn 建客户端连接：参数是由 DefaultClient() 得到的 *ServerRpc。
+// 名字指本进程扮演的角色（这里是客户端），参数类型里的 Server 指调用目标。
 func ClientConn(client *ServerRpc, opts ...ConnOption) *Connect {
 	opts = append(opts, Server(client))
 	return newConnect(opts...)
@@ -172,8 +180,38 @@ func newConnect(opts ...ConnOption) *Connect {
 	for _, opt := range opts {
 		opt(svr)
 	}
+	svr.applyLogOptions()
 
 	return svr
+}
+
+// applyLogOptions 应用日志级别：显式选项优先，其次环境变量 SLOTH_LOG_LEVEL，都没有则保持默认 info。
+func (c *Connect) applyLogOptions() {
+	lvl := ""
+	if c.Option != nil {
+		lvl = c.Option.LogLevel
+	}
+	if lvl == "" {
+		lvl = os.Getenv("SLOTH_LOG_LEVEL")
+	}
+	if lvl != "" {
+		logger.SetLevel(logger.ParseLevel(lvl))
+	}
+}
+
+// startDebugServer 按 Option.DebugAddr 启动独立调试服务（metrics / pprof / vars）。
+// 独立于业务端口：调试端点无鉴权，不应与对外服务共用监听地址。
+func (c *Connect) startDebugServer() error {
+	if c.Option == nil || c.Option.DebugAddr == "" {
+		return nil
+	}
+	srv, err := metrics.Serve(c.Option.DebugAddr)
+	if err != nil {
+		return fmt.Errorf("start debug server on %s: %w", c.Option.DebugAddr, err)
+	}
+	c.debugSrv = srv
+	c.Log(logger.Info, "debug server listening on %s (metrics=/debug/metrics, pprof=/debug/pprof/)", c.Option.DebugAddr)
+	return nil
 }
 
 // Register 注册一个服务，name是服务名，rcvr是服务实现，metadata是服务描述
@@ -255,6 +293,9 @@ func newHTTPServer(handler http.Handler) *http.Server {
 func (c *Connect) Serve() error {
 	if len(c.listeners) == 0 {
 		return errors.New("no listeners registered, call Listen() first")
+	}
+	if err := c.startDebugServer(); err != nil {
+		return err
 	}
 
 	// 初始化 WebSocket 服务器
@@ -354,6 +395,12 @@ func (c *Connect) Close() error {
 		if err := c.wsServer.Close(); err != nil {
 			c.Log(logger.Error, "close ws server error: %v", err)
 		}
+	}
+	if c.debugSrv != nil {
+		if err := c.debugSrv.Close(); err != nil {
+			c.Log(logger.Error, "close debug server error: %v", err)
+		}
+		c.debugSrv = nil
 	}
 	c.Log(logger.Info, "all listeners closed")
 	return nil
@@ -460,6 +507,11 @@ func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Respons
 	return ref.CallFuncWithContext(ctx, serviceFns, node.Method, funArgs...)
 }
 
+// Log 按级别输出一行日志。
+//
+// 原实现是 log.Printf(line, args...)：级别参数被完全忽略（所有日志都是同一副样子），
+// 且 args 与占位符数量不匹配时标准库会输出 "%!v(MISSING)" 之类的占位垃圾。
+// 现在走统一门面：级别过滤生效，trace/字段由 ctx 携带（此处无 ctx 可传）。
 func (w *Connect) Log(lvl logger.LogLevel, line string, args ...any) {
-	log.Printf(line, args...)
+	logger.Logf(lvl, nil, line, args...)
 }

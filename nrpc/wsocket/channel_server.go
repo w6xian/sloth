@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -149,7 +149,7 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	c._sign = ""
 	c.Connect = connect
 	c.errHandler = func(err error) {
-		log.Println("Channel errHandler:", err.Error())
+		logger.Errorw(nil, "channel error handler", "err", err)
 	}
 	for _, opt := range opts {
 		opt(c)

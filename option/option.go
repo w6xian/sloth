@@ -79,3 +79,18 @@ func WithCodec(c codec.Codec) ConnectOption {
 		s.SetCodec(c)
 	}
 }
+
+// WithDebugHandler 把调试端点（/debug/metrics、/debug/pprof/*、/debug/vars）
+// 挂到当前服务端的 HTTP 路由上，与业务端口共用监听地址。
+//
+// 仅建议内网环境：端点无鉴权。对外服务请用 option.WithDebugAddr 起独立端口，
+// 或自行用 http.ServeMux 挂载（DebugHandler 返回的 handler）。
+//
+// 该选项只对实现 SetDebug 的服务端（如 *wsocket.WsServer）生效，客户端侧忽略。
+func WithDebugHandler() ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface{ SetDebug(bool) }); ok {
+			v.SetDebug(true)
+		}
+	}
+}

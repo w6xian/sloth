@@ -44,6 +44,14 @@ type Options struct {
 
 	TLSCertFile string
 	TLSKeyFile  string
+
+	// DebugAddr 非空时，Serve() 会在该地址独立启动调试服务：
+	// /debug/metrics（Prometheus）、/debug/pprof/*、/debug/vars。
+	// 建议填内网/回环地址（如 127.0.0.1:6060）：pprof 无鉴权，暴露公网等于开放堆采样。
+	DebugAddr string
+	// LogLevel 日志级别名：debug/info/warn/error，为空表示 info。
+	// 亦可用环境变量 SLOTH_LOG_LEVEL 覆盖（见 logger.ParseLevel）。
+	LogLevel string
 }
 
 func NewOptions() *Options {

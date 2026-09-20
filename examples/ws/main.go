@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/v3"
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/internal/utils"
-	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/slots"
 	"github.com/w6xian/sloth/v3/types"
@@ -31,25 +34,42 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// ① 日志配置：全局一次，必须在发起任何调用之前。
+	//    debug 会额外打印方法注册明细，生产建议 info（默认），避免刷屏。
+	sloth.SetLogLevel("debug")
+	// 日志进 ELK/Loki 时打开：单行 JSON，可直接按 level/trace/字段检索。
+	// sloth.SetLogJSON(true)
+
 	server := sloth.DefaultServer()
-	drpc := sloth.ServerConn(server, sloth.WithConnectProxy(func(ctx context.Context, service string) (int64, error) {
-		node, err := sloth.GetNode(service)
-		if err != nil {
-			return 0, err
-		}
-		svrId, ok := smap.Get(node.Service)
-		if !ok {
-			return 0, fmt.Errorf("service %s not registered", node.Service)
-		}
-		return svrId, nil
-	}))
+	drpc := sloth.ServerConn(server,
+		// ② 调试服务独立端口：/debug/metrics（Prometheus）、/debug/pprof/*、/debug/vars。
+		//    与业务端口分离，只需内网放行——这些端点没有鉴权，别挂在公网。
+		//    若必须共用业务端口，改用 option.WithDebugHandler() 传给 Listen 即可。
+		sloth.WithDebugAddr("127.0.0.1:6060"),
+		sloth.WithConnectProxy(func(ctx context.Context, service string) (int64, error) {
+			node, err := sloth.GetNode(service)
+			if err != nil {
+				return 0, err
+			}
+			svrId, ok := smap.Get(node.Service)
+			if !ok {
+				return 0, fmt.Errorf("service %s not registered", node.Service)
+			}
+			return svrId, nil
+		}))
 	r := mux.NewRouter()
 	// Register services
-	drpc.Register("v1", &HelloService{}, "metadata")
-	drpc.Listen(ctx, "ws", "localhost:8990",
+	if err := drpc.Register("v1", &HelloService{}, "metadata"); err != nil {
+		sloth.Errorw(ctx, "register service failed", "err", err)
+		return
+	}
+	if err := drpc.Listen(ctx, "ws", "localhost:8990",
 		option.WithRouter(r, "/ws"),
 		option.WithOrigin("*", "localhost:8000"),
-		option.WithServerHandleMessage(&Handler{}))
+		option.WithServerHandleMessage(&Handler{})); err != nil {
+		sloth.Errorw(ctx, "listen failed", "err", err)
+		return
+	}
 	// 重复操作，可以sloth.WithConnectProxy()来代替
 	drpc.UseProxyHandler(func(ctx context.Context, service string) (int64, error) {
 		node, err := sloth.GetNode(service)
@@ -66,20 +86,40 @@ func main() {
 	// go func() {
 	// 	for {
 	// 		time.Sleep(time.Millisecond * 2000)
-	// 		rst, err := server.CallRoom(ctx, 1, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
+	// 		// 主动调用也要传 ctx：库会为这次调用生成/沿用 trace id 并随请求发给对端
+	// 		callCtx, trace := sloth.EnsureTrace(ctx)
+	// 		rst, err := server.CallRoom(callCtx, 1, "shop.Test", nil, []byte{1}, 655360, true, &AB{A: 1, B: 2}, 'a', 12345)
 	// 		if err != nil {
-	// 			fmt.Println("Call error:", err)
+	// 			sloth.Errorw(callCtx, "room call failed", "trace", trace, "err", err)
 	// 			continue
 	// 		}
-	// 		fmt.Println("Call result:", string(rst))
+	// 		sloth.Infow(callCtx, "room call ok", "trace", trace, "result", string(rst))
 	// 	}
 	// }()
 
-	if err := drpc.Serve(); err != nil {
-		panic(err)
-	}
-	fmt.Println("WebSocket server listening on localhost:8990")
+	// ③ Serve() 是阻塞的：它在所有 listener 退出后才返回。
+	//    原示例把它写在主流程末尾，导致后面的 "listening" 永远不会打印。
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- drpc.Serve() }()
 
+	sloth.Infow(ctx, "server started",
+		"ws", "localhost:8990", "debug", "127.0.0.1:6060", "logLevel", "debug")
+
+	// ④ 优雅关闭：收到中断信号，或 Serve 自己异常退出时收尾
+	//    （Close 会关闭 listener 与调试服务；重复调用安全）
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			sloth.Errorw(ctx, "serve exited with error", "err", err)
+		}
+	case s := <-sig:
+		sloth.Infow(ctx, "shutdown signal received", "signal", s.String())
+	}
+	if err := drpc.Close(); err != nil {
+		sloth.Errorw(ctx, "close server failed", "err", err)
+	}
 }
 
 // Hello represents a simple message structure
@@ -93,8 +133,9 @@ type Handler struct {
 
 func (h *Handler) OnConnect(ctx context.Context, r *http.Request) error {
 	h.Server.OnConnect(ctx, r)
-	fmt.Println("OnConnect Handler1", r.RemoteAddr)
-	fmt.Println("OnConnect Handler1", r.RequestURI)
+	// 握手阶段库已为这条连接生成 trace id 并放进 ctx：
+	// 这里传 ctx，日志会带上 trace=xxx，与后续该连接上的读写日志天然串联。
+	sloth.Infow(ctx, "client connected", "remote", r.RemoteAddr, "uri", r.RequestURI)
 	return nil
 }
 
@@ -104,8 +145,12 @@ type HelloReq struct {
 }
 
 // HelloService implements the RPC service
+//
+// 注意：服务对象在**所有连接间共享**（Register 传的是同一个实例指针），
+// 而 RPC 是并发到达的，因此这里的可变状态必须原子/加锁保护；
+// 直接自增普通字段会 data race（-race 能直接抓到）。
 type HelloService struct {
-	Id int64 `json:"id"`
+	reqCount atomic.Int64
 }
 
 // AB is a test struct
@@ -116,19 +161,28 @@ type AB struct {
 
 // Test is a sample RPC method
 func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
-	h.Id = h.Id + 1
+	id := h.reqCount.Add(1)
 
-	// Retrieve context values
-	fmt.Println("Test args (Channel):", ctx.Value(sloth.ChannelKey).(bucket.IChannel))
-	fmt.Println("Test header:", ctx.Value(sloth.HeaderKey).(message.Header))
-	fmt.Println("Test args (AB):", ab)
+	// 从 ctx 取值一律用 GetXxx（返回值 + error）：
+	// 直接 ctx.Value(key).(T) 断言在值缺失时会 panic，会把整条连接的读循环打掉。
+	ch, err := sloth.GetChannel(ctx)
+	if err != nil {
+		sloth.Warnw(ctx, "channel missing in ctx", "err", err)
+	}
+	header, err := sloth.GetHeader(ctx)
+	if err != nil {
+		sloth.Warnw(ctx, "header missing in ctx", "err", err)
+	}
 
-	header, _ := sloth.GetHeader(ctx)
-	fmt.Println("Test header:", header)
+	// 结构化日志：传 ctx 才会带上 trace=xxx（库在 RPC 入口已注入），
+	// 可与发起方客户端、同一条连接上的其它日志按 trace 直接对账。
+	// 注意：header 里常带 token 等凭据，生产别整份打印，只打白名单字段。
+	sloth.Infow(ctx, "hello test called",
+		"id", id, "hasChannel", ch != nil, "headerKeys", len(header), "ab", ab)
 
 	// Simulate error
-	if h.Id%5 == 1 {
-		return nil, fmt.Errorf("error %d", h.Id)
+	if id%5 == 1 {
+		return nil, fmt.Errorf("error %d", id)
 	}
 
 	return map[string]string{
@@ -139,7 +193,7 @@ func (h *HelloService) Test(ctx context.Context, ab *AB) (any, error) {
 
 // Sign handles user signing/authentication
 func (h *HelloService) WebSign(ctx context.Context, data []byte) ([]byte, error) {
-	h.Id = h.Id + 1
+	h.reqCount.Add(1)
 
 	// Get channel from context
 	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
@@ -168,7 +222,7 @@ func (h *HelloService) WebSign(ctx context.Context, data []byte) ([]byte, error)
 
 // Sign handles user signing/authentication
 func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
-	h.Id = h.Id + 1
+	h.reqCount.Add(1)
 
 	// Get channel from context
 	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
@@ -196,7 +250,7 @@ func (h *HelloService) Sign(ctx context.Context, data []byte) ([]byte, error) {
 }
 
 func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
-	h.Id = h.Id + 1
+	h.reqCount.Add(1)
 
 	// Get channel from context
 	ch, ok := ctx.Value(sloth.ChannelKey).(bucket.IChannel)
@@ -227,14 +281,16 @@ func (h *HelloService) Reg(ctx context.Context, name string) ([]byte, error) {
 
 // TestByte tests various parameter types
 func (h *HelloService) TestByte(ctx context.Context, b []byte, i int, req HelloReq, resp *Hello, str *string, bytes *[]byte, strs []string, strsptr *[]string) (any, error) {
-	h.Id = h.Id + 1
+	id := h.reqCount.Add(1)
 
-	fmt.Println("Test args (Channel):", ctx.Value(sloth.ChannelKey).(bucket.IChannel))
-	fmt.Println("Test args (b):", b)
-	fmt.Println("Test args (all):", string(b), i, req, resp, *str, *bytes, strs, *strsptr)
+	// 指针入参由库在解码阶段分配，正常不为 nil；
+	// 业务代码对外部可控的指针入参仍建议先判空，避免畸形报文打成 panic。
+	sloth.Infow(ctx, "test byte called",
+		"id", id, "b", string(b), "i", i, "req", req, "resp", resp,
+		"str", *str, "bytesLen", len(*bytes), "strs", strs, "strsptr", *strsptr)
 
-	if h.Id%5 == 1 {
-		return nil, fmt.Errorf("error %d", h.Id)
+	if id%5 == 1 {
+		return nil, fmt.Errorf("error %d", id)
 	}
 
 	return map[string]string{

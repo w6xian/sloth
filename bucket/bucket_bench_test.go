@@ -3,20 +3,21 @@ package bucket
 import (
 	"context"
 	"io"
-	"log"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 )
 
 // discardLogs 关闭广播队列满时的限流日志：
 // 基准会持续打满队列，日志（全局互斥锁 + IO）会淹没 benchmark 输出并干扰计时。
+// 注意必须静音 logger 而非标准库 log：库内日志已全部改走 internal/logger。
 func discardLogs(b *testing.B) {
 	b.Helper()
-	log.SetOutput(io.Discard)
-	b.Cleanup(func() { log.SetOutput(os.Stderr) })
+	logger.SetOutput(io.Discard)
+	b.Cleanup(func() { logger.SetOutput(os.Stderr) })
 }
 
 // ---------------------------------------------------------------------------

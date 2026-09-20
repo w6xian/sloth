@@ -14,6 +14,7 @@ import (
 
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/internal/logger"
+	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/internal/tools"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
 	"github.com/w6xian/sloth/v3/message"
@@ -23,11 +24,21 @@ import (
 	"github.com/w6xian/sloth/v3/types/trpc"
 	"github.com/w6xian/tlv"
 
-	"log"
-
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
+
+// wsServerSeq 为 WsServer 实例编号，仅用于指标 label 区分。
+var wsServerSeq atomic.Uint64
+
+// wsMetrics 持有本实例的指标句柄。
+type wsMetrics struct {
+	connGauge         *metrics.GaugeFunc
+	connRejected      *metrics.Counter
+	upgradeErrors     *metrics.Counter
+	handshakeRejected *metrics.Counter
+	pumpRecovers      *metrics.Counter
+}
 
 type WsServer struct {
 	nrpc.RpcConn
@@ -54,6 +65,11 @@ type WsServer struct {
 	perIP     map[string]int64
 	globalCnt atomic.Int64
 	closed    bool
+
+	// id 实例编号（指标 label）；debug 为 true 时把 /debug/* 挂到 router
+	id    int
+	debug bool
+	m     wsMetrics
 
 	// upgrader 在首次握手时按当前配置构建并复用。
 	// Upgrader 本身无每连接状态（缓冲区大小与校验函数都是只读的），
@@ -92,8 +108,13 @@ func (s *WsServer) SetClientHandleMessage(handler handler.IClientHandleMessage) 
 	return nil
 }
 
+// log 输出一行带级别的日志。
+//
+// 原实现 log.Println("[WsServer]", level, line, args)：
+//   - Println 不做格式化，format 串与 args 被并列打印成 "…%v [err]"；
+//   - 级别只是被打印的普通参数，不起过滤作用。
 func (s *WsServer) log(level logger.LogLevel, line string, args ...any) {
-	log.Println("[WsServer]", level, line, args)
+	logger.Logf(level, nil, line, args...)
 }
 
 func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
@@ -133,11 +154,35 @@ func NewWsServer(server trpc.ICallRpc, opts ...option.ConnectOption) *WsServer {
 	s.trustProxy = opt.TrustProxyHeaders
 	s.conns = make(map[*WsChannelServer]struct{})
 	s.perIP = make(map[string]int64)
+	s.id = int(wsServerSeq.Add(1) - 1)
+	s.registerMetrics()
 
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
+}
+
+// SetDebug 挂载调试端点（供 option.WithDebugHandler 使用，不进入 IConnectOption 接口，
+// 因此不会强制客户端实现方也实现该方法）。
+func (s *WsServer) SetDebug(enabled bool) { s.debug = enabled }
+
+// registerMetrics 注册本实例指标：活跃连接数用 GaugeFunc 直接读计数器，
+// 避免"建立/断开两处对称记账"漏记导致的永久漂移。
+func (s *WsServer) registerMetrics() {
+	label := fmt.Sprintf(`{server="%d"}`, s.id)
+	s.m.connGauge = metrics.NewGaugeFunc("sloth_ws_connections"+label,
+		"当前 WebSocket 活跃连接数", func() float64 {
+			return float64(s.globalCnt.Load())
+		})
+	s.m.connRejected = metrics.NewCounter("sloth_ws_conn_rejected_total"+label,
+		"因连接数限额被拒绝的连接次数")
+	s.m.upgradeErrors = metrics.NewCounter("sloth_ws_upgrade_errors_total"+label,
+		"WebSocket Upgrade 失败次数")
+	s.m.handshakeRejected = metrics.NewCounter("sloth_ws_handshake_rejected_total"+label,
+		"OnConnect 校验未通过被拒绝的连接次数")
+	s.m.pumpRecovers = metrics.NewCounter("sloth_ws_pump_recovers_total"+label,
+		"readPump/writePump 从 panic 中恢复的次数")
 }
 
 // Handler 返回 HTTP handler（mux router），供 Serve() 挂载到 http.Server。
@@ -304,17 +349,25 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 			s.log(logger.Error, "ListenAndServe recover err : %v", err)
 		}
 	}()
+	if s.debug {
+		// PathPrefix 不做路径剥离，内层 ServeMux 仍收到完整 /debug/... 路径，与其注册模式一致
+		s.router.PathPrefix("/debug/").Handler(metrics.Handler())
+	}
 	s.router.HandleFunc(s.uriPath, func(w http.ResponseWriter, r *http.Request) {
+		// 每条连接派生独立 trace id：握手校验与后续 readPump/writePump 的日志自动串联。
+		// 派生自外层 ctx，保留其取消传播语义（不要用 r.Context()，连接 Hijack 后语义不同）。
+		connCtx, _ := logger.EnsureTrace(ctx)
 		if s.handler != nil {
-			if err := s.handler.OnConnect(ctx, r); err != nil {
-				log.Printf("OnConnect err %v", err)
+			if err := s.handler.OnConnect(connCtx, r); err != nil {
+				s.m.handshakeRejected.Inc()
+				logger.Errorw(connCtx, "ws OnConnect rejected", "uri", s.uriPath, "err", err)
 				w.WriteHeader(http.StatusUnauthorized)
 				// 关闭连接，返回401错误
-				w.Write([]byte(err.Error()))
+				_, _ = w.Write([]byte(err.Error()))
 				return
 			}
 		}
-		s.serveWs(ctx, w, r)
+		s.serveWs(connCtx, w, r)
 	})
 	return nil
 }
@@ -369,15 +422,21 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 	}
 	conn, err := upGrader.Upgrade(w, r, header)
 	if err != nil {
+		// Upgrade 失败时客户端尚未完成握手（多半是协议/跨域问题），
+		// 标准库已向对端写回错误响应，这里只计数不刷日志。
+		s.m.upgradeErrors.Inc()
 		return
 	}
 	// 连接数限额（全局/WS/per-IP），超限直接关闭
 	ip, ok := s.acquireConn(r)
 	if !ok {
+		s.m.connRejected.Inc()
 		s.log(logger.Info, "ws connection limit exceeded, ip:%s", ip)
 		conn.Close()
 		return
 	}
+	// 该连接后续所有日志自动带上客户端 IP
+	ctx = logger.WithFields(ctx, "ip", ip)
 	// 一个连接一个channel
 	ch := NewWsChannelServer(s.Connect)
 	//default broadcast size eq 512
@@ -395,7 +454,8 @@ func (s *WsServer) serveWs(ctx context.Context, w http.ResponseWriter, r *http.R
 func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
-			s.log(logger.Error, "writePump 111 recover err : %v", err)
+			s.m.pumpRecovers.Inc()
+			s.log(logger.Error, "writePump recover err: %v", err)
 		}
 	}()
 	// 心跳间隔必须与 PongWait 配置保持一致（此前硬编码 9s 使 WithPingPeriod 失效）
@@ -471,7 +531,8 @@ func (s *WsServer) writePump(ctx context.Context, r *http.Request, ch *WsChannel
 func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelServer) {
 	defer func() {
 		if err := recover(); err != nil {
-			s.log(logger.Error, "readPump recover err : %v", err)
+			s.m.pumpRecovers.Inc()
+			s.log(logger.Error, "readPump recover err: %v", err)
 		}
 	}()
 	defer func() {

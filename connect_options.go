@@ -155,6 +155,23 @@ func WithTrustProxyHeaders(trust bool) ConnOption {
 	}
 }
 
+// WithDebugAddr 指定调试服务的独立监听地址（如 "127.0.0.1:6060"）。
+// Serve() 会在该地址启动 /debug/metrics、/debug/pprof/*、/debug/vars。
+// 仅监听内网或回环地址：这些端点无鉴权。
+func WithDebugAddr(addr string) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.DebugAddr = addr
+	}
+}
+
+// WithLogLevel 设置日志级别：debug/info/warn/error。
+// 亦可用环境变量 SLOTH_LOG_LEVEL 设置（显式选项优先）。
+func WithLogLevel(level string) ConnOption {
+	return func(ch *Connect) {
+		ch.Option.LogLevel = level
+	}
+}
+
 func WithTLSCertFile(path string) ConnOption {
 	return func(ch *Connect) {
 		ch.Option.TLSCertFile = path

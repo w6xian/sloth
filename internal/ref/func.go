@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 
+	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
 )
@@ -62,27 +62,27 @@ func suitable_methods(typ reflect.Type) (map[string]reflect.Method, map[string]F
 		}
 		// 只限定第一个参数，一这是context.Context，后面的参数可以是任意类型
 		if m.Type.NumIn() < 2 {
-			log.Printf("[notice]method %s must have at least 1 arguments", m.Name)
+			logger.Warnf(nil, "skip method %s: must have at least 1 argument", m.Name)
 			continue
 		}
 		arg1 := m.Type.In(1)
 		// 判定第一个参数是不是context.Context
 		if !arg1.Implements(typeOfContext) {
-			log.Printf("[notice]method %s must have at least 1 arguments, first argument must be context.Context", m.Name)
+			logger.Warnf(nil, "skip method %s: first argument must be context.Context", m.Name)
 			continue
 		}
 		// 返回值最后一个值需要是error
 		if m.Type.NumOut() < 1 {
-			log.Printf("[notice]method %s must have 1-2 return value and last return value must be error", m.Name)
+			logger.Warnf(nil, "skip method %s: must have 1-2 return values", m.Name)
 			continue
 		}
 		if m.Type.NumOut() > 2 {
-			log.Printf("[notice]method %s must have 1-2 return values and last return value must be error", m.Name)
+			logger.Warnf(nil, "skip method %s: must have at most 2 return values", m.Name)
 			continue
 		}
 		out := m.Type.Out(m.Type.NumOut() - 1)
 		if !out.Implements(typeOfError) {
-			log.Printf("[notice]method %s must have at least 1 return value, last return value must be error", m.Name)
+			logger.Warnf(nil, "skip method %s: last return value must be error", m.Name)
 			continue
 		}
 		methods[m.Name] = m
@@ -104,7 +104,8 @@ func suitable_methods(typ reflect.Type) (map[string]reflect.Method, map[string]F
 	}
 
 	for _, m := range methods {
-		log.Printf("[success]method %s is registered", m.Name)
+		// 注册成功属启动期详细信息，用 Debug：默认级别下不刷屏
+		logger.Debugf(nil, "method %s registered", m.Name)
 	}
 
 	return methods, iface

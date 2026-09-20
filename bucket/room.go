@@ -3,9 +3,9 @@ package bucket
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 
+	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 )
 
@@ -158,7 +158,9 @@ func (r *Room) Broadcast(ctx context.Context, msg *message.Msg) {
 	defer r.rLock.RUnlock()
 	for ch := range r.channels {
 		if err := ch.Push(ctx, msg); err != nil {
-			log.Printf("room broadcast err:%s", err.Error())
+			// 单条推送失败（连接写队列满/已关闭）不该中断整房间广播，仅记录。
+			// 高频场景下这里可能刷屏，故用 Warn 级别，可通过 SetLevel(Error) 关闭。
+			logger.Warnw(ctx, "room broadcast push failed", "room", r.Id, "err", err)
 		}
 	}
 }

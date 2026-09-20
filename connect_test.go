@@ -3,6 +3,7 @@ package sloth
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -444,6 +445,41 @@ func TestCallNetFuncProxyFlow(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("proxy handler should have been invoked")
+	}
+}
+
+// TestDebugEndpointOnWsRouter 验证调试端点能挂到 WS 路由（option.WithDebugHandler），
+// 且服务端指标确实被注册——这是"埋点接上了"的端到端验证。
+func TestDebugEndpointOnWsRouter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	svr := ServerConn(DefaultServer())
+	defer svr.Close()
+	if err := svr.Listen(ctx, "ws", "127.0.0.1:0", option.WithDebugHandler()); err != nil {
+		t.Fatalf("listen err: %v", err)
+	}
+	addr := svr.listeners[0].Listener.Addr().String()
+	go svr.Serve()
+	waitServerReady(t, ctx, addr)
+
+	for _, path := range []string{"/debug/metrics", "/debug/pprof/", "/debug/vars"} {
+		resp, err := http.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status = %d", path, resp.StatusCode)
+		}
+		if path == "/debug/metrics" {
+			for _, want := range []string{"sloth_ws_connections", "sloth_bucket_channels", "sloth_goroutines"} {
+				if !strings.Contains(string(body), want) {
+					t.Errorf("metrics missing %s:\n%s", want, body)
+				}
+			}
+		}
 	}
 }
 
