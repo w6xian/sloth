@@ -2,11 +2,11 @@ package ref
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/utils"
 	"github.com/w6xian/sloth/v3/internal/utils/array"
@@ -153,7 +153,7 @@ func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
 func CallFuncWithContext(ctx context.Context, Fns *ServiceFuncs, method string, args ...[]byte) ([]byte, error) {
 	mtd, ok := Fns.M[method]
 	if !ok {
-		return nil, errors.New("method not found")
+		return nil, fmt.Errorf("%w: %s", errs.ErrMethodNotFound, method)
 	}
 	funcArgs := []reflect.Value{
 		Fns.V,                // 需要第一个为方法所属对象，【必须】这个是反射参数要求
@@ -169,6 +169,11 @@ func call_instance_func(mtd reflect.Method, params []reflect.Value, args ...[]by
 	maxArgs := mtd.Type.NumIn() - defArgsNum
 	if rArgsLen > maxArgs {
 		return nil, fmt.Errorf("too many arguments: got %d, want at most %d", rArgsLen, maxArgs)
+	}
+	// 参数不足同样必须拦住：args 来自网络报文，少传时 params 长度不够，
+	// mtd.Func.Call 会直接 panic（此前只校验上限，短报文会打挂调用链）。
+	if rArgsLen < maxArgs {
+		return nil, fmt.Errorf("too few arguments: got %d, want %d", rArgsLen, maxArgs)
 	}
 	// Elem() 相当于 *T 取指针指向的类型
 	// more args

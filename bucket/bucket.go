@@ -215,11 +215,8 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 		}
 	}
 	if roomId != NoRoom {
-		if room, ok = b.rooms[roomId]; !ok {
-			room = NewRoom(roomId)
-			b.rooms[roomId] = room
-		}
-		if room.Drop {
+		// 房间不存在或已解散(Drop)都重建：解散过的房间不能复用（Join 会直接失败）
+		if room, ok = b.rooms[roomId]; !ok || room.Drop {
 			room = NewRoom(roomId)
 			b.rooms[roomId] = room
 		}
@@ -227,10 +224,19 @@ func (b *Bucket) Put(userId int64, roomId int64, token string, ch IChannel) (err
 	}
 	ch.UserId(userId)
 	ch.Token(token)
-	b.chs[userId] = ch
+	// 先入房、后注册：Join 失败时若已写入 b.chs，这条连接会留在注册表里却不属于
+	// 任何房间——调用方拿到的是一条"僵尸连接"（按 userId 能 Call 到，但房间广播
+	// 永远收不到）。入房失败即返回错误，由调用方决定是否关闭该连接。
 	if room != nil {
-		err = room.Join(ch)
+		if err = room.Join(ch); err != nil {
+			b.cLock.Unlock()
+			if toClose != nil {
+				toClose.Close()
+			}
+			return
+		}
 	}
+	b.chs[userId] = ch
 	b.cLock.Unlock()
 
 	// 锁外关闭旧连接（关键）：Close() 会先获取连接自身的互斥锁，
@@ -278,14 +284,29 @@ func (b *Bucket) DeleteChannel(ch IChannel) {
 	defer b.cLock.Unlock()
 	// 只删除传入的连接自身：断开的旧连接若晚于新连接执行清理（F5 重连竞态），
 	// b.chs 中该 userId 已是新连接，无 cur==ch 保护会误删新连接。
-	if cur, ok := b.chs[ch.UserId()]; ok && cur == ch {
-		room := cur.Room()
-		// delete from bucket
-		delete(b.chs, ch.UserId())
-		// 房间清空后解散并回收：Leave 返回 Drop（空且非 Plaza）
-		if room != nil && room.Leave(cur) && room.Drop {
-			delete(b.rooms, room.Id)
+	key, found := ch.UserId(), false
+	if cur, ok := b.chs[key]; ok && cur == ch {
+		found = true
+	} else {
+		// 兜底：channel 的 UserId 可能已被 Logout 置 0（或尚未赋值），此时按 userId
+		// 查不到条目，连接会永久残留在注册表与房间成员里（内存泄漏，且广播/全服
+		// 调用仍会打到死连接）。退化为全表比对——只有异常路径才会走到这里，
+		// 正常删除命中上面的分支，不影响热路径性能。
+		for id, c := range b.chs {
+			if c == ch {
+				key, found = id, true
+				break
+			}
 		}
+	}
+	if !found {
+		return
+	}
+	room := ch.Room()
+	delete(b.chs, key)
+	// 房间清空后解散并回收：Leave 返回 Drop（空且非 Plaza）
+	if room != nil && room.Leave(ch) && room.Drop {
+		delete(b.rooms, room.Id)
 	}
 }
 

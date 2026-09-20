@@ -26,7 +26,10 @@ const (
 	ArgumentMagic1      byte = 0x3A // ':'
 	ArgumentMagic2      byte = 0x70 // 'p'
 	ArgumentHeaderSize       = 2 + 1 + 2
-	ArgumentMaxDataSize      = 1 << 16
+	// ArgumentMaxDataSize 是 Value 段字节数上限。长度字段只有 2 字节（uint16），
+	// 上限是 65535 而非 65536：原先写成 1<<16，encode_ag 会接受 65536 字节的
+	// Value，再被 PutUint16 截断成 0 → 编出长度 0 的帧，数据静默丢失。
+	ArgumentMaxDataSize = 1<<16 - 1
 )
 
 // 基本类型穷举（与 Go 原语一一对应，0x01~0x1F 为基础标量；0x20~0x3F 为复合/扩展）

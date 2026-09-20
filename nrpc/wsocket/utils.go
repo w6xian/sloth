@@ -12,7 +12,33 @@ import (
 	"github.com/w6xian/sloth/v3/nrpc"
 
 	"github.com/gorilla/websocket"
+	"github.com/w6xian/tlv"
 )
+
+// tlvValue 解出 TLV 帧的 Value 段。
+//
+// tlv 是外部库，Deserialize 对畸形输入会 panic（slice 越界）。报文来自网络，
+// 解密/分片重组后仍可能是任意字节，这里统一兜住：panic 转成 error，
+// 由调用方按"不是 TLV 帧"处理（原样透传），而不是把进程打挂。
+func tlvValue(b []byte) (v []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			v, err = nil, fmt.Errorf("tlv decode panic: %v", r)
+		}
+	}()
+	f, e := tlv.Deserialize(b)
+	if e != nil {
+		return nil, e
+	}
+	return f.Value(), nil
+}
+
+// maxReassembleSize 分片重组后消息体的字节上限。
+//
+// dataSize 直接来自报文（frame 的 S 字段），若不设上限，一个声明几 GB 长度的
+// 分片头会让下面的 make 一次性申请巨额内存（32 位平台上 uint32→int 还会溢出
+// 成负数）。真实业务消息不会到这个量级，超限即判定为非法报文。
+const maxReassembleSize = 64 << 20 // 64MB
 
 const (
 	TextMessage   = 0x1 // 文本数据消息
@@ -119,6 +145,10 @@ func receiveMessage(conn nrpc.IReadConn, messageType byte, message []byte) ([]by
 	}
 	id := sc.N
 	dataSize := sc.S
+	// 长度声明来自报文：超限直接拒绝，避免按恶意 length 一次性申请巨额内存
+	if dataSize > maxReassembleSize {
+		return nil, fmt.Errorf("message size %d exceeds limit %d", dataSize, maxReassembleSize)
+	}
 	// 接收完整数据
 	data := make([]byte, 0, dataSize)
 	data = append(data, sc.D...)

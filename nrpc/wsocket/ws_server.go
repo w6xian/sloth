@@ -22,7 +22,6 @@ import (
 	"github.com/w6xian/sloth/v3/option"
 	"github.com/w6xian/sloth/v3/types/handler"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -592,9 +591,9 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 			}
 			continue
 		}
-		tlvFrame, err := tlv.Deserialize(m)
-		if err == nil {
-			m = tlvFrame.Value()
+		// tlv 是外部库，畸形帧会 panic：走 tlvValue 兜底，失败即按裸数据处理
+		if v, err := tlvValue(m); err == nil {
+			m = v
 		}
 		if err := nrpc.DispatchMessage(nrpc.RouteArgs{
 			Context: ctx,

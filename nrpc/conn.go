@@ -8,6 +8,7 @@ import (
 
 	"github.com/w6xian/sloth/v3/actions"
 	"github.com/w6xian/sloth/v3/internal/codec"
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/utils/id"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types/trpc"
@@ -85,7 +86,7 @@ func (c *RpcChannel) Receive(ctx context.Context, payload []byte) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
+		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	}
 	return nil
 }
@@ -104,7 +105,7 @@ func (c *RpcChannel) channel_result(ctx context.Context, action byte, id uint64,
 		return ctx.Err()
 	case c.PRpcBacker <- payload:
 	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
+		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	}
 	return nil
 }

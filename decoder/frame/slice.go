@@ -157,10 +157,18 @@ func Encode(s *DataSlice, opts ...FrameOption) []byte {
 	return buf
 }
 
-// DecodeSlice 从二进制数据中解码分片
+// DecodeSlice 从二进制数据中解码分片。
+//
+// 输入来自网络，必须是"任意字节都能安全返回 error"的。此前有两个越界口子：
+//  1. 先按最小头长（7 字节）校验，随后又按 tag 去读 b[5:9]（4 字节长度字段），
+//     长度 7~8 的帧会 slice 越界 panic；
+//  2. 总长校验用 int 做加法，长度字段是 uint32，在 32 位平台上 int 是 32 位，
+//     溢出成负数后 len(b) < 负数 为假 → 校验被绕过 → 切片再越界。
+//
+// 现在：每一段读取前先校验剩余长度，且所有长度计算都在 uint64 域内完成。
 func Decode(b []byte) (*DataSlice, error) {
-	headerSize := get_header_size(2, false)
-	if len(b) < int(headerSize) {
+	minHeader := uint64(get_header_size(2, false)) // 7：type+name+total+index+len16
+	if uint64(len(b)) < minHeader {
 		return nil, fmt.Errorf("invalid slice data length")
 	}
 	tag := b[0]
@@ -173,13 +181,19 @@ func Decode(b []byte) (*DataSlice, error) {
 	if tag&CRC == CRC {
 		opt.CheckCRC = true
 	}
-
-	l := uint32(binary.BigEndian.Uint16(b[5:7]))
-	if opt.LengthSize == 4 {
-		l = binary.BigEndian.Uint32(b[5:9])
+	// 长度字段位于 [5, 5+LengthSize)：读之前必须先确认这一段存在
+	if uint64(len(b)) < uint64(5+opt.LengthSize) {
+		return nil, fmt.Errorf("invalid slice data length")
 	}
-	headerSize = get_header_size(opt.LengthSize, opt.CheckCRC)
-	if len(b) < int(headerSize)+int(l) {
+	var l uint64
+	if opt.LengthSize == 2 {
+		l = uint64(binary.BigEndian.Uint16(b[5:7]))
+	} else {
+		l = uint64(binary.BigEndian.Uint32(b[5:9]))
+	}
+	headerSize := uint64(get_header_size(opt.LengthSize, opt.CheckCRC))
+	// uint64 域相加：避免 32 位平台上 int(l) 溢出为负绕过校验
+	if uint64(len(b)) < headerSize+l {
 		return nil, fmt.Errorf("invalid slice data length")
 	}
 	s := &DataSlice{
@@ -188,9 +202,11 @@ func Decode(b []byte) (*DataSlice, error) {
 		T: b[3],
 		I: b[4],
 	}
-	s.S = l
+	// 走到这里 l 必 <= 65535(2B) 或 <= math.MaxUint32(4B)；4B 分支本就是 uint32，
+	// 2B 分支 <= 65535，转 uint32 均不截断。
+	s.S = uint32(l)
 
-	data := b[headerSize : int(headerSize)+int(l)]
+	data := b[headerSize : headerSize+l]
 	// 校验crc
 	if opt.CheckCRC {
 		crc := b[headerSize-2 : headerSize]

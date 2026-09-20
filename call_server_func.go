@@ -3,10 +3,12 @@ package sloth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/decoder/ag"
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -61,7 +63,7 @@ func (c *ServerRpc) SetAuthInfo(auth *auth.AuthInfo) error {
 	}
 	listen := c.getListen()
 	if listen == nil {
-		return errors.New("server not found")
+		return fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	c.RoomId = auth.RoomId
 	c.UserId = auth.UserId
@@ -72,7 +74,7 @@ func (c *ServerRpc) SetAuthInfo(auth *auth.AuthInfo) error {
 func (c *ServerRpc) GetAuthInfo() (*auth.AuthInfo, error) {
 	listen := c.getListen()
 	if listen == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	return listen.GetAuthInfo()
 }
@@ -101,7 +103,7 @@ func LinkServerFunc(opts ...IRpcOption) *ServerRpc {
 func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
 	listen := c.getListen()
 	if listen == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -122,7 +124,7 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, mtd string, arg ...any) ([]byte, error) {
 	listen := c.getListen()
 	if listen == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -145,7 +147,7 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 func (c *ServerRpc) Send(ctx context.Context, data any) error {
 	listen := c.getListen()
 	if listen == nil {
-		return errors.New("server not found")
+		return fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	// 编码
 	attr, err := c.Encoder(data)

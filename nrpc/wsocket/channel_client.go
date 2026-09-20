@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
 	"github.com/w6xian/sloth/v3/types/auth"
@@ -121,7 +122,7 @@ func (c *WsChannelClient) Push(ctx context.Context, msg *message.Msg) (err error
 	select {
 	case c.PSend <- msg:
 	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
+		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	case <-ctx.Done():
 		return ctx.Err()
 	}

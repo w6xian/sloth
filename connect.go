@@ -13,9 +13,11 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/w6xian/sloth/v3/internal/codec"
+	"github.com/w6xian/sloth/v3/internal/errs"
 
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
@@ -83,6 +85,12 @@ type Connect struct {
 	wsServer *wsocket.WsServer
 	// debugSrv 为 Option.DebugAddr 启动的调试服务（nil 表示未启用）
 	debugSrv *http.Server
+
+	// serveWg 跟踪 Serve() 拉起的监听 goroutine，serving 标记 Serve 是否已启动。
+	// Close() 原先只关 listener 就返回，这些 goroutine 可能还卡在 http.Server.Serve
+	// 上（进程收尾时资源不回收，测试里表现为收不到退出信号）。
+	serveWg sync.WaitGroup
+	serving atomic.Bool
 }
 
 func (c *Connect) CallNetFunc(ctx context.Context, r *http.Request, service string, msgId uint64, msg []byte) ([]byte, error) {
@@ -309,8 +317,10 @@ func (c *Connect) Serve() error {
 	}
 
 	// 创建 HTTP 服务器来处理所有 WebSocket 监听器
-	var wg sync.WaitGroup
+	var wg = &c.serveWg
 	errChan := make(chan error, len(c.listeners))
+	// 标记"已启动"，供 Close() 判断是否需要等待这些 goroutine 退出
+	c.serving.Store(true)
 
 	// WS/WSS 共用同一个 WsServer 的 mux router（含 /ws 路由与 OnConnect 校验）。
 	// 此前 http.Serve(listener, nil) 使用 DefaultServeMux，导致上述路由从未生效。
@@ -390,6 +400,11 @@ func (c *Connect) Close() error {
 			}
 		}
 	}
+	// 等待 Serve() 拉起的监听 goroutine 退出：listener 已关闭，http.Server.Serve
+	// 会立即返回，这里不会长阻塞；若 Serve 从未调用（纯客户端），serving 为 false。
+	if c.serving.Load() {
+		c.serveWg.Wait()
+	}
 	c.listeners = nil
 	if c.wsServer != nil {
 		if err := c.wsServer.Close(); err != nil {
@@ -457,7 +472,7 @@ func (c *Connect) Dial(ctx context.Context, network, address string, options ...
 func (c *Connect) SetAuthInfo(auth *auth.AuthInfo) error {
 	listen := c.server.getListen()
 	if listen == nil {
-		return errors.New("server not found")
+		return fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	return listen.SetAuthInfo(auth)
 }

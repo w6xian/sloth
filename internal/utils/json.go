@@ -131,29 +131,36 @@ func MapToStruct(s any, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// JsonString 把任意值转成字符串；json.Marshal 失败时按 Kind 降级格式化。
+//
+// 降级分支原先是 v.(bool) / v.(int64) 这类直接断言：v 的实际类型是 int、int32、
+// float32 时断言会 panic（Kind 相同但类型不同）。改用 reflect.Value 取值，
+// 对任何 Kind 都成立，且 nil 不再 panic。
 func JsonString(v any) string {
-	t := reflect.TypeOf(v)
 	b, err := json.Marshal(v)
-	if err != nil {
-		switch t.Kind() {
-		case reflect.Slice:
-			return "[]"
-		case reflect.Map:
-			return "{}"
-		case reflect.Bool:
-			return strconv.FormatBool(v.(bool))
-		case reflect.String:
-			return v.(string)
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return strconv.FormatInt(v.(int64), 10)
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return strconv.FormatUint(v.(uint64), 10)
-		case reflect.Float32, reflect.Float64:
-			return strconv.FormatFloat(v.(float64), 'f', -1, 64)
-		default:
-			return ""
-		}
-
+	if err == nil {
+		return string(b)
 	}
-	return string(b)
+	if v == nil {
+		return ""
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice:
+		return "[]"
+	case reflect.Map:
+		return "{}"
+	case reflect.Bool:
+		return strconv.FormatBool(rv.Bool())
+	case reflect.String:
+		return rv.String()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(rv.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(rv.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		return strconv.FormatFloat(rv.Float(), 'f', -1, 64)
+	default:
+		return ""
+	}
 }

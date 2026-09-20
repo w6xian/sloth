@@ -11,6 +11,7 @@ import (
 	"github.com/w6xian/sloth/v3/actions"
 	"github.com/w6xian/sloth/v3/decoder/fn"
 	"github.com/w6xian/sloth/v3/internal/codec"
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/internal/metrics"
 	"github.com/w6xian/sloth/v3/message"
@@ -120,7 +121,7 @@ func CallFuncWithResult(ctx context.Context, msgId uint64, payload []byte, sende
 	// 发送调用请求
 	select {
 	case <-timer.C:
-		return []byte{}, fmt.Errorf("call timeout")
+		return []byte{}, fmt.Errorf("call timeout: %w after %s", errs.ErrTimeout, writeTimeout)
 	case sender.Write <- payload:
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -143,10 +144,10 @@ func CallFuncWithResult(ctx context.Context, msgId uint64, payload []byte, sende
 		case <-ctx.Done():
 			return []byte{}, ctx.Err()
 		case <-timer.C:
-			return []byte{}, fmt.Errorf("reply timeout")
+			return []byte{}, fmt.Errorf("reply timeout: %w after %s", errs.ErrTimeout, replyTimeout)
 		case raw, ok := <-sender.Read:
 			if !ok {
-				return []byte{}, fmt.Errorf("rpc result closed")
+				return []byte{}, fmt.Errorf("rpc result closed: %w", errs.ErrConnClosed)
 			}
 			action, aerr := fn.Action(raw)
 			if aerr != nil {

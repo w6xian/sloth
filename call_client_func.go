@@ -11,6 +11,7 @@ import (
 	"github.com/w6xian/sloth/v3/bucket"
 	"github.com/w6xian/sloth/v3/decoder"
 	"github.com/w6xian/sloth/v3/decoder/ag"
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/types"
@@ -116,15 +117,15 @@ func channelClosed(ch bucket.IChannel) bool {
 func (c *ClientRpc) Call(ctx context.Context, userId int64, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	b := serve.Bucket(userId)
 	ch := b.Channel(userId)
 	if ch == nil {
-		return nil, errors.New("channel not found")
+		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
 	if channelClosed(ch) {
-		return nil, errors.New("channel closed")
+		return nil, fmt.Errorf("channel closed: %w", errs.ErrConnClosed)
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -191,15 +192,15 @@ func callHeader(ctx context.Context, shared, header message.Header, trace string
 func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint64, data []byte) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	b := serve.Bucket(proxyService)
 	ch := b.Channel(proxyService)
 	if ch == nil {
-		return nil, errors.New("channel not found")
+		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
 	if channelClosed(ch) {
-		return nil, errors.New("channel closed")
+		return nil, fmt.Errorf("channel closed: %w", errs.ErrConnClosed)
 	}
 	resp, err := ch.SendData(ctx, msgId, data)
 	if err != nil {
@@ -212,15 +213,15 @@ func (c *ClientRpc) CallNet(ctx context.Context, proxyService int64, msgId uint6
 func (c *ClientRpc) CallWithHeader(ctx context.Context, header message.Header, userId int64, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	b := serve.Bucket(userId)
 	ch := b.Channel(userId)
 	if ch == nil {
-		return nil, errors.New("channel not found")
+		return nil, fmt.Errorf("channel not found: %w", errs.ErrNoChannel)
 	}
 	if channelClosed(ch) {
-		return nil, errors.New("channel closed")
+		return nil, fmt.Errorf("channel closed: %w", errs.ErrConnClosed)
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {
@@ -268,7 +269,7 @@ const callRoomConcurrency = 64
 func (c *ClientRpc) CallRoom(ctx context.Context, roomId int64, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	room := serve.Room(roomId)
 	if room == nil || room.IsDrop() {
@@ -323,7 +324,7 @@ var callBucketErrLog atomic.Uint64
 func (c *ClientRpc) CallBucket(ctx context.Context, mtd string, arg ...any) ([]byte, error) {
 	serve := c.getServe()
 	if serve == nil {
-		return nil, errors.New("server not found")
+		return nil, fmt.Errorf("server not found: %w", errs.ErrNotServing)
 	}
 	args, err := decoder.EncodeArgs(arg, c.Encoder)
 	if err != nil {

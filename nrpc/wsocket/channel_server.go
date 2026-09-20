@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v3/bucket"
+	"github.com/w6xian/sloth/v3/internal/errs"
 	"github.com/w6xian/sloth/v3/internal/logger"
 	"github.com/w6xian/sloth/v3/message"
 	"github.com/w6xian/sloth/v3/nrpc"
@@ -169,7 +170,7 @@ func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err erro
 	select {
 	case ch.broadcast <- msg:
 	case <-timer.C:
-		return fmt.Errorf("rpc reply queue full")
+		return fmt.Errorf("rpc reply queue full: %w", errs.ErrQueueFull)
 	case <-ctx.Done():
 		return ctx.Err()
 	}

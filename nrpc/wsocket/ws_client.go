@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 
 	"sync"
 	"sync/atomic"
@@ -22,7 +23,6 @@ import (
 	"github.com/w6xian/sloth/v3/types/auth"
 	"github.com/w6xian/sloth/v3/types/handler"
 	"github.com/w6xian/sloth/v3/types/trpc"
-	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -79,9 +79,11 @@ func (c *LocalClient) SetHeader(key string, value string) error {
 func (c *LocalClient) SetOrigin(origins ...string) error {
 	return nil
 }
+// SetServerHandleMessage 在客户端无意义（客户端没有"服务端消息处理器"这一角色）。
+// 原实现直接 panic：库内 panic 会把调用方进程打挂，且无法被业务 recover 判断，
+// 这里改为返回 error，由调用方决定如何处理。
 func (s *LocalClient) SetServerHandleMessage(handler handler.IServerHandleMessage) error {
-	// 空方法
-	panic("SetClientHandleMessage is not implemented")
+	return errors.New("SetServerHandleMessage is not implemented on client")
 }
 func (s *LocalClient) SetClientHandleMessage(handler handler.IClientHandleMessage) error {
 	s.handler = handler
@@ -528,11 +530,16 @@ func (c *LocalClient) writePump(ctx context.Context, ch *WsChannelClient, closeC
 }
 
 func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeChan chan struct{}, resp *http.Response) {
-	// defer func() {
-	// 	if err := recover(); err != nil {
-	// 		c.log(logger.Error, "readPump recover err : %v", err)
-	// 	}
-	// }()
+	// 读循环解析的是服务端发来的字节流，任何字节都可能是畸形的。
+	// 原实现的 recover 被整段注释掉了：解码路径一旦 panic（如分片越界、
+	// tlv 畸形帧），客户端进程会直接退出——而服务端同名函数是有 recover 的，
+	// 两端不对称。这里恢复兜底：panic 只影响本条连接，转成日志后退出读循环。
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorw(ctx, "ws client readPump panic", "panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
@@ -593,9 +600,9 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			}
 			continue
 		}
-		tlvFrame, err := tlv.Deserialize(m)
-		if err == nil {
-			m = tlvFrame.Value()
+		// tlv 是外部库，畸形帧会 panic：走 tlvValue 兜底，失败即按裸数据处理
+		if v, err := tlvValue(m); err == nil {
+			m = v
 		}
 		if err := nrpc.DispatchMessage(nrpc.RouteArgs{
 			Context: ctx,
