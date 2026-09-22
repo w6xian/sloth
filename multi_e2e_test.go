@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/w6xian/sloth/v4/bucket"
-	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/types"
 	"github.com/w6xian/sloth/v4/types/auth"
 	"github.com/w6xian/sloth/v4/types/trpc"
