@@ -178,6 +178,53 @@ go drpc.Serve()
 - `func (s *Svc) Test(ctx context.Context, req *T) (any, error)`
 - `func (s *Svc) Sign(ctx context.Context, data []byte) ([]byte, error)`
 
+## 自省约定：`_.Funcs`
+
+每个 `*Connect`（服务端 `ServerConn`、客户端 `ClientConn` 都一样）在建实例时会自动注册一个名叫 `_` 的元服务，对端可以据此读这一侧注册了哪些服务、每个方法的入参和返回值：
+
+```go
+data, err := client.Call(ctx, "_.Funcs")            // 读服务端的方法清单
+data, err := server.Call(ctx, userId, "_.Funcs")    // 读某个客户端的方法清单
+```
+
+方法名**大小写敏感、精确匹配**：它和别的服务方法一样就是 Go 的导出方法，写成 `"_.funcs"` 只会得到 `ErrMethodNotFound`（不做首字母纠偏，避免调用方误以为大小写无关）。
+
+返回体是 MCP `tools/list` 的形态，可直接喂给 MCP client：
+
+```json
+{
+  "tools": [
+    {
+      "name": "v1.Sign",
+      "description": "metadata",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "arg0": { "type": "string", "description": "[]uint8" } },
+        "required": ["arg0"]
+      },
+      "outputSchema": {
+        "type": "array",
+        "prefixItems": [
+          { "type": "string", "description": "[]uint8" },
+          { "type": "string", "description": "error" }
+        ],
+        "items": false
+      }
+    }
+  ]
+}
+```
+
+几点约定：
+
+- **入参是位置参数**（`arg0` / `arg1`…），不是具名对象 —— Go 反射只保留形参类型、不保留形参名，具名信息给不出来就让调用方按位置传。
+- **只忽略第一个 `ctx context.Context`**：它由框架注入，不是调用方传的；后面若还有 context.Context 参数，那是业务自己要的，照样列出来（漏了调用方就会少传参数）。
+- **`error` 在返回值里如实列出**：它是签名的一部分，自省不该藏起来。
+- **`description` 是 Go 类型名**：JSON Schema 只能表达 `string` / `integer` 这类基本类型，真正要用的 `*types.AuthInfo`、`[]uint8` 放在这里。
+- **清单不含 `_` 自己**：它的用途是"照着它拼调用"，列上 `_.funcs` 只会引诱调用方递归。
+- **`Register` 的第三个参数（服务描述）按服务名存**，以前是单个字段，注册第二个服务就把第一个的描述覆盖了（`meta` 头也是错的）；现在它出现在每个 tool 的 `description` 里。
+- 业务自己注册 `_` 会拿到 `service _ already registered` —— 内置实现优先。
+
 ## 开发与测试
 
 ```bash

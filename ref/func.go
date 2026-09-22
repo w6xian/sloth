@@ -86,20 +86,33 @@ func suitable_methods(typ reflect.Type) (map[string]reflect.Method, map[string]F
 			continue
 		}
 		methods[m.Name] = m
-		// 方法的参数
-		args := make([]ArgStruct, 0)
-		for i := 2; i < m.Type.NumIn(); i++ {
-			args = append(args, ArgStruct{
-				Name: fmt.Sprintf("arg%d", i-2),
-				Type: m.Type.In(i).String(),
-			})
+		// 方法参数的类型列表。
+		//
+		// In(0) 是 receiver，In(1) 按签名约定是 ctx context.Context —— 它由框架
+		// 注入，不是调用方传的，忽略掉。**只忽略第一个**：后面若还有 context.Context
+		// 参数，那是业务自己要的，必须如实列出来（否则调用方会少传一个参数）。
+		// 上面的校验保证 In(1) 实现 context.Context，这里仍再判一次，避免将来
+		// 放宽签名约定时悄悄错位。
+		first := 1
+		if m.Type.NumIn() > 1 && m.Type.In(1).Implements(typeOfContext) {
+			first = 2
+		}
+		args := make([]string, 0, m.Type.NumIn()-first)
+		for i := first; i < m.Type.NumIn(); i++ {
+			args = append(args, m.Type.In(i).String())
+		}
+		returns := make([]string, 0, m.Type.NumOut())
+		for i := 0; i < m.Type.NumOut(); i++ {
+			returns = append(returns, m.Type.Out(i).String())
 		}
 		s := strings.SplitN(m.Type.String(), ",", 2)
 		api := fmt.Sprintf("%s(", m.Name)
 		s[0] = api
 		iface[m.Name] = FuncStruct{
-			Name:   m.Name,
-			Define: fmt.Sprintf("%s", strings.Join(s, "")),
+			Name:    m.Name,
+			Define:  fmt.Sprintf("%s", strings.Join(s, "")),
+			Args:    args,
+			Returns: returns,
 		}
 	}
 
@@ -151,6 +164,9 @@ func new_instance_reflect(typ reflect.Type) (reflect.Value, error) {
 }
 
 func CallFuncWithContext(ctx context.Context, Fns *ServiceFuncs, method string, args ...[]byte) ([]byte, error) {
+	// 精确匹配：方法名大小写敏感，与 Go 的导出方法名一致（约定里读作 "_.Funcs"）。
+	// 不做首字母大写之类的兜底——方法名拼错就该报错，悄悄纠正会让调用方以为
+	// 大小写无关，换个编译环境就查不到原因。
 	mtd, ok := Fns.M[method]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errs.ErrMethodNotFound, method)

@@ -21,14 +21,14 @@ import (
 	"github.com/w6xian/sloth/v4/bucket"
 	"github.com/w6xian/sloth/v4/decoder"
 	"github.com/w6xian/sloth/v4/logger"
-	"github.com/w6xian/sloth/v4/metrics"
-	"github.com/w6xian/sloth/v4/ref"
-	"github.com/w6xian/sloth/v4/utils/id"
 	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/metrics"
 	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/ref"
 	"github.com/w6xian/sloth/v4/types"
 	"github.com/w6xian/sloth/v4/types/auth"
 	"github.com/w6xian/sloth/v4/types/trpc"
+	"github.com/w6xian/sloth/v4/utils/id"
 )
 
 type ContextType string
@@ -76,8 +76,11 @@ type Connect struct {
 	listeners []ProtocolListener
 	// httpHandlers []ServeHandler // HTTP 处理函数列表
 	proxyHandler func(ctx context.Context, service string) (int64, error)
-	// meta data
-	metaData string
+	// meta data：按服务名存的服务描述（Register 的第三个参数）。
+	//
+	// 以前是单个 string，注册第二个服务时就把第一个的描述覆盖了，而且 CallFunc
+	// 取的是"最后一次注册的描述"——多服务端下这个 meta 头基本是错的。
+	metaData map[string]string
 	// debugSrv 为 Option.DebugAddr 启动的调试服务（nil 表示未启用）
 	debugSrv *http.Server
 
@@ -174,6 +177,7 @@ func newConnect(opts ...ConnOption) *Connect {
 	// svr.id = atomic.AddInt64(&instCount, 1)
 	svr.ServerId = id.ShortID()
 	svr.serviceMap = make(map[string]*ref.ServiceFuncs)
+	svr.metaData = make(map[string]string)
 	svr.sleepTimes = 15
 	svr.times = 8
 	svr.cpuNum = runtime.NumCPU()
@@ -189,6 +193,9 @@ func newConnect(opts ...ConnOption) *Connect {
 	for _, opt := range opts {
 		opt(svr)
 	}
+	// 自省服务："_.funcs" 返回本端注册的方法清单。服务端与客户端都会注册，
+	// 所以对端可以双向读取，详见 MetaService 的注释。
+	svr.serviceMap[MetaService] = ref.Register(&metaService{c: svr})
 	svr.applyLogOptions()
 
 	return svr
@@ -230,8 +237,12 @@ func (c *Connect) Register(name string, rcvr any, metadata string) error {
 	if _, ok := c.serviceMap[name]; ok {
 		return fmt.Errorf("service %s already registered", name)
 	}
+	if c.metaData == nil {
+		// 兜住不走 newConnect 直接构造 Connect 的情况
+		c.metaData = make(map[string]string)
+	}
 	funcs := ref.Register(rcvr)
-	c.metaData = metadata
+	c.metaData[name] = metadata
 	c.serviceMap[name] = funcs
 	return nil
 }
@@ -575,7 +586,10 @@ func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Respons
 	// 克隆调用方 header 后追加 meta，避免写污染调用方持有的 map（RpcCaller 可能被复用）
 	header := make(message.Header, len(msgReq.Header)+1)
 	maps.Copy(header, msgReq.Header)
-	header.Set("meta", c.metaData)
+	c.serviceMapMu.RLock()
+	meta := c.metaData[node.Service]
+	c.serviceMapMu.RUnlock()
+	header.Set("meta", meta)
 	if r != nil {
 		header.Set("remote_addr", r.RemoteAddr)
 	}

@@ -26,6 +26,13 @@ type ServiceFuncs struct {
 type FuncStruct struct {
 	Name   string `json:"name"`
 	Define string `json:"define"`
+	// Args 业务入参的类型列表（按位置，不含首参 context.Context——它由框架注入）。
+	//
+	// 只保留 type 不带 name：reflect 只能拿到形参**类型**，Go 不保留形参名，
+	// 硬凑名字（arg0/arg1）不如直接让它按位置表达——调用方传参本来也是位置参数。
+	Args []string `json:"args"`
+	// Returns 返回值类型列表，最后一个恒为 error（见签名约定）。
+	Returns []string `json:"returns"`
 }
 
 type ArgStruct struct {
