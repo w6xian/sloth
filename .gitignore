@@ -8,3 +8,4 @@ examples/.DS_Store
 examples/ws/.DS_Store
 examples/.DS_Store
 /examples/ws/web/node_modules
+/.tmp

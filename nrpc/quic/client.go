@@ -157,6 +157,10 @@ func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 	if c.ReadWait > 0 {
 		ch.PReadWait = c.ReadWait
 	}
+	// 先 SetAuthInfo 再 Dial 的场景：把已存的身份补到新连接上
+	if a := c.authSnapshot(); a != nil {
+		_ = ch.SetLocalAuth(a)
+	}
 	c.ch.Store(ch)
 
 	if c.handler != nil {
@@ -240,6 +244,10 @@ func (c *QuicClient) GetAuthInfo() (*auth.AuthInfo, error) {
 }
 
 // SetAuthInfo 保存身份：连接重建后仍可复用（服务端反调时用它填 Header）。
+//
+// 除了存到 c.auth，还要同步到当前连接——服务端反调客户端方法时，业务代码
+// 从 ctx 上取到的 channel 就是它。少这一步，客户端方法里的 GetAuthInfo
+// 永远是 "user id is 0"（ws 客户端的连接自带身份，行为不一致）。
 func (c *QuicClient) SetAuthInfo(a *auth.AuthInfo) error {
 	if a == nil {
 		return errors.New("quic client: nil auth info")
@@ -247,7 +255,21 @@ func (c *QuicClient) SetAuthInfo(a *auth.AuthInfo) error {
 	c.authMu.Lock()
 	c.auth = a
 	c.authMu.Unlock()
+	if ch := c.ch.Load(); ch != nil {
+		return ch.SetLocalAuth(a)
+	}
 	return nil
+}
+
+// authSnapshot 取身份快照（带锁），建新连接时用它把身份补到连接上。
+func (c *QuicClient) authSnapshot() *auth.AuthInfo {
+	c.authMu.RLock()
+	defer c.authMu.RUnlock()
+	if c.auth == nil {
+		return nil
+	}
+	cp := *c.auth
+	return &cp
 }
 
 // Ready 是否已建立连接（供上层/测试轮询）。

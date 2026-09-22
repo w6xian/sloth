@@ -63,6 +63,12 @@ type Channel struct {
 	_prev   bucket.IChannel
 	_userId int64
 	_sign   string
+	// localAuth 客户端侧身份，与上面那组服务端语义字段分开存，互不覆盖。
+	// 指针用 atomic：
+	// 写发生在业务调用 SetAuthInfo 的 goroutine，读发生在服务端反调客户端方法
+	// 的读循环 goroutine——两边并发，普通字段就是数据竞争。
+	// 见 SetLocalAuth 的注释：它决定"客户端方法里的 GetAuthInfo 能不能用"。
+	localAuth atomic.Pointer[auth.AuthInfo]
 
 	errHandler func(err error)
 	queueSize  int
@@ -135,8 +141,16 @@ func (ch *Channel) Token(t ...string) string {
 
 func (ch *Channel) Logout() { ch._userId = 0 }
 
-// GetAuthInfo 服务端语义：身份由业务在登录 RPC 里通过 bucket.Put 写入。
+// GetAuthInfo 取身份：优先返回客户端侧身份（localAuth），没有再走服务端语义
+// （身份由业务在登录 RPC 里通过 bucket.Put 写入）。
+//
+// 顺序不能反：客户端连接上 _userId 恒为 0，先判服务端语义会让客户端方法
+// 永远拿到 "user id is 0"，而 ws 客户端的连接是自带身份的——同一个业务
+// 方法在 ws 上正常、在 tcp / quic 上必然报错，这种不一致只能靠这里抹平。
 func (ch *Channel) GetAuthInfo() (*auth.AuthInfo, error) {
+	if a := ch.localAuth.Load(); a != nil {
+		return a, nil
+	}
 	if ch._userId == 0 {
 		return nil, errors.New("stream channel: user id is 0")
 	}
@@ -155,6 +169,22 @@ func (ch *Channel) GetAuthInfo() (*auth.AuthInfo, error) {
 
 func (ch *Channel) SetAuthInfo(a *auth.AuthInfo) error {
 	return errors.New("stream channel: server does not support set auth info")
+}
+
+// SetLocalAuth 写入客户端侧身份（SetAuthInfo 是服务端语义，客户端不能用它）。
+//
+// 为什么需要它：服务端反调客户端方法时，业务代码从 ctx 上取到的 channel 就是
+// 这条连接。ws 客户端的连接（WsChannelClient）自带身份，GetAuthInfo 直接可用；
+// stream 连接的身份却是服务端 bucket.Put 写进 _userId 的，客户端侧永远是 0。
+// 不补这一步，"客户端方法里读自己的身份"这条代码在 ws 上通、在 tcp / quic 上
+// 必报 "user id is 0"——换传输就换行为，正是本库要避免的事。
+func (ch *Channel) SetLocalAuth(a *auth.AuthInfo) error {
+	if a == nil {
+		return errors.New("stream channel: nil auth info")
+	}
+	cp := *a // 存副本：调用方之后改自己的 AuthInfo 不会反向影响连接
+	ch.localAuth.Store(&cp)
+	return nil
 }
 
 // Push 投递一条推送消息（服务端广播 / 客户端上行都走这里）。

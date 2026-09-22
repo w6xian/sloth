@@ -88,6 +88,25 @@ func main() {
 
 		fmt.Println(string(data))
 		fmt.Println("v1.Sign Call success:")
+
+		// 给服务端扩展一个服务：把自己登记成 shop1 的服务提供者。
+		//
+		// 服务端为它分配一个**负数** userId（SMap 从 -1 递减），与 Sign 拿到的
+		// 正数 userId 并存、互不覆盖；之后任何人调 shop1.Test1 都会经 proxy
+		// 转发到这条连接上，由本进程注册的 shop1 执行。
+		data, err = client.Call(context.Background(), "v1.Reg", name)
+		if err != nil {
+			fmt.Println("v1.Reg Call error:", err)
+			continue
+		}
+		// Json2Struct 自己解 tlv 帧，传原始 data；先 tlv.Value 再去解会报 invalid crc
+		info := &auth.AuthInfo{}
+		if err := tlv.Json2Struct(data, info); err != nil {
+			fmt.Println("v1.Reg decode error:", err)
+			continue
+		}
+		fmt.Println("Reg result", string(tlv.Value(data)))
+		fmt.Printf("registered service %s as userId=%d\n", name, info.UserId)
 		break
 
 	}

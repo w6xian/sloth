@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/w6xian/sloth/v4/decoder"
@@ -34,12 +35,16 @@ type ServerRpc struct {
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
+	// network 本连接使用的传输协议名（ws / tcp / quic），由 Dial 写入。
+	// 与 Listen 同锁：写发生在 Dial 的 goroutine，读发生在业务调用的 goroutine。
+	network string
 }
 
-// setListen 在 Dial 建立连接时写入底层调用通道
-func (c *ServerRpc) setListen(l trpc.ICall) {
+// setListen 在 Dial 建立连接时写入底层调用通道与该连接的协议名。
+func (c *ServerRpc) setListen(l trpc.ICall, network string) {
 	c.mu.Lock()
 	c.Listen = l
+	c.network = normalizeNetwork(network)
 	c.mu.Unlock()
 }
 
@@ -48,6 +53,32 @@ func (c *ServerRpc) getListen() trpc.ICall {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.Listen
+}
+
+// getNetwork 返回本连接的协议名，未连接时为空串。
+func (c *ServerRpc) getNetwork() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.network
+}
+
+// normalizeNetwork 归一化协议名：Dial 的 network 允许大小写与别名（QUIK），
+// 写进 header 前统一成小写，服务端才好直接拿来和 sloth.WS 等常量比对。
+func normalizeNetwork(network string) string {
+	return strings.ToLower(strings.TrimSpace(network))
+}
+
+// callHeader 组装本次调用的请求头：共享头 + 调用方头 + trace，**再压上协议标识**。
+//
+// 协议标识放最后一步 Set（覆盖调用方可能手写的同键值）：它是连接属性，
+// 由库按真实连接决定，业务伪造了也没意义——服务端据此判断对端来自哪条
+// 链路，取值必须与真实传输一致。
+func (c *ServerRpc) callHeader(ctx context.Context, header message.Header, trace string) (message.Header, func()) {
+	hdr, put := callHeader(ctx, c.Header, header, trace)
+	if n := c.getNetwork(); n != "" {
+		hdr.Set(HeaderProtocol, n)
+	}
+	return hdr, put
 }
 
 func (c *ServerRpc) SetEncoder(encoder Encoder) {
@@ -110,8 +141,8 @@ func (c *ServerRpc) Call(ctx context.Context, mtd string, arg ...any) ([]byte, e
 		return nil, err
 	}
 	// 带上本次调用的 trace id（键 X-Trace-Id）：服务端 handleCall 会沿用，
-	// 两端日志才能按 trace 对账。
-	hdr, put := callHeader(ctx, c.Header, nil, "")
+	// 两端日志才能按 trace 对账。协议标识（sloth-protocol）也在这里一并写入。
+	hdr, put := c.callHeader(ctx, nil, "")
 	defer put()
 	// 调用服务器方法,这里对应的是 channel_client.go 中的Call方法
 	resp, err := listen.Call(ctx, hdr, mtd, args...)
@@ -131,10 +162,10 @@ func (c *ServerRpc) CallWithHeader(ctx context.Context, header message.Header, m
 		return nil, err
 	}
 
-	// 与 Call 一致：合并共享头与调用方头，并带上本次调用的 trace。
+	// 与 Call 一致：合并共享头与调用方头，并带上本次调用的 trace 与协议标识。
 	// 两份 map 都不能直接写（共享头有并发 race，调用方头会被污染），
 	// 池对象的归还也由 put 负责。
-	hdr, put := callHeader(ctx, c.Header, header, "")
+	hdr, put := c.callHeader(ctx, header, "")
 	defer put()
 
 	resp, err := listen.Call(ctx, hdr, mtd, args...)
