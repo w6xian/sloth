@@ -102,6 +102,10 @@ go run ./examples/quic/client
 # 多协议同时监听：一个进程同时开 ws / tcp / quic，三条链路共用同一份服务注册表
 go run ./examples/multi
 go run ./examples/multi/client
+
+# 媒体代理（HTTP 反向代理）：把内网客户端的目录暴露成公网 HTTP
+go run ./examples/media/server   # RPC :8991 + HTTP 网关 :8080，浏览器打开 http://localhost:8080/
+go run ./examples/media/client   # 连上来，把 -root 指向的目录暴露成 /m/media/
 ```
 
 ### 多协议同时监听
@@ -224,6 +228,65 @@ data, err := server.Call(ctx, userId, "_.Funcs")    // 读某个客户端的方�
 - **清单不含 `_` 自己**：它的用途是"照着它拼调用"，列上 `_.funcs` 只会引诱调用方递归。
 - **`Register` 的第三个参数（服务描述）按服务名存**，以前是单个字段，注册第二个服务就把第一个的描述覆盖了（`meta` 头也是错的）；现在它出现在每个 tool 的 `description` 里。
 - 业务自己注册 `_` 会拿到 `service _ already registered` —— 内置实现优先。
+
+## 媒体代理：把内网 HTTP 服务暴露出来
+
+用户走 HTTP 访问公网服务端，服务端把请求经 sloth 长连接转发到内网客户端，由客户端的
+**本地 HTTP 服务**应答——也就是"花生壳 / frp 那类"反向代理，但隧道直接复用 sloth 连接。
+完整示例见 [examples/media](examples/media)。
+
+```
+浏览器 ──HTTP──▶ 服务端网关(:8080)
+                  ① 请求报文序列化（req.Write）
+                  ② server.Call(ctx, userId, "http.Do", raw)
+                                ─────▶ 客户端 http.ReadRequest → 打给本地 http.FileServer
+                                ◀────── 响应报文（裸字节）
+                  ③ http.ReadResponse → 原样写回
+浏览器 ◀──HTTP── 网关
+```
+
+不新增帧、不新增协议：**一次 RPC 承载一个完整的 HTTP 报文**。客户端侧只需要一个方法：
+
+```go
+func (s *ProxyService) Do(ctx context.Context, rawReq []byte) ([]byte, error)
+```
+
+服务端网关按服务名找到那条连接并转发（`userId` 是 `v1.Reg` 分配的负数 ID，见示例）：
+
+```go
+userId, ok := smap.Get(svc)                            // 未登记 → 404
+resp, err := server.Call(ctx, userId, "http.Do", raw)  // raw = 请求报文
+```
+
+于是 Range / 206 / Content-Type / MIME / 304 全部由客户端本地的 `http.FileServer` 提供，
+两端都只负责搬运，**一行都不用自己实现**；视频拖动就是浏览器发一个新的 Range 请求。
+
+实测（先起 server 再起 client，浏览器打开 <http://localhost:8080/>）：
+
+| 请求 | 结果 |
+|---|---|
+| `/m/media/wallpaper.jpg` | 200 `image/jpeg`，`Accept-Ranges: bytes` |
+| `-r 0-1023` | **206**，`Content-Range: bytes 0-1023/393630` |
+| 未登记的服务名 | 404（不区分"不存在"与"未登记"，避免被探测） |
+
+两个尺寸前提，同时也是这套做法的边界：
+
+| 方向 | 载体 | 上限 | 结论 |
+|---|---|---|---|
+| 请求报文 | 入参（ag 编码） | 单参数 65535 字节 | 只放请求头 → **只转发不带 body 的 GET** |
+| 响应报文 | 返回值（fn 帧裸 payload） | 1GB | 一个 206 分片绰绰有余 |
+
+其余注意点：
+
+- **走 tcp / quic**：fn 帧的 `Length` 是 uint32、上限 1GB，且响应不 base64。ws 那层还有
+  `DataSlice` 分片（`T`/`I` 是 byte，≤256 片），大块不划算。
+- **无 Range 的大响应会整包进内存**（示例在客户端侧限 32MB）。正常播放靠浏览器发 Range，
+  不会触发；实时采集请让客户端本地出 HLS/FLV，走的还是同一条通道（就是一堆小文件）。
+- **网关目前没有鉴权**：把 `gatewayAddr` 改成 `:8080` 对外暴露前，务必先加鉴权
+  （token 或带 `exp` 的签名），否则等于开放内网目录。
+- **路径穿越的最终防线在客户端**：服务端能早筛 `..`，但符号链接只有客户端判得了。
+
+完整设计（错误码映射、参数建议、实时采集的两条路）见 [doc/media-proxy.md](doc/media-proxy.md)。
 
 ## 开发与测试
 
