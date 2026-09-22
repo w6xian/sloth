@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/logger"
 )
 
 // 端到端 RPC 吞吐基准：真实 WS 连接 + 完整编解码链路（客户端 → 服务端 → 客户端）。

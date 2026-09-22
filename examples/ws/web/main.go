@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/nrpc/wsocket"
 
 	"github.com/gorilla/websocket"

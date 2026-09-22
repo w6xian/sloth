@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v4/bucket"
-	"github.com/w6xian/sloth/v4/internal/errs"
-	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/errs"
+	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/nrpc"
 	"github.com/w6xian/sloth/v4/types/auth"

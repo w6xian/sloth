@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v4/bucket"
-	"github.com/w6xian/sloth/v4/internal/codec"
-	"github.com/w6xian/sloth/v4/internal/logger"
-	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/codec"
+	"github.com/w6xian/sloth/v4/logger"
+	"github.com/w6xian/sloth/v4/metrics"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/nrpc"
 	"github.com/w6xian/sloth/v4/nrpc/stream"

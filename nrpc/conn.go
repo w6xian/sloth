@@ -10,8 +10,8 @@ import (
 
 	"github.com/w6xian/sloth/v4/actions"
 	"github.com/w6xian/sloth/v4/decoder/fn"
-	"github.com/w6xian/sloth/v4/internal/codec"
-	"github.com/w6xian/sloth/v4/internal/errs"
+	"github.com/w6xian/sloth/v4/codec"
+	"github.com/w6xian/sloth/v4/errs"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/types/trpc"
 )

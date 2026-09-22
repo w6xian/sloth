@@ -126,6 +126,24 @@ go run ./examples/quic/client
 - **空闲与保活**：默认 `MaxIdleTimeout=60s`、`KeepAlivePeriod=15s`。保活周期必须小于 idle 超时，否则中间设备（NAT / 防火墙）会静默丢掉 UDP 映射——移动网络下尤其常见。
 - **端口要放 UDP**：QUIC 监听的是 UDP 端口，安全组 / 防火墙别只放 TCP。
 
+## 可复用的子包（不起连接也能用）
+
+这些包与传输层解耦，可单独 import：
+
+| 包 | 用途 | 常用入口 |
+| --- | --- | --- |
+| `utils` | 序列化 / 类型收敛 / 数值 / CRC | `utils.Serialize`、`utils.AnyToBytes`、`utils.Max` |
+| `utils/id` | ID 生成 | `id.ShortID()`、`id.NextId(svr)`、`id.RandStr(n)` |
+| `utils/array` | 切片小工具 | `array.InArray`、`array.Map` |
+| `tools` | 雪花 ID、随机 token、cityhash | `tools.GetSnowflakeId`、`tools.CityHash64` |
+| `codec` | 帧编解码接口（自定义协议时实现它） | `codec.Codec`，配合 `option.WithCodec` |
+| `transport` | 与协议无关的帧分发（自研传输可复用） | `transport.NewFrameRouter` |
+| `ref` | 方法注册 + 反射调用 | `ref.Register`、`ref.CallFuncWithContext` |
+| `logger` / `metrics` | 日志门面 / 指标与调试端点 | `logger.SetLogger`、`metrics.NewCounter` |
+| `errs` | 哨兵错误，配合 `errors.Is` 判定（根包 `sloth` 已转发） | `errs.ErrTimeout` |
+
+以前它们都在 `internal/` 下，外部项目 import 不到——连 `option.WithCodec` 的形参类型 `codec.Codec` 都拿不到，想自定义编解码器无从下手。v4 已全部提到顶层，`internal/` 不再有内容。
+
 ## 编码/协议说明（实用向）
 
 - 业务方法的第一个参数通常是 `ctx context.Context`

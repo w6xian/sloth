@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/w6xian/sloth/v4/internal/codec"
-	"github.com/w6xian/sloth/v4/internal/transport"
+	"github.com/w6xian/sloth/v4/codec"
+	"github.com/w6xian/sloth/v4/transport"
 )
 
 // RouteMessage is the protocol-neutral callback used by transports to route a frame.

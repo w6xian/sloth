@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"strconv"
 
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 )
 
 // 本文件提供 JsonCallObject / Msg 的手写 JSON 编码器。

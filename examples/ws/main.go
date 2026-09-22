@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/w6xian/sloth/v4"
 	"github.com/w6xian/sloth/v4/bucket"
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/option"
 	"github.com/w6xian/sloth/v4/slots"
 	"github.com/w6xian/sloth/v4/types"

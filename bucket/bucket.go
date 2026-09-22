@@ -10,9 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v4/internal/logger"
-	"github.com/w6xian/sloth/v4/internal/metrics"
-	"github.com/w6xian/sloth/v4/internal/tools"
+	"github.com/w6xian/sloth/v4/logger"
+	"github.com/w6xian/sloth/v4/metrics"
+	"github.com/w6xian/sloth/v4/tools"
 	"github.com/w6xian/sloth/v4/message"
 )
 

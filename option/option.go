@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/codec"
 	"github.com/w6xian/sloth/v4/types/handler"
 )
 

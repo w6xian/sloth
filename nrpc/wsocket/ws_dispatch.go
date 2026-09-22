@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/w6xian/sloth/v4/internal/logger"
+	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/nrpc"
 )
 

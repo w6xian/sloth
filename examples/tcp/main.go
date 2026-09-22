@@ -29,7 +29,7 @@ import (
 
 	"github.com/w6xian/sloth/v4"
 	"github.com/w6xian/sloth/v4/bucket"
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/option"
 	"github.com/w6xian/sloth/v4/types"
 	"github.com/w6xian/sloth/v4/types/auth"

@@ -1,6 +1,6 @@
 package message
 
-import "github.com/w6xian/sloth/v4/internal/utils"
+import "github.com/w6xian/sloth/v4/utils"
 
 type CmdReq struct {
 	Id        uint64 `json:"id"`

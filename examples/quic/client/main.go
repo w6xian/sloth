@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/w6xian/sloth/v4"
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/types/auth"
 	"github.com/w6xian/sloth/v4/types/trpc"

@@ -8,7 +8,7 @@ import (
 	"math"
 	"reflect"
 
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 )
 
 /**

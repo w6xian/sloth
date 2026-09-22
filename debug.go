@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/w6xian/sloth/v4/internal/logger"
-	"github.com/w6xian/sloth/v4/internal/metrics"
+	"github.com/w6xian/sloth/v4/logger"
+	"github.com/w6xian/sloth/v4/metrics"
 )
 
 // ---------------------------------------------------------------------------

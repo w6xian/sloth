@@ -1,3 +1,14 @@
+// Package codec 定义 sloth 的帧编解码抽象：在"一段字节"与
+// "action + id + payload"之间相互转换。
+//
+// 默认实现是 FN 协议（decoder/fn）。要换协议就实现 Codec 接口，
+// 再用 option.WithCodec 注入——这也是本包必须公开的原因：
+// 放在 internal 下的话，使用方连接口类型都拿不到，根本无法实现自定义编解码。
+//
+// 实现要点：
+//   - Detect 只按 magic 认领帧，格式错误留给 Decode 报错，
+//     避免每帧被完整解析两次；
+//   - 实现要轻量：Encode/Decode 在每帧的必经路径上，不能有额外分配。
 package codec
 
 import (

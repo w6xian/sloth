@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/w6xian/sloth/v4/internal/utils"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/tlv"
 )
 

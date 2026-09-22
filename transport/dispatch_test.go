@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/w6xian/sloth/v4/decoder/fn"
-	"github.com/w6xian/sloth/v4/internal/codec"
+	"github.com/w6xian/sloth/v4/codec"
 )
 
 // stubCodec 只认以 'X' 开头的帧。
