@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/w6xian/sloth/v4"
-	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/option"
 	"github.com/w6xian/sloth/v4/types"
 	"github.com/w6xian/sloth/v4/types/auth"
 	"github.com/w6xian/sloth/v4/types/trpc"
+	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/tlv"
 
 	"github.com/gorilla/websocket"
@@ -73,6 +74,7 @@ func main() {
 			// trace 已挂在 callCtx 上，日志不必再手动写一遍；
 			// 若要透传给外部系统（如回执、网关），用 sloth.TraceID(callCtx) 取回。
 			callCtx, _ := sloth.EnsureTrace(ctx)
+
 			data, err := client.Call(callCtx, "v1.Sign", []byte("sign"))
 			if err != nil {
 				sloth.Errorw(callCtx, "sign failed", "err", err)
@@ -87,6 +89,21 @@ func main() {
 			sloth.Infow(callCtx, "sign success", "userId", ai.UserId, "roomId", ai.RoomId)
 		}
 
+		rdata, err := client.Call(ctx, "_.Funcs")
+		if err != nil {
+			sloth.Errorw(ctx, "sign failed", "err", err)
+			continue
+		}
+		fmt.Println(string(rdata))
+		// {"tools":[{"name":"v1.Login","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"string","description":"[]uint8"}},"required":["arg0"]},"outputSchema":{"type":"array","prefixItems":[{"type":"string","description":"[]uint8"},{"type":"string","description":"error"}],"items":false}},{"name":"v1.Reg","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"string","description":"string"}},"required":["arg0"]},"outputSchema":{"type":"array","prefixItems":[{"type":"string","description":"[]uint8"},{"type":"string","description":"error"}],"items":false}},{"name":"v1.Sign","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"string","description":"[]uint8"}},"required":["arg0"]},"outputSchema":{"type":"array","prefixItems":[{"type":"string","description":"[]uint8"},{"type":"string","description":"error"}],"items":false}},{"name":"v1.Test","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"object","description":"*main.AB"}},"required":["arg0"]},"outputSchema":{"type":"array","prefixItems":[{"type":"object","description":"interface {}"},{"type":"string","description":"error"}],"items":false}},{"name":"v1.TestByte","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"string","description":"[]uint8"},"arg1":{"type":"integer","description":"int"},"arg2":{"type":"object","description":"main.HelloReq"},"arg3":{"type":"object","description":"*main.Hello"},"arg4":{"type":"string","description":"*string"},"arg5":{"type":"string","description":"*[]uint8"},"arg6":{"type":"array","description":"[]string"},"arg7":{"type":"array","description":"*[]string"}},"required":["arg0","arg1","arg2","arg3","arg4","arg5","arg6","arg7"]},"outputSchema":{"type":"array","prefixItems":[{"type":"object","description":"interface {}"},{"type":"string","description":"error"}],"items":false}},{"name":"v1.WebSign","description":"metadata","inputSchema":{"type":"object","properties":{"arg0":{"type":"string","description":"[]uint8"}},"required":["arg0"]},"outputSchema":{"type":"array","prefixItems":[{"type":"string","description":"[]uint8"},{"type":"string","description":"error"}],"items":false}}]}
+
+		ft := &sloth.FuncsResult{}
+		err = json.Unmarshal(rdata, ft)
+		if err != nil {
+			sloth.Errorw(ctx, "sign response decode failed", "err", err)
+			continue
+		}
+		fmt.Println(ft)
 		// 带 header 的调用：header 复用同一个 map 即可，库内部会 Clone，
 		// 不必每次调用重建一份（原示例每次新建 3 个 map）。
 		// 这一轮业务共用一个 trace，便于把同批发起的调用聚合起来看；
