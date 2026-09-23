@@ -10,3 +10,4 @@ examples/.DS_Store
 /examples/ws/web/node_modules
 /.tmp
 *.mp4
+/sloth-proxy
