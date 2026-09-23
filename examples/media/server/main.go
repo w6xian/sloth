@@ -35,8 +35,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -157,10 +161,14 @@ func main() {
 	}
 }
 
-// gateway 把一次 HTTP 请求翻译成一次 RPC 调用。
+// gateway 把一次 HTTP 请求翻译成**若干次** RPC 调用。
 //
 // 只转发**无 body 的 GET**：入参上限 65535 字节只够放请求头，
 // 带大 body 的请求要另想办法（扩 ag 长度字段或改走流式）。
+//
+// 转发是分块的：无论浏览器有没有发 Range，网关都按 mediaChunk 一段段向客户端
+// 要字节，拿到一段就写给浏览器并 Flush。所以请求一个 200MB 的 mp4 与请求一个
+// 2KB 的 txt 在内存上没有区别——见 mediaChunk 的注释。
 func gateway(server *sloth.ClientRpc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -175,51 +183,296 @@ func gateway(server *sloth.ClientRpc) http.HandlerFunc {
 			return
 		}
 
-		raw, err := dumpRequest(r, "/"+path)
-		if err != nil {
-			sloth.Errorw(ctx, "dump request failed", "err", err)
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		if len(raw) > maxReqBytes {
-			// 431：请求头过大，转发过去也会撞 ag 的参数上限
-			http.Error(w, "request header too large", http.StatusRequestHeaderFieldsTooLarge)
+		// 总大小：算 Range 边界、回答 416、填 Content-Range 都要它。
+		size, ok := statSize(ctx, server, userId, svc, path)
+		if !ok {
+			sloth.Errorw(ctx, "stat size failed", "svc", svc, "path", path)
+			http.Error(w, "upstream error", http.StatusBadGateway)
 			return
 		}
 
-		callCtx, stop := context.WithTimeout(ctx, callTimeout)
-		defer stop()
+		startOff, endOff, err := rangeSpec(r.Header.Get("Range"), size)
+		if errors.Is(err, errUnsatisfiable) {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+			http.Error(w, "range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		// 浏览器要了 Range 就回 206；没要也照样分块取，只是以 200 全量应答。
+		ranged := !errors.Is(err, errNoRange)
+		total := endOff - startOff + 1
 
-		start := time.Now()
-		resp, err := server.Call(callCtx, userId, svcRpcMethod, raw)
-		if err != nil {
-			// 区分超时与连接问题：前者 504，后者 502
-			code := http.StatusBadGateway
-			if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-				code = http.StatusGatewayTimeout
+		var (
+			wroteHeader bool
+			written     int64
+			begin       = time.Now()
+		)
+		for off := startOff; off <= endOff; off += mediaChunk {
+			last := min(off+mediaChunk-1, endOff)
+
+			raw, err := dumpRequest(r, "/"+path, fmt.Sprintf("bytes=%d-%d", off, last))
+			if err != nil {
+				sloth.Errorw(ctx, "dump request failed", "err", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
 			}
-			sloth.Errorw(ctx, "rpc forward failed", "svc", svc, "path", path,
-				"userId", userId, "err", err, "cost", time.Since(start).String())
-			http.Error(w, "upstream error", code)
-			return
+			if len(raw) > maxReqBytes {
+				// 431：请求头过大，转发过去也会撞 ag 的参数上限
+				http.Error(w, "request header too large", http.StatusRequestHeaderFieldsTooLarge)
+				return
+			}
+
+			// 每块一次调用、一次超时：块只有 256KB，30s 足够；
+			// 用 r.Context() 作父上下文，浏览器一断连在途调用立刻取消。
+			callCtx, stop := context.WithTimeout(ctx, callTimeout)
+			resp, err := server.Call(callCtx, userId, svcRpcMethod, raw)
+			stop()
+			if err != nil {
+				code := http.StatusBadGateway
+				if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+					code = http.StatusGatewayTimeout
+				}
+				sloth.Errorw(ctx, "rpc forward failed", "svc", svc, "path", path,
+					"offset", off, "userId", userId, "err", err)
+				if !wroteHeader {
+					http.Error(w, "upstream error", code)
+				}
+				return
+			}
+
+			up, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(resp)), r)
+			if err != nil {
+				sloth.Errorw(ctx, "read upstream response failed", "svc", svc, "path", path, "err", err)
+				if !wroteHeader {
+					http.Error(w, "upstream error", http.StatusBadGateway)
+				}
+				return
+			}
+
+			// 我们总是带 Range 转发，期望 206。拿到别的（200 整包 / 404 / 304 /
+			// 客户端自己判的 416）说明这是一次就能结束的响应，原样回写即可，
+			// 不要往分块流程里掺。
+			if up.StatusCode != http.StatusPartialContent {
+				up.Body.Close()
+				if err := writeResponse(w, r, resp); err != nil {
+					sloth.Errorw(ctx, "write response failed", "svc", svc, "path", path, "err", err)
+				}
+				return
+			}
+
+			if !wroteHeader {
+				copyHeader(w.Header(), up.Header)
+				w.Header().Set("Accept-Ranges", "bytes")
+				w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
+				if ranged {
+					w.Header().Set("Content-Range",
+						fmt.Sprintf("bytes %d-%d/%d", startOff, endOff, size))
+					w.WriteHeader(http.StatusPartialContent)
+				} else {
+					w.WriteHeader(http.StatusOK)
+				}
+				wroteHeader = true
+			}
+
+			n, err := io.Copy(w, up.Body)
+			up.Body.Close()
+			written += n
+			if err != nil {
+				// 写一半浏览器就断开是常态（播放器 seek / 用户关页面），只记不报
+				sloth.Infow(ctx, "copy body stopped", "svc", svc, "path", path,
+					"offset", off, "written", written, "err", err)
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			if ctx.Err() != nil {
+				sloth.Infow(ctx, "client gone", "svc", svc, "path", path, "written", written)
+				return
+			}
 		}
-		if err := writeResponse(w, r, resp); err != nil {
-			sloth.Errorw(ctx, "write response failed", "svc", svc, "path", path, "err", err)
-			return
+		sloth.Infow(ctx, "forwarded", "svc", svc, "path", path, "size", size,
+			"range", fmt.Sprintf("bytes=%d-%d", startOff, endOff),
+			"written", written, "cost", time.Since(begin).String())
+	}
+}
+
+// statSize 取文件大小：先查短缓存，没有就发一次 Range: bytes=0-0 探测。
+//
+// 探测只要响应头（1 字节 body），代价是一个 RTT，结果按 sizeTTL 缓存。
+// 客户端是 http.FileServer，一定支持 Range；拿不到大小就当作上游异常。
+func statSize(ctx context.Context, server *sloth.ClientRpc, userId int64, svc, path string) (int64, bool) {
+	key := svc + "\x00" + path
+	if v, ok := sizeCache.Load(key); ok {
+		e, _ := v.(sizeEntry)
+		if time.Since(e.at) < sizeTTL {
+			return e.size, true
 		}
-		sloth.Infow(ctx, "forwarded", "svc", svc, "path", path,
-			"reqBytes", len(raw), "respBytes", len(resp), "cost", time.Since(start).String())
+	}
+	probe := &http.Request{
+		Method:     http.MethodGet,
+		URL:        &url.URL{Path: "/" + path},
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Host:       "media.local",
+		Header:     http.Header{},
+	}
+	raw, err := dumpRequest(probe, "/"+path, "bytes=0-0")
+	if err != nil {
+		sloth.Errorw(ctx, "dump probe request failed", "svc", svc, "path", path, "err", err)
+		return 0, false
+	}
+	callCtx, stop := context.WithTimeout(ctx, callTimeout)
+	defer stop()
+	resp, err := server.Call(callCtx, userId, svcRpcMethod, raw)
+	if err != nil {
+		sloth.Errorw(ctx, "probe failed", "svc", svc, "path", path, "err", err)
+		return 0, false
+	}
+	up, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(resp)), probe)
+	if err != nil {
+		sloth.Errorw(ctx, "read probe response failed", "svc", svc, "path", path, "err", err)
+		return 0, false
+	}
+	defer up.Body.Close()
+
+	size := up.ContentLength
+	if cr := up.Header.Get("Content-Range"); cr != "" {
+		// bytes 0-0/104857600 —— 斜杠后面才是总大小，Content-Length 是这一片的长度
+		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
+			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil {
+				size = n
+			}
+		}
+	}
+	if size <= 0 {
+		sloth.Errorw(ctx, "unknown size", "svc", svc, "path", path,
+			"status", up.StatusCode, "contentLength", up.ContentLength)
+		return 0, false
+	}
+	sizeCache.Store(key, sizeEntry{size: size, at: time.Now()})
+	return size, true
+}
+
+// rangeSpec 解析 RFC 7233 的 Range 子集，返回要读的闭区间 [start, end]。
+//
+// 返回 errNoRange：没有 Range 或单位不是 bytes → 按全量处理（RFC 要求忽略，
+// 不是报错）。返回 errUnsatisfiable：区间越界 → 416。语法不认识的一律忽略，
+// 只对"认识但满足不了"报错。
+func rangeSpec(h string, size int64) (start, end int64, err error) {
+	if size <= 0 {
+		return 0, 0, errUnsatisfiable
+	}
+	if h == "" {
+		return 0, size - 1, errNoRange
+	}
+	spec := strings.TrimSpace(h)
+	if !strings.HasPrefix(spec, "bytes=") {
+		return 0, size - 1, errNoRange
+	}
+	spec = strings.TrimSpace(strings.TrimPrefix(spec, "bytes="))
+	// 多区间只取第一个：浏览器基本不发，真发了也按单区间回（HTTP 允许）
+	if i := strings.IndexByte(spec, ','); i >= 0 {
+		spec = spec[:i]
+	}
+	if spec == "" {
+		return 0, size - 1, errNoRange
+	}
+	if strings.HasPrefix(spec, "-") {
+		// 后缀形式 bytes=-N：最后 N 字节
+		n, err := strconv.ParseInt(spec[1:], 10, 64)
+		if err != nil || n <= 0 {
+			return 0, size - 1, errNoRange
+		}
+		start = max(0, size-n)
+		end = size - 1
+	} else {
+		dash := strings.IndexByte(spec, '-')
+		if dash < 0 {
+			return 0, size - 1, errNoRange
+		}
+		s, err := strconv.ParseInt(spec[:dash], 10, 64)
+		if err != nil {
+			return 0, size - 1, errNoRange
+		}
+		start = s
+		if dash == len(spec)-1 {
+			end = size - 1 // bytes=100-  → 读到结尾
+		} else {
+			e, err := strconv.ParseInt(spec[dash+1:], 10, 64)
+			if err != nil {
+				return 0, size - 1, errNoRange
+			}
+			end = e
+		}
+		if end >= size {
+			end = size - 1 // end 越界截断，不是错误
+		}
+	}
+	if start < 0 || start > end || start >= size {
+		return 0, 0, errUnsatisfiable
+	}
+	return start, end, nil
+}
+
+// copyHeader 复制上游响应头，跳过 hop-by-hop 头与我们要重写的长度相关头。
+func copyHeader(dst, src http.Header) {
+	for _, h := range hopHeaders {
+		src.Del(h)
+	}
+	for k, vv := range src {
+		// Content-Length / Content-Range 按"整个响应"重写，不能用单块的
+		if k == "Content-Length" || k == "Content-Range" {
+			continue
+		}
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
 	}
 }
 
 // svcRpcMethod 客户端侧暴露的转发方法（服务名 "http" + 方法 "Do"）。
 const svcRpcMethod = "http.Do"
 
+// mediaChunk 单次转发的数据块大小。
+//
+// 为什么必须分块：客户端那边的响应是**整包进内存**的（resp.Write 写进一个
+// bytes.Buffer 再返回），还有 maxRespBytes(32MB) 兜底。100MB 的 mp4 整包转发
+// 一定撞上限变 502；就算把上限放宽，内存峰值也是文件大小的好几倍。
+// 分块之后每块只有 256KB：
+//   - 永远不触发客户端的响应上限；
+//   - 网关与客户端的内存恒定在几百 KB，与文件大小无关；
+//   - 浏览器的 Range 本来就是现成的分块协议，拖动/快进直接映射到某几块。
+const mediaChunk = 256 << 10
+
+// sizeTTL 文件大小（Stat）的缓存时间。
+//
+// 每个 Range 请求都先探测一次 size 会多一个 RTT，播放器拖动时尤其明显。
+// 文件被替换后最多有 sizeTTL 的窗口返回旧 size——点播场景可接受，
+// 真要强一致就把客户端的 ETag 一起缓存比对。
+const sizeTTL = 30 * time.Second
+
+// rangeSpec 的两种"没拿到区间"：前者按全量处理，后者回 416。
+var (
+	errNoRange       = errors.New("no range")
+	errUnsatisfiable = errors.New("unsatisfiable range")
+)
+
+// sizeCache 路径 → 文件大小的短缓存（见 sizeTTL）。
+var sizeCache sync.Map
+
+type sizeEntry struct {
+	size int64
+	at   time.Time
+}
+
 // dumpRequest 把收到的请求序列化成 HTTP 报文，路径改写为客户端本地路径。
 //
 // 不能直接 r.Write()：它是服务端请求（RequestURI 是外部路径、Host 是网关地址），
 // 转发过去客户端会拿着错误的目标去请求。
-func dumpRequest(r *http.Request, path string) ([]byte, error) {
+//
+// rangeHeader 由网关统一下发（见 gateway 的分块循环）；传空串表示不带 Range。
+func dumpRequest(r *http.Request, path string, rangeHeader string) ([]byte, error) {
 	u := *r.URL
 	u.Scheme = "http"
 	u.Host = "media.local" // 占位：客户端会改写成自己的本地地址
@@ -238,6 +491,14 @@ func dumpRequest(r *http.Request, path string) ([]byte, error) {
 	}
 	for _, h := range hopHeaders {
 		req.Header.Del(h)
+	}
+	// Range 由网关按 mediaChunk 重算过，浏览器原来那段不能透传（可能跨整个文件）。
+	// If-Range 也剥掉：客户端判定不匹配时会退回 200 整包，大文件就撞上限了。
+	req.Header.Del("If-Range")
+	if rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	} else {
+		req.Header.Del("Range")
 	}
 	var buf bytes.Buffer
 	if err := req.Write(&buf); err != nil {
