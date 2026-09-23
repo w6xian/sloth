@@ -12,6 +12,7 @@ import (
 	quicgo "github.com/quic-go/quic-go"
 	"github.com/w6xian/sloth/v4/bucket"
 	"github.com/w6xian/sloth/v4/codec"
+	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/metrics"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/nrpc"
@@ -120,8 +121,19 @@ func (c *QuicClient) registerMetrics() {
 
 // ListenAndServe 建立 QUIC 连接并开一条流，之后在后台服务它。
 //
-// 与 TCP 客户端一致：只建一条连接，断开即结束（不做重连——重连后是否重新
-// Sign、身份是否重建是个语义问题，未定不动，见 README 的"传输层差异"）。
+// 与 TCP 客户端一致（见 nrpc.ServeReconnect）：
+//
+//   - 首次拨号**同步**返回 error（保持原语义，调用方据此决定退出还是继续跑）；
+//   - 无论首次成功与否，后台都会起一个重连循环：连不上（服务器还没起来、正在
+//     维护）按 500ms → 30s 指数退避重试；连上之后又被断掉则立刻重连。
+//
+// 注意 QUIC 每次重拨最多要等 handshakeTimeout（UDP 没有 RST，地址不可达不会
+// 立刻失败），所以"服务端还没起来"时两次尝试之间实际是 10s + 退避。
+//
+// 重连后要做的事由业务决定：身份会自动补到新连接上（见 serveOnce 里的
+// authSnapshot），但**服务端 bucket 里的 channel 必须重新注册**——要在 handler
+// 的 OnReady 里重新 Sign/Reg（不能在 OnReady 里同步发 RPC，pump 还没跑起来
+// 会等不到回包，应另起 goroutine）。
 func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 	select {
 	case <-c.closeChan:
@@ -134,19 +146,50 @@ func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 	if c.quicConf == nil {
 		c.quicConf = defaultQuicConfig()
 	}
+
+	// 首次连接：失败同步返回，调用方能看到"现在连不上"。
+	done, err := c.serveOnce(ctx)
+	// 之后交给后台：服务器维护期间就在后台等着，起来后自动连上。
+	go nrpc.ServeReconnect(ctx, nrpc.ReconnectConfig{
+		Name:       "quic",
+		Addr:       c.address,
+		Dial:       c.serveOnce,
+		Done:       done,
+		CloseChan:  c.closeChan,
+		Reconnects: quicClientReconnects,
+		Logf:       c.log,
+	})
+	return err
+}
+
+// serveOnce 握手 + 开流 + 起读写循环，返回该连接结束时会关闭的信号。
+//
+// done 为 nil 表示这次没连上（调用方据此退避重试）。
+func (c *QuicClient) serveOnce(ctx context.Context) (<-chan struct{}, error) {
 	// 握手带超时：地址不可达时 UDP 不会像 TCP 那样快速失败（没有 RST），
 	// 不设超时会一直等到 ctx 取消。
 	dialCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
-	defer cancel()
-
 	qconn, err := quicgo.DialAddr(dialCtx, c.address, withALPN(c.tlsConf), c.quicConf)
+	cancel()
 	if err != nil {
-		return fmt.Errorf("quic dial %s: %w", c.address, err)
+		return nil, fmt.Errorf("quic dial %s: %w", c.address, err)
 	}
-	st, err := qconn.OpenStreamSync(dialCtx)
+	// 握手最长 10s，期间可能已被 Close()：这时别再开流，否则 Close 之后
+	// 会残留一条没人管的 QUIC 连接（重连循环已退出）。
+	select {
+	case <-c.closeChan:
+		_ = qconn.CloseWithError(quicgo.ApplicationErrorCode(0), "")
+		return nil, errors.New("quic client closed")
+	default:
+	}
+	// 开流另算一份超时预算：与握手共用同一个 ctx 时，握手耗掉 9.9s 会让
+	// 开流只剩 0.1s，白失败一次。
+	streamCtx, cancelStream := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancelStream()
+	st, err := qconn.OpenStreamSync(streamCtx)
 	if err != nil {
 		_ = qconn.CloseWithError(quicgo.ApplicationErrorCode(0), "")
-		return fmt.Errorf("quic open stream %s: %w", c.address, err)
+		return nil, fmt.Errorf("quic open stream %s: %w", c.address, err)
 	}
 	conn := &streamConn{Stream: st, local: qconn.LocalAddr(), remote: qconn.RemoteAddr()}
 
@@ -157,7 +200,8 @@ func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 	if c.ReadWait > 0 {
 		ch.PReadWait = c.ReadWait
 	}
-	// 先 SetAuthInfo 再 Dial 的场景：把已存的身份补到新连接上
+	// 先 SetAuthInfo 的场景、以及重连后恢复身份：把已存的身份补到新连接上。
+	// 注意这只是本地身份——服务端 bucket 里的 channel 要靠业务重新 Reg 才会更新。
 	if a := c.authSnapshot(); a != nil {
 		_ = ch.SetLocalAuth(a)
 	}
@@ -166,10 +210,12 @@ func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 	if c.handler != nil {
 		if err := c.handler.OnConnect(ctx, c.address); err != nil {
 			_ = ch.Close()
+			_ = qconn.CloseWithError(quicgo.ApplicationErrorCode(0), "")
 			c.ch.Store(nil)
-			return err
+			return nil, err
 		}
 	}
+	done := make(chan struct{})
 	go func() {
 		defer func() {
 			c.ch.Store(nil)
@@ -179,14 +225,24 @@ func (c *QuicClient) ListenAndServe(ctx context.Context) error {
 			_ = ch.Close()
 			// 流关闭后 QUIC 连接本身也要关，否则 idle timeout 之前一直占着
 			_ = qconn.CloseWithError(quicgo.ApplicationErrorCode(0), "")
+			close(done)
 		}()
 		if c.handler != nil {
 			_ = c.handler.OnReady(ctx, ch)
 		}
 		stream.RunPump(ctx, ch, c.dispatch(ch), c.m)
 	}()
-	return nil
+	return done, nil
 }
+
+// log 重连循环的日志出口（签名与 nrpc.ReconnectConfig.Logf 对齐）。
+func (c *QuicClient) log(level logger.LogLevel, line string, args ...any) {
+	logger.Logf(level, nil, line, args...)
+}
+
+// quicClientReconnects 客户端重连尝试次数（失败一次记一次）。
+var quicClientReconnects = metrics.NewCounter(
+	"sloth_quic_client_reconnects_total", "QUIC 客户端重连尝试次数")
 
 // dispatch 客户端入站分发：与服务端共用同一个 DispatchMessage 入口。
 func (c *QuicClient) dispatch(ch *stream.Channel) func(context.Context, []byte) error {

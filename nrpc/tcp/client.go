@@ -11,8 +11,9 @@ import (
 
 	"github.com/w6xian/sloth/v4/bucket"
 	"github.com/w6xian/sloth/v4/codec"
-	"github.com/w6xian/sloth/v4/metrics"
+	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/metrics"
 	"github.com/w6xian/sloth/v4/nrpc"
 	"github.com/w6xian/sloth/v4/nrpc/stream"
 	"github.com/w6xian/sloth/v4/option"
@@ -103,19 +104,57 @@ func (c *TcpClient) registerMetrics() {
 	}
 }
 
-// ListenAndServe 建立连接并在后台服务它，连接失败同步返回 error。
+// ListenAndServe 建立连接并服务它；之后由后台循环接管重连。
 //
-// 与 ws 版不同：ws 的 ListenAndServe 会一直阻塞直到连接结束（它还负责重连），
-// TCP 版只建一条连接，连接断开即结束（重连留待后续，见文件末尾说明）。
+// 与 ws 版的行为差异在这里收敛掉了：
+//
+//   - 首次拨号**同步**返回 error（保持原语义，调用方据此决定退出还是继续跑）；
+//   - 无论首次成功与否，后台都会起一个重连循环：连不上（服务器还没起来、正在
+//     维护）按 500ms → 30s 指数退避重试；连上之后又被断掉则立刻重连。
+//     这样"服务端重启 / 网络抖动"对客户端是自动恢复的，不需要业务自己轮询。
+//
+// 重连后要做的事由业务决定：身份会自动补到新连接上（见 serveOnce 里的
+// authSnapshot），但**服务端 bucket 里的 channel 必须重新注册**——所以要在
+// handler 的 OnReady 里重新 Sign/Reg（不能在 OnReady 里同步发 RPC，pump 还没
+// 跑起来会等不到回包，应另起 goroutine）。
 func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 	select {
 	case <-c.closeChan:
 		return errors.New("tcp client closed")
 	default:
 	}
+
+	// 首次连接：失败同步返回，调用方能看到"现在连不上"。
+	done, err := c.serveOnce(ctx)
+	// 之后交给后台：服务器维护期间就在后台等着，起来后自动连上。
+	// 循环本身是传输无关的公共实现（nrpc.ServeReconnect，quic 客户端同源）。
+	go nrpc.ServeReconnect(ctx, nrpc.ReconnectConfig{
+		Name:       "tcp",
+		Addr:       c.address,
+		Dial:       c.serveOnce,
+		Done:       done,
+		CloseChan:  c.closeChan,
+		Reconnects: tcpClientReconnects,
+		Logf:       c.log,
+	})
+	return err
+}
+
+// serveOnce 建一条连接并起它的读写循环，返回该连接结束时会关闭的信号。
+//
+// done 为 nil 表示这次没连上（调用方据此退避重试）。
+func (c *TcpClient) serveOnce(ctx context.Context) (<-chan struct{}, error) {
 	conn, err := net.Dial("tcp", c.address)
 	if err != nil {
-		return fmt.Errorf("tcp dial %s: %w", c.address, err)
+		return nil, fmt.Errorf("tcp dial %s: %w", c.address, err)
+	}
+	// 拨号期间可能已被 Close()：这条连接就别往上挂了，否则 Close 之后
+	// 还会残留一条正在跑的连接（重连循环此时已经退出，没人会关它）。
+	select {
+	case <-c.closeChan:
+		_ = conn.Close()
+		return nil, errors.New("tcp client closed")
+	default:
 	}
 	ch := newTcpChannel(c.Connect, conn, stream.ClientIP(conn.RemoteAddr()), c.queueSize)
 	if c.WriteWait > 0 {
@@ -124,7 +163,8 @@ func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 	if c.ReadWait > 0 {
 		ch.PReadWait = c.ReadWait
 	}
-	// 先 SetAuthInfo 再 Dial 的场景：把已存的身份补到新连接上
+	// 先 SetAuthInfo 的场景、以及重连后恢复身份：把已存的身份补到新连接上。
+	// 注意这只是本地身份——服务端 bucket 里的 channel 要靠业务重新 Reg 才会更新。
 	if a := c.authSnapshot(); a != nil {
 		_ = ch.SetLocalAuth(a)
 	}
@@ -134,9 +174,10 @@ func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 		if err := c.handler.OnConnect(ctx, c.address); err != nil {
 			_ = conn.Close()
 			c.ch.Store(nil)
-			return err
+			return nil, err
 		}
 	}
+	done := make(chan struct{})
 	go func() {
 		defer func() {
 			c.ch.Store(nil)
@@ -144,14 +185,24 @@ func (c *TcpClient) ListenAndServe(ctx context.Context) error {
 				_ = c.handler.OnClose(ctx, ch)
 			}
 			_ = ch.Close()
+			close(done)
 		}()
 		if c.handler != nil {
 			_ = c.handler.OnReady(ctx, ch)
 		}
 		stream.RunPump(ctx, ch, c.dispatch(ch), c.m)
 	}()
-	return nil
+	return done, nil
 }
+
+// log 重连循环的日志出口（签名与 nrpc.ReconnectConfig.Logf 对齐）。
+func (c *TcpClient) log(level logger.LogLevel, line string, args ...any) {
+	logger.Logf(level, nil, line, args...)
+}
+
+// tcpClientReconnects 客户端重连尝试次数（失败一次记一次）。
+var tcpClientReconnects = metrics.NewCounter(
+	"sloth_tcp_client_reconnects_total", "TCP 客户端重连尝试次数")
 
 // dispatch 客户端入站分发：与服务端共用同一个 DispatchMessage 入口，
 // 因此"回包/服务端反调/裸数据"的判定规则两端完全一致。
@@ -265,7 +316,10 @@ var (
 )
 
 // 未实现的能力（留待后续）：
-//   - 断线自动重连 + relogin 回调（ws 客户端有 runRelogin；TCP 版应先有
-//     "重连后重新注册身份"的语义，否则服务端反调会打到旧连接上）；
-//   - 心跳（Ping/Pong）：FN 帧没有心跳 action，需要协议层补一个；
+//   - 心跳（Ping/Pong）：FN 帧没有心跳 action，需要协议层补一个。
+//     没有心跳就没有"半开连接"探测——对端掉电时本端只能等 TCP 超时才重连；
 //   - TLS：可在 Listen/Dial 处包一层 tls.Conn（与 wss 对称）。
+//
+// 已实现：断线自动重连（见 nrpc.ServeReconnect，退避策略与 ws 客户端一致）。
+// 注意重连只恢复**本地身份**，服务端 bucket 里挂的 channel 要业务在
+// handler 的 OnReady 里重新 Sign/Reg 才会更新——否则服务端反调会打到旧连接上。

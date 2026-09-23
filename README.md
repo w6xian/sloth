@@ -133,16 +133,18 @@ go drpc.Serve()
 |---|---|---|---|
 | 底层传输 | TCP | TCP | **UDP** |
 | TLS | 可选（`wss`） | 未内置（可自行包 `tls.Conn`） | **强制**：加密由 TLS 1.3 承担，没有证书握不了手 |
-| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | **无** | **无** |
+| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | 有：退避重连（只恢复本地身份） | 有：退避重连（只恢复本地身份，每次重拨另受 10s 握手上限约束） |
 | 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） |
 | 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` |
 | HTTP 概念 | mux router / origin / uri path | 无 | 无 |
 | 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 |
-| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用 | 握手完成后立刻返回（握手有 10s 上限） |
+| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用；之后后台自动重连 | 握手完成后立刻返回（握手有 10s 上限）；之后后台自动重连 |
 | 多路复用 | 一连接 = 一逻辑连接 | 一连接 = 一逻辑连接 | 一个 QUIC 连接可开多条流，每条流 = 一逻辑连接 |
 | 连接限额 | 全局 / `MaxConnsWS` / 单 IP | 全局 / `MaxConnsTCP` | 全局 / `MaxConnsQUIC` |
 
-**TCP / QUIC 无断线重连不是遗漏，而是未定的语义问题**：重连后要不要自动重新 Sign、连接身份是否重建、断连期间的房间广播要不要补发 —— 这些都得先定义清楚。在语义确定前不做，是避免埋一个"看起来能自动恢复、实际身份是错的"的坑。需要自动重连的场景请先用 `ws`，或在应用层自行包装"重连 + 重新 Sign"。
+**TCP / QUIC 的断线重连只恢复"连接"，不恢复"会话"**：两者共用同一个循环（`nrpc.ServeReconnect`，首次拨号同步返回 error，之后后台按 500ms → 30s 退避重拨，连接被断掉则立刻重连），重连时会把已保存的身份补到新连接上，但**不会**自动重新 Sign，也不会重建服务端 bucket 里的 channel、不补发断连期间的房间广播 —— 这些语义仍未定，交回业务决定。
+
+因此使用 TCP / QUIC 客户端时，**必须在客户端钩子的 `OnReady` 里重新 Sign/Reg**（不能在 `OnReady` 里同步发 RPC：读写泵还没跑起来会等不到回包，应另起 goroutine）。需要"重连即自动恢复会话"的场景请先用 `ws`（`KeepAlive` + `runRelogin`）。
 
 ### QUIC 的几点补充说明
 

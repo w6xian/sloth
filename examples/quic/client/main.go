@@ -8,7 +8,8 @@ package main
 // 换成正常校验证书（或用内网 CA 的根证书做 RootCAs）。
 //
 // 其余与 TCP 客户端一致：Dial 建立连接后立刻返回，可以同步调用；
-// 没有断线重连（语义未定，见 README 的"传输层差异"）。
+// 断线会自动重连（500ms → 30s 退避），但重连只恢复本地身份——服务端
+// bucket 里的 channel 要业务在 OnReady 里重新 Sign/Reg 才会更新。
 //
 // 运行：先起 examples/quic 服务端，再跑本程序。
 
