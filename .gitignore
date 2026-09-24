@@ -11,3 +11,4 @@ examples/.DS_Store
 /.tmp
 *.mp4
 /sloth-proxy
+build.bat

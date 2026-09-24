@@ -128,6 +128,82 @@ go drpc.Serve()
   连接分桶是每个传输各自持有的，库内部用一个合成实例跨传输查找；
 - 给 QUIC 配的 TLS 只作用于 QUIC（与 `wss`），ws / tcp 端口仍是明文。
 
+## 怎么选传输：ws / wss / tcp / quic / kcp
+
+五个 network 共用同一套服务注册与调用 API，差异全在"链路特性"上。先给结论，再给理由。
+
+### 一句话结论
+
+| 选它 | 当且仅当 |
+|---|---|
+| **ws** | 内网 / 可信网络，客户端有浏览器，或链路要过 HTTP 基础设施（Nginx 反代、80/443、CDN） |
+| **wss** | 同上，但连接要过公网——生产环境对外几乎都该用它 |
+| **tcp** | 两端都是自己的 Go 程序、同机房或内网、要最低开销；不需要浏览器、不需要 HTTP 概念 |
+| **quic** | 弱网 / 移动网络 / 跨地域，要标准 TLS 与多流复用，且有人维护证书 |
+| **kcp** | 高丢包 + 延迟敏感（实时对战、语音信令、跨境链路），且不想引入证书体系 |
+
+拿不准就**先 ws**：生态最好、重连语义最完整、出问题最好排查。等链路特性真成了瓶颈再换——换传输只改 `Listen / Dial` 的 network 与连接回调，业务代码一行不动。
+
+### 决策三问
+
+1. **客户端里有浏览器吗？链路要穿 Nginx / CDN / 公司代理吗？**
+   是 → `ws`（过公网则 `wss`）。它是唯一能借 HTTP 基础设施的选择；其余几个都是"自己的协议跑在自己的端口上"，中间设备帮不上忙，反而常拦 UDP。
+2. **两端都在内网、都是自己的 Go 服务、要最低延迟与 CPU？**
+   是 → `tcp`。没有 TLS、没有 HTTP 头、没有握手，开销最小。
+3. **链路会丢包或会切换（移动网络、跨运营商、跨境）？**
+   是 → 在 `quic` 与 `kcp` 之间挑：
+   - 要标准 TLS、要一条连接开多条流、能维护证书 → `quic`
+   - 要尽可能低的延迟、不想碰证书、愿意用带宽换延迟 → `kcp`
+
+### 各协议的适用边界
+
+**ws / wss —— 默认选择**
+
+- 适合：浏览器直连（[examples/ws/web](examples/ws/web) 下有配套的 JS 客户端）、走 Nginx 反代与 80/443、需要 HTTP 概念（mux router / origin 校验 / uri path）、需要"重连即恢复会话"。
+- `ws` 是五个里**唯一**带 `KeepAlive` + `runRelogin`（重连后自动重新 Sign）的；`tcp / quic / kcp` 重连只恢复连接、不恢复会话，必须在客户端 `OnReady` 里自己重新 Sign。
+- 单 IP 连接限额目前**仅 ws 生效**（它靠 HTTP 请求头取 IP）。挂在反代后面要开 `sloth.WithTrustProxyHeaders(true)` 才认 `X-Forwarded-For`，且只在可信代理之后开——否则这个头可以伪造，限额形同虚设。
+- `wss` = `ws` + TLS，配置是 Connect 级的：`sloth.WithTLSConfig(...)` 或 `sloth.WithTLSCertKey(certFile, keyFile)`。这一份配置同时供 QUIC 使用，但**不会**把 ws / tcp 端口也变成 TLS。
+
+**tcp —— 内网同构首选**
+
+- 适合：服务间调用、IM/游戏集群的内部节点、不需要浏览器与 HTTP 的一切场景；支持 `tcp / tcp4 / tcp6`。
+- 不适合：需要 TLS 的场景（未内置，要自己包一层 `tls.Conn` 再交给库）、需要会话级重连恢复的场景。
+- 别用 curl 探活：没有合法 FN 帧头会被直接断连，这是预期行为。
+
+**quic —— 弱网 + 标准 TLS**
+
+- 适合：移动端 / 跨地域长连接 / 一条连接要跑多条流；加密由 TLS 1.3 承担，没有证书握不了手。
+- 代价：证书是必填项、监听的是 UDP 端口（安全组别只放 TCP）、用户态协议栈的 CPU 高于 tcp、每次重拨另受 10s 握手上限约束。
+
+**kcp —— 高丢包 + 延迟敏感**
+
+- 适合：丢包率高且延迟敏感的实时链路；自带 BlockCrypt 做载荷加密，**不需要证书**。
+- 代价：FEC 是用带宽换延迟（默认未开）、UDP 没有连接状态（对端掉电只能等 `ReadWait` 超时才发现）、两端配置必须逐项一致否则表现为"连得上、一直没响应"。
+- 要保密就别用默认的 `none` 加密。
+
+### 常见误选
+
+- **"为了性能"上 quic / kcp**：内网零丢包时它们只会更慢（UDP + 用户态重传/加密），性价比不如 tcp。
+- **要"重连后不用管登录"却选了 tcp / quic / kcp**：这三个只恢复连接，会话得自己在 `OnReady` 里重建；不想写这段就用 ws。
+- **把 wss 当"加密的 tcp"**：它仍是 WebSocket，带 HTTP 升级与 mux 路由；纯服务间调用应该要 tcp。
+- **在只放通 TCP 的网络里选 quic / kcp**：UDP 不通时表现为超时，排查起来很像"服务端挂了"。
+- **KCP 配置只改了一端**：不报错，只静默超时（见下方 KCP 补充说明）。
+
+### 组合用法：一个进程开多条
+
+选型不必二选一——对外与对内可以各用一套：
+
+```go
+drpc := sloth.ServerConn(server, sloth.WithTLSConfig(tlsConf)) // wss 与 quic 共用这一份
+drpc.Listen(ctx, sloth.WSS,  "0.0.0.0:443",   wsOpts...)      // 对外 / 浏览器
+drpc.Listen(ctx, sloth.TCP,  "10.0.0.1:8991", streamOpts...)  // 内网服务间
+drpc.Listen(ctx, sloth.QUIC, "0.0.0.0:8992",  streamOpts...)  // 移动端 / 弱网
+drpc.Listen(ctx, sloth.KCP,  "0.0.0.0:8993",  kcpOpts...)     // 高丢包 / 延迟敏感
+go drpc.Serve()
+```
+
+这些链路共用同一份服务注册表，服务端主动推送会覆盖全部链路（见"多协议同时监听"）。连接回调按传输挑名字即可：`option.WithServerHandleMessage`（ws/wss）、`WithTcpHandleMessage`、`WithQuicHandleMessage`（别名）、`WithKcpHandleMessage`（别名）。
+
 ## 传输层差异与已知限制
 
 换传输只需改 `Listen / Dial` 的 network 参数，业务代码（codec、dispatch、bucket、房间广播）完全共用 —— 逐行对比 [examples/ws](examples/ws)、[examples/tcp](examples/tcp) 与 [examples/quic](examples/quic) 即可看出差异有多小。目前已知的差异：
