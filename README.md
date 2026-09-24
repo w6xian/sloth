@@ -9,8 +9,6 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 - QUIC：`quic`（UDP + TLS 1.3，弱网与网络切换场景友好；强制 TLS，见下）
 - KCP：`kcp`（基于 `kcp-go` 的 UDP + ARQ，弱网/丢包环境友好；自带 BlockCrypt 加密，**不需要 TLS**）
 
-> `grpc` 仍是占位符（未实现真正的 gRPC 协议栈）。
-
 network 参数可以直接用包级常量（无类型字符串常量，传给 `Listen / Dial` 无需转换）：
 
 | 常量 | 值 | 说明 |
@@ -140,8 +138,8 @@ go drpc.Serve()
 | TLS | 可选（`wss`） | 未内置（可自行包 `tls.Conn`） | **强制**：加密由 TLS 1.3 承担，没有证书握不了手 | **不需要**：加密由 KCP 自带的 BlockCrypt 承担 |
 | 传输参数 | — | — | `*tls.Config`（必填） | `option.WithKCPConfig`：加密方式 / 密钥 / FEC / 窗口 / nodelay 等 |
 | 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | 有：退避重连（只恢复本地身份） | 有：退避重连（只恢复本地身份，每次重拨另受 10s 握手上限约束） | 有：退避重连（只恢复本地身份） |
-| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） |
-| 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` |
+| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithQuicHandleMessage`（`WithTcpHandleMessage` 的别名，同一套钩子） | `option.WithKcpHandleMessage`（`WithTcpHandleMessage` 的别名，同一套钩子） |
+| 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithQuicClientHandleMessage` | `option.WithKcpClientHandleMessage` |
 | HTTP 概念 | mux router / origin / uri path | 无 | 无 | 无 |
 | 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 | 打不通：UDP；两端 KCP 参数不一致时**静默无响应** |
 | `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用；之后后台自动重连 | 握手完成后立刻返回（握手有 10s 上限）；之后后台自动重连 | 建立连接后立刻返回；之后后台自动重连 |

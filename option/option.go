@@ -95,6 +95,21 @@ func WithTcpHandleMessage(h handler.TcpHandleMessage) ConnectOption {
 	}
 }
 
+// WithKcpHandleMessage 是 WithTcpHandleMessage 的别名（KCP 版）。
+//
+// KCP 与 TCP 共用同一套连接生命周期钩子 handler.TcpHandleMessage，行为完全一致；
+// 别名只是让调用点的名字与所使用的传输对齐——同一份代码里连的是 KCP 就用这个，
+// 读代码的人不用再去确认"为什么 KCP 要写 WithTcp"。两者不可同时传（后者覆盖前者）。
+func WithKcpHandleMessage(h handler.TcpHandleMessage) ConnectOption {
+	return WithTcpHandleMessage(h)
+}
+
+// WithQuicHandleMessage 是 WithTcpHandleMessage 的别名（QUIC 版），说明见
+// WithKcpHandleMessage：QUIC 同样跑在非 HTTP 的字节流上，钩子是同一套。
+func WithQuicHandleMessage(h handler.TcpHandleMessage) ConnectOption {
+	return WithTcpHandleMessage(h)
+}
+
 // WithTcpClientHandleMessage 给非 HTTP 传输（TCP / QUIC）的**客户端**注入
 // 连接事件钩子，是 WithTcpHandleMessage（服务端）的对称入口。
 //
@@ -109,6 +124,18 @@ func WithTcpClientHandleMessage(h handler.TcpClientHandleMessage) ConnectOption 
 			v.SetTcpClientHandleMessage(h)
 		}
 	}
+}
+
+// WithKcpClientHandleMessage 是 WithTcpClientHandleMessage 的别名（KCP 版），
+// 是 WithKcpHandleMessage（服务端）的对称入口，说明见 WithKcpHandleMessage。
+func WithKcpClientHandleMessage(h handler.TcpClientHandleMessage) ConnectOption {
+	return WithTcpClientHandleMessage(h)
+}
+
+// WithQuicClientHandleMessage 是 WithTcpClientHandleMessage 的别名（QUIC 版），
+// 是 WithQuicHandleMessage（服务端）的对称入口。
+func WithQuicClientHandleMessage(h handler.TcpClientHandleMessage) ConnectOption {
+	return WithTcpClientHandleMessage(h)
 }
 
 // WithChannelQueueSize 设置每条连接的队列容量（待发 RPC / 回包 / 广播）。
