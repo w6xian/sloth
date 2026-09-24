@@ -156,10 +156,24 @@ func clampSliceSize(sliceSize int) int {
 	return sliceSize
 }
 
+// receiveMessage 收一条完整消息：先按分片帧解析，不是分片帧则**原样返回**。
+//
+// 分片不是强制的门槛。sloth 从设计上就允许别的协议搭在同一条连接上：
+// 不是本协议（FN 帧）的数据不进 RPC，原样交给 handler.OnData。分片层是后来
+// 才加的（为的是大消息分片），加的时候把"首帧必须解析成分片"变成了硬性
+// 前置条件——解析失败直接报错丢弃，等于把这条"保留协议"通道掐死了：
+// 用户自己协议的字节永远到不了 OnData。
+//
+// 所以这里恢复老语义，并划清边界：
+//   - 首帧解析不出来 = 不是分片帧 → 原样透传，由 dispatch 判定去向
+//     （FN 帧走 RPC，其余走 OnData）；
+//   - 首帧一旦解析成功，就说明对端确实在用分片协议，后续分片出错是**真错误**，
+//     不再退回透传——否则半个分片会被当成完整业务数据交给 OnData。
 func receiveMessage(conn nrpc.IReadConn, messageType byte, message []byte) ([]byte, error) {
 	sc, err := frame.FromType(message, messageType)
 	if err != nil {
-		return nil, err
+		// 不是分片帧：不做任何改写，交给下游按协议判定
+		return message, nil
 	}
 	id := sc.N
 	dataSize := sc.S
