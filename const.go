@@ -22,6 +22,8 @@ const (
 	TCP = "tcp"
 	// QUIC 基于 UDP 的 QUIC（强制 TLS）
 	QUIC = "quic"
+	// KCP 基于 UDP 的 KCP（自带 BlockCrypt 加密，不需要 TLS）
+	KCP = "kcp"
 	// QUIK 是 QUIC 的拼写兼容别名（QUIC 不是缩写，正确写法是 QUIC）。
 	// 保留它只为兼容早期拼写，新代码请用 QUIC。
 	QUIK = QUIC

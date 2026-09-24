@@ -48,7 +48,7 @@ type Options struct {
 	MaxConnsWS     int64
 	MaxConnsTCP    int64
 	MaxConnsQUIC   int64
-	// MaxConnsKCP 为 KCP 预留：协议尚未实现，设了也不会生效。
+	// MaxConnsKCP KCP（UDP）传输的连接上限，见 KcpServer.acquireConn。
 	//
 	// 分协议限额与全局限额是**两道独立的闸**（取更严的那个），不是"加起来"：
 	// 每种传输的 server 实例只服务一种协议，因此它的连接数既是全局的一份，

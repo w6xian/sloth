@@ -29,7 +29,12 @@ type ProtocolListener struct {
 // 变成 TLS 监听器，明文客户端全部握手失败且不报错。TLS 该在哪一层生效：
 // wss → http.Server.ServeTLS（握手阶段），QUIC → quic-go 内部，
 // 两者都不需要 TLS listener。
-func (s *Connect) makeListenerFor(factory ProtocolFactory, address string) (net.Listener, error) {
+func (s *Connect) makeListenerFor(factory ProtocolFactory, address string, opts ...option.ConnectOption) (net.Listener, error) {
+	// 带选项的版本优先：KCP 的加密方式与 FEC 参数决定线上包的格式，
+	// 必须在建监听器时就定下来，而此时传输实例还没创建，只能从选项里取。
+	if lf, ok := factory.(ListenerFactoryWithOptions); ok {
+		return lf.MakeListenerWithOptions(address, s.tlsConfig, opts...)
+	}
 	if lf, ok := factory.(ListenerFactory); ok {
 		return lf.MakeListener(address, s.tlsConfig)
 	}

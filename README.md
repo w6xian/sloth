@@ -7,7 +7,7 @@ Sloth 是一个面向“长连接 + 实时 RPC”的 Go 框架：既可以像传
 - WebSocket：`ws / wss`（适合浏览器、跨语言）
 - TCP：`tcp / tcp4 / tcp6`（FN 帧分帧的裸字节流，适合两端同构、不需要浏览器的场景）
 - QUIC：`quic`（UDP + TLS 1.3，弱网与网络切换场景友好；强制 TLS，见下）
-- KCP：`kcp`（基于 `kcp-go`，适合弱网/丢包环境）—— 未实现，仅占位
+- KCP：`kcp`（基于 `kcp-go` 的 UDP + ARQ，弱网/丢包环境友好；自带 BlockCrypt 加密，**不需要 TLS**）
 
 > `grpc` 仍是占位符（未实现真正的 gRPC 协议栈）。
 
@@ -19,6 +19,7 @@ network 参数可以直接用包级常量（无类型字符串常量，传给 `L
 | `sloth.WSS` | `wss` | WebSocket over TLS |
 | `sloth.TCP` | `tcp` | 裸 TCP |
 | `sloth.QUIC` | `quic` | QUIC（`sloth.QUIK` 是拼写兼容别名，正确写法是 QUIC） |
+| `sloth.KCP` | `kcp` | KCP（UDP，自带 BlockCrypt 加密，不需要 TLS） |
 
 ```go
 conn.Listen(ctx, sloth.QUIC, "localhost:8992")
@@ -99,6 +100,10 @@ go run ./examples/tcp/client
 go run ./examples/quic
 go run ./examples/quic/client
 
+# KCP（两端必须用同一份 KCP 参数：加密方式 / 密钥 / FEC）
+go run ./examples/kcp
+go run ./examples/kcp/client
+
 # 多协议同时监听：一个进程同时开 ws / tcp / quic，三条链路共用同一份服务注册表
 go run ./examples/multi
 go run ./examples/multi/client
@@ -129,22 +134,23 @@ go drpc.Serve()
 
 换传输只需改 `Listen / Dial` 的 network 参数，业务代码（codec、dispatch、bucket、房间广播）完全共用 —— 逐行对比 [examples/ws](examples/ws)、[examples/tcp](examples/tcp) 与 [examples/quic](examples/quic) 即可看出差异有多小。目前已知的差异：
 
-| | WebSocket | TCP | QUIC |
-|---|---|---|---|
-| 底层传输 | TCP | TCP | **UDP** |
-| TLS | 可选（`wss`） | 未内置（可自行包 `tls.Conn`） | **强制**：加密由 TLS 1.3 承担，没有证书握不了手 |
-| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | 有：退避重连（只恢复本地身份） | 有：退避重连（只恢复本地身份，每次重拨另受 10s 握手上限约束） |
-| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） |
-| 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` |
-| HTTP 概念 | mux router / origin / uri path | 无 | 无 |
-| 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 |
-| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用；之后后台自动重连 | 握手完成后立刻返回（握手有 10s 上限）；之后后台自动重连 |
-| 多路复用 | 一连接 = 一逻辑连接 | 一连接 = 一逻辑连接 | 一个 QUIC 连接可开多条流，每条流 = 一逻辑连接 |
-| 连接限额 | 全局 / `MaxConnsWS` / 单 IP | 全局 / `MaxConnsTCP` | 全局 / `MaxConnsQUIC` |
+| | WebSocket | TCP | QUIC | KCP |
+|---|---|---|---|---|
+| 底层传输 | TCP | TCP | **UDP** | **UDP** |
+| TLS | 可选（`wss`） | 未内置（可自行包 `tls.Conn`） | **强制**：加密由 TLS 1.3 承担，没有证书握不了手 | **不需要**：加密由 KCP 自带的 BlockCrypt 承担 |
+| 传输参数 | — | — | `*tls.Config`（必填） | `option.WithKCPConfig`：加密方式 / 密钥 / FEC / 窗口 / nodelay 等 |
+| 断线重连 | 有：`KeepAlive` + `runRelogin`（重连后自动重新 Sign） | 有：退避重连（只恢复本地身份） | 有：退避重连（只恢复本地身份，每次重拨另受 10s 握手上限约束） | 有：退避重连（只恢复本地身份） |
+| 服务端连接回调 | `option.WithServerHandleMessage`（方法带 `*http.Request`） | `option.WithTcpHandleMessage`（带对端地址，无 HTTP 依赖） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） | `option.WithTcpHandleMessage`（与 TCP 同一套钩子） |
+| 客户端连接回调 | `option.WithClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` | `option.WithTcpClientHandleMessage` |
+| HTTP 概念 | mux router / origin / uri path | 无 | 无 | 无 |
+| 端口探测 | 可直接 curl（HTTP 升级握手） | 打不通：没有合法 FN 帧头会被直接断连 | 打不通：UDP，且握手的 ALPN 对不上 | 打不通：UDP；两端 KCP 参数不一致时**静默无响应** |
+| `Dial` 行为 | 内部跑到连接断开，样例里要 `go` 出去 | 建立连接后立刻返回，可同步调用；之后后台自动重连 | 握手完成后立刻返回（握手有 10s 上限）；之后后台自动重连 | 建立连接后立刻返回；之后后台自动重连 |
+| 多路复用 | 一连接 = 一逻辑连接 | 一连接 = 一逻辑连接 | 一个 QUIC 连接可开多条流，每条流 = 一逻辑连接 | 一连接 = 一逻辑连接 |
+| 连接限额 | 全局 / `MaxConnsWS` / 单 IP | 全局 / `MaxConnsTCP` | 全局 / `MaxConnsQUIC` | 全局 / `MaxConnsKCP` |
 
-**TCP / QUIC 的断线重连只恢复"连接"，不恢复"会话"**：两者共用同一个循环（`nrpc.ServeReconnect`，首次拨号同步返回 error，之后后台按 500ms → 30s 退避重拨，连接被断掉则立刻重连），重连时会把已保存的身份补到新连接上，但**不会**自动重新 Sign，也不会重建服务端 bucket 里的 channel、不补发断连期间的房间广播 —— 这些语义仍未定，交回业务决定。
+**TCP / QUIC / KCP 的断线重连只恢复"连接"，不恢复"会话"**：三者共用同一个循环（`nrpc.ServeReconnect`，首次拨号同步返回 error，之后后台按 500ms → 30s 退避重拨，连接被断掉则立刻重连），重连时会把已保存的身份补到新连接上，但**不会**自动重新 Sign，也不会重建服务端 bucket 里的 channel、不补发断连期间的房间广播 —— 这些语义仍未定，交回业务决定。
 
-因此使用 TCP / QUIC 客户端时，**必须在客户端钩子的 `OnReady` 里重新 Sign/Reg**（不能在 `OnReady` 里同步发 RPC：读写泵还没跑起来会等不到回包，应另起 goroutine）。需要"重连即自动恢复会话"的场景请先用 `ws`（`KeepAlive` + `runRelogin`）。
+因此使用 TCP / QUIC / KCP 客户端时，**必须在客户端钩子的 `OnReady` 里重新 Sign/Reg**（不能在 `OnReady` 里同步发 RPC：读写泵还没跑起来会等不到回包，应另起 goroutine）。需要"重连即自动恢复会话"的场景请先用 `ws`（`KeepAlive` + `runRelogin`）。
 
 ### QUIC 的几点补充说明
 
@@ -152,6 +158,15 @@ go drpc.Serve()
 - **一条连接可以跑多条流**：服务端把每条 QUIC 流铺平成一条独立连接（见 `nrpc/quic/listener.go`），因此多路复用是天然可用的——当前客户端一条连接只开一条流，需要更多流时自行开即可。
 - **空闲与保活**：默认 `MaxIdleTimeout=60s`、`KeepAlivePeriod=15s`。保活周期必须小于 idle 超时，否则中间设备（NAT / 防火墙）会静默丢掉 UDP 映射——移动网络下尤其常见。
 - **端口要放 UDP**：QUIC 监听的是 UDP 端口，安全组 / 防火墙别只放 TCP。
+
+### KCP 的几点补充说明
+
+- **两端配置必须一致**：`option.WithKCPConfig` 给的加密方式（`Crypt`）、密钥（`Key`）与 FEC 分片数**在建监听器那一刻就固定了**——它们决定线上包的格式，之后改不了。两端不一致不会报"配置不匹配"，而是解不开对端的包，表现为**连得上、调用一直超时、日志里没有任何错误**。"连得上但没响应"先查这份配置。
+- **不需要证书**：与 QUIC 相反，KCP 自带 BlockCrypt 做载荷加密（`none` / `aes` / `salsa20` / `tea` / `xor` / `blowfish` / `sm4`），没有证书也能跑。要保密就别用默认的 `none`。
+- **FEC 是用带宽换延迟**：`DataShards=10, ParityShards=3` 表示每 10 个包带 3 个冗余包，丢包时可直接恢复而不必等重传；丢包率高的链路值得开，带宽紧张则不要。
+- **默认不做低延迟调优**：零值 `KCPConfig{}` 就是 kcp-go 的原生行为，不会悄悄改默认参数。要低延迟用 `option.FastKCPConfig()`（nodelay + 128 窗口 + 流模式 + 立即 ACK），代价是关闭拥塞控制、ACK 流量翻倍——共享带宽环境慎用 `NC=1`。
+- **UDP 没有连接状态**：对端掉电时本端收不到任何通知，只能等读超时（`ReadWait`）才发现连接已死，"半开连接"的检出比 TCP 慢。
+- **端口要放 UDP**：与 QUIC 一样，安全组 / 防火墙别只放 TCP。
 
 ## 可复用的子包（不起连接也能用）
 

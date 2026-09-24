@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/w6xian/sloth/v4/nrpc/kcp"
 	"github.com/w6xian/sloth/v4/nrpc/quic"
 	"github.com/w6xian/sloth/v4/nrpc/tcp"
 	"github.com/w6xian/sloth/v4/nrpc/wsocket"
@@ -40,6 +41,20 @@ type ProtocolFactory interface {
 // 不实现该接口的传输继续走默认路径。
 type ListenerFactory interface {
 	MakeListener(address string, tlsConf *tls.Config) (net.Listener, error)
+}
+
+// ListenerFactoryWithOptions 建监听器时能拿到选项（可选能力）。
+//
+// 为什么在 ListenerFactory 之外再要一个带 opts 的版本：Connect.Listen 的顺序是
+// 先 makeListenerFor、再造传输实例，所以**监听器创建时还没有实例可供注入配置**。
+// 对多数传输无所谓（参数都挂在实例上，晚点注入也一样），KCP 不行——
+// 加密方式与 FEC 参数决定线上包的格式，必须在建监听器那一刻就确定，
+// 只能从选项里取。
+//
+// 两个接口都实现时以本接口为准。它是新增的、而非给 ListenerFactory 改签名，
+// 是为了不让已有的 QUIC 实现跟着改。
+type ListenerFactoryWithOptions interface {
+	MakeListenerWithOptions(address string, tlsConf *tls.Config, opts ...option.ConnectOption) (net.Listener, error)
 }
 
 type wsProtocolFactory struct{ secure bool }
@@ -118,6 +133,28 @@ func (quicProtocolFactory) CreateClient(ctx context.Context, c trpc.ICallRpc, ad
 	return cli, nil
 }
 
+// kcpProtocolFactory KCP（UDP）传输，第四个实现。
+//
+// 与 QUIC 一样跑在 UDP 上，必须自己造监听器；不同点是不需要 TLS——
+// KCP 自带 BlockCrypt 做载荷加密，没有证书也能跑，因此 tlsConf 被忽略。
+// 它实现的是 ListenerFactoryWithOptions：加密与 FEC 在建监听器时就要定。
+type kcpProtocolFactory struct{}
+
+func (kcpProtocolFactory) Name() string { return "kcp" }
+
+func (kcpProtocolFactory) MakeListenerWithOptions(address string, tlsConf *tls.Config, opts ...option.ConnectOption) (net.Listener, error) {
+	return kcp.MakeListener(address, option.ResolveKCPConfig(opts))
+}
+
+func (kcpProtocolFactory) CreateServer(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (types.IServer, error) {
+	return kcp.GetKcpServer(ctx, c, opts...), nil
+}
+
+func (kcpProtocolFactory) CreateClient(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (trpc.ICall, error) {
+	opts = append([]option.ConnectOption{option.WithAddress(address)}, opts...)
+	return kcp.GetKcpClient(ctx, c, opts...), nil
+}
+
 var (
 	protocolRegistryMu sync.RWMutex
 	protocolRegistry   = map[string]ProtocolFactory{
@@ -126,6 +163,7 @@ var (
 		"websocket": wsProtocolFactory{},
 		"tcp":       tcpProtocolFactory{},
 		"quic":      quicProtocolFactory{},
+		"kcp":       kcpProtocolFactory{},
 	}
 )
 

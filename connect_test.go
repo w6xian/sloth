@@ -499,10 +499,14 @@ func TestServeWithoutListen(t *testing.T) {
 }
 
 // TestListenUnsupportedNetwork 未注册协议的网络类型应被拒绝。
+//
+// 这里用 grpc 而不是 kcp：kcp 曾是"肯定不支持"的现成例子，但它已经实现并注册，
+// 再拿它当反例，这条测试就会在 KCP 落地那天悄悄失效——
+// 它要守的是"未注册协议必须报错"，反例得选一个确实没实现的名字。
 func TestListenUnsupportedNetwork(t *testing.T) {
 	svr := ServerConn(DefaultServer())
 	defer svr.Close()
-	if err := svr.Listen(context.Background(), "kcp", "127.0.0.1:0"); err == nil {
+	if err := svr.Listen(context.Background(), "grpc", "127.0.0.1:0"); err == nil {
 		t.Fatal("Listen with unsupported network should error")
 	}
 }

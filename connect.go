@@ -257,7 +257,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 	// 底层监听：默认 TCP（ws/wss/tcp 都跑在 TCP 上，wss 的 TLS 由
 	// http.Server.ServeTLS 在握手阶段接管，因此这里始终是明文 listener）；
 	// QUIC 走 ListenerFactory，自己造 UDP 监听器。
-	ln, err := c.makeListenerFor(factory, address)
+	ln, err := c.makeListenerFor(factory, address, opts...)
 	if err != nil {
 		return err
 	}
