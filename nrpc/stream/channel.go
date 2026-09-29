@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -93,9 +94,11 @@ func NewChannel(connect trpc.ICallRpc, conn net.Conn, ip string, queueSize int) 
 	ch.done = make(chan struct{})
 	ch.reader = bufio.NewReaderSize(conn, 4096)
 	ch.queueSize = queueSize
-	ch.errHandler = func(err error) {
-		logger.Errorw(nil, "stream channel error", "err", err)
-	}
+	// 默认钩子不再打印：读循环已按"预期断开 / 真异常"分级打印，且带上了 trace 与 remote；
+	// 这里既没有 ctx 也没有 remote，打印出来只会是 trace=- 的无上下文 ERROR
+	// （与 wsocket readPump 曾经的问题一模一样：每次对端正常断开刷一条 ERR）。
+	// 需要感知断连的业务用 OnError 注册自己的钩子，它对所有非本端主动关闭的错误都会被调用。
+	ch.errHandler = func(err error) {}
 	ch.InitCalls() // per-call 回包分发表：SendData 依赖，未初始化会直接失败
 	return ch
 }
@@ -251,8 +254,20 @@ func readPump(ctx context.Context, ch *Channel, dispatch func(context.Context, [
 	for {
 		frame, err := ReadFrame(ch.reader, ch.head[:])
 		if err != nil {
-			// 连接正常关闭（EOF）或超时都走这里；不区分，交给上层清理
-			if ch.errHandler != nil && !errors.Is(err, net.ErrClosed) {
+			// 字节流没有 WebSocket 那样的 close 帧，断连原因只能从 err 本身分辨。
+			// 不分类就会出现"每次客户端正常断开都刷一条 ERROR"（EOF 与超时是最常见的两种）。
+			if errors.Is(err, net.ErrClosed) {
+				// 本端主动 Close：正常退出路径，不打日志也不回调
+				return
+			}
+			if isExpectedDisconnect(err) {
+				logger.Infow(ctx, "stream conn closed", "err", err, "remote", ch.PAddr)
+			} else {
+				// magic 错 / length 超限 / 连接重置等：真异常
+				logger.Errorw(ctx, "stream readPump failed", "err", err, "remote", ch.PAddr)
+			}
+			// 钩子对所有"非本端主动关闭"的错误保持生效：业务可能靠它触发重连或清理
+			if ch.errHandler != nil {
 				ch.errHandler(err)
 			}
 			return
@@ -264,6 +279,20 @@ func readPump(ctx context.Context, ch *Channel, dispatch func(context.Context, [
 			logger.Warnw(ctx, "stream dispatch failed", "err", err, "remote", ch.PAddr)
 		}
 	}
+}
+
+// isExpectedDisconnect 报告一次读错误是否属于"预期断开"。
+//
+// 字节流传输（TCP / QUIC / KCP）没有 close 帧：对端正常下线在网络层就是 EOF，
+// 长时间无数据就是读超时。这两种占了断连的绝大多数，按 ERROR 刷会淹掉真异常。
+// 判定只看两件事——EOF 与 net.Error.Timeout()；其余（magic 错、length 超限、
+// connection reset）都算真异常。
+func isExpectedDisconnect(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // writePump 写循环：串行写出所有待发数据。
