@@ -33,6 +33,11 @@ conn.Dial(ctx, sloth.TCP, "localhost:8991")
 - 安全：服务端 IP 黑名单 + 连接数限制（全局 / 分协议；单 IP 限额目前仅 ws 生效——它依赖 HTTP 请求头取 IP）
 - 诊断：内置 `pprof.Info` 服务方法，返回内存/连接/room 等信息（含 `next_gc`）
 
+## 发布说明
+
+- [v4.2.2](doc/v4.2.2.md)：断连日志按原因分级（ws / tcp / quic / kcp），ws 连接级 `OnError` 钩子接进读循环
+- [v4.2.0](doc/v4.2.0.md)：方法自省 `_.Funcs`、媒体代理（HTTP 隧道）示例、TCP / QUIC 客户端断线自动重连
+
 ## 安装
 
 ```bash
