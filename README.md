@@ -226,6 +226,23 @@ go drpc.Serve()
 
 因此使用 TCP / QUIC / KCP 客户端时，**必须在客户端钩子的 `OnReady` 里重新 Sign/Reg**（不能在 `OnReady` 里同步发 RPC：读写泵还没跑起来会等不到回包，应另起 goroutine）。需要"重连即自动恢复会话"的场景请先用 `ws`（`KeepAlive` + `runRelogin`）。
 
+### 连接级错误钩子：`ch.OnError`
+
+除了全局回调（`option.WithServerHandleMessage` / `WithTcpHandleMessage` 里的 `OnError`，
+一个进程共享一份）之外，每条连接还可以单独注册一个错误钩子：
+
+```go
+ch.OnError(func(err error) { /* 连接级处理 */ })   // 传 nil 复位为默认（静默）
+```
+
+- **触发范围刻意收窄**：只在"真异常"上触发——非预期关闭、分帧/解码失败。
+- **不触发**：对端主动 close、EOF、读超时。它们是预期断开，走业务的 `OnClose`；
+  把它们也算进来的话，每次客户端正常下线都会被回调一次。
+- 钩子运行在读循环协程上：**不要阻塞**（会堵住这条连接的所有后续入站），
+  **不要在钩子里 `ch.Close()` 或改动 bucket 成员**（读循环的 defer 正在清理，重入即竞态）。
+- 默认实现是静默的：断连原因由读循环按级别打印（预期断开 INF / 真异常 ERR，带 trace 与对端地址），
+  不需要钩子重复打印。
+
 ### QUIC 的几点补充说明
 
 - **证书是必填项**：`Listen` / `Dial` 之前都要给一份 `*tls.Config`（`sloth.WithTLSConfig(...)`）。样例用运行时生成的自签证书 + 客户端 `InsecureSkipVerify`，只为能直接跑；生产请用正式证书并正常校验。

@@ -2,6 +2,8 @@ package wsocket
 
 import (
 	"context"
+	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -215,5 +217,35 @@ func TestChannelClientPushQueueFull(t *testing.T) {
 	defer cancel()
 	if err := c.Push(ctx, msg); err == nil {
 		t.Fatal("push beyond capacity should return ctx timeout error")
+	}
+}
+
+// TestWsChannelServerErrHook 连接级错误钩子：默认静默、注册后可触发、传 nil 可复位。
+//
+// 这个钩子此前是全仓库没有调用点的死代码（注册了永不触发），现在接进 ws 读循环的
+// "真异常"分支；默认必须静默，否则每次断连都会刷一条无 trace 的 ERROR。
+func TestWsChannelServerErrHook(t *testing.T) {
+	ch := NewWsChannelServer(nil)
+
+	// 默认实现：静默且不 panic（正是降噪的关键）
+	ch.fireErr(io.EOF)
+
+	var got atomic.Int64
+	ch.OnError(func(err error) { got.Add(1) })
+	ch.fireErr(errors.New("boom"))
+	if got.Load() != 1 {
+		t.Fatalf("hook 未触发, got=%d", got.Load())
+	}
+
+	// 传 nil 复位为默认（静默）
+	ch.OnError(nil)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); ch.fireErr(errors.New("x")) }()
+	}
+	wg.Wait()
+	if got.Load() != 1 {
+		t.Fatalf("复位后仍在触发, got=%d", got.Load())
 	}
 }

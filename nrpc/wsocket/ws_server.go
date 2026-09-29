@@ -628,6 +628,8 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 				}
 				// 真异常才记 ERROR；带 ctx 才能自动带上 trace 与连接的 ip 字段
 				logger.Errorw(ctx, "server readPump closed unexpectedly", "err", err)
+				// 连接级钩子（窄：只在真异常上触发，预期断开走下面的 OnClose）
+				ch.fireErr(err)
 				return
 			}
 			if s.handler != nil {
@@ -650,6 +652,8 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 			if s.handler != nil {
 				s.handler.OnError(ctx, r, s, ch, err)
 			}
+			// 分帧/解码失败是真异常：连接级钩子在这里也触发一次
+			ch.fireErr(err)
 			continue
 		}
 		// tlv 是外部库，畸形帧会 panic：走 tlvValue 兜底，失败即按裸数据处理

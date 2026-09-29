@@ -10,7 +10,6 @@ import (
 
 	"github.com/w6xian/sloth/v4/bucket"
 	"github.com/w6xian/sloth/v4/errs"
-	"github.com/w6xian/sloth/v4/logger"
 	"github.com/w6xian/sloth/v4/message"
 	"github.com/w6xian/sloth/v4/nrpc"
 	"github.com/w6xian/sloth/v4/types/auth"
@@ -31,8 +30,12 @@ type WsChannelServer struct {
 	_sign       string
 	Conn        *websocket.Conn
 	pongTimeout time.Duration
-	// error handler
-	errHandler func(err error)
+	// errHandler 连接级错误钩子（区别于全局的 handler.OnError）：
+	// 只在"真异常"上触发——非预期关闭、分帧/解码失败；
+	// 预期断开（对端主动 close、EOF、读超时）走业务的 OnClose，不触发它，
+	// 否则每次客户端正常下线都会回调一次。
+	// 读循环与 OnError 可能并发（OnError 通常在 OnReady 里注册），用原子指针保护。
+	errHandler atomic.Pointer[func(err error)]
 	// done 由 Close 一次性关闭，writePump 监听它实现服务端主动优雅断开
 	done     chan struct{}
 	doneOnce sync.Once
@@ -163,9 +166,9 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	c.PReadWait = 10 * time.Second
 	c._sign = ""
 	c.Connect = connect
-	c.errHandler = func(err error) {
-		logger.Errorw(nil, "channel error handler", "err", err)
-	}
+	// 默认空实现：读循环已按"预期断开 / 真异常"分级打印，且带上了 trace 与 ip。
+	// 这里若再打印就只能是 nil ctx（拿不到 ctx），又会变成 trace=- 的无上下文 ERR。
+	c.setErrHandler(nil)
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -177,8 +180,34 @@ func NewWsChannelServer(connect trpc.ICallRpc, opts ...ChannelServerOption) (c *
 	return
 }
 
+// OnError 注册连接级错误钩子。
+//
+// 触发范围（刻意收窄）：
+//   - 非预期关闭（IsUnexpectedCloseError 为 true 的那一支）
+//   - 分帧/解码失败（receiveMessage 报错）
+//
+// 不触发：对端主动 close、EOF、读超时——它们是预期断开，走业务的 OnClose。
+//
+// 钩子运行在 readPump 协程上，因此：**不要阻塞**（会堵住这条连接的所有后续入站），
+// **不要在钩子里 ch.Close() 或改动 bucket 成员**（readPump 的 defer 正在做清理，重入即竞态）。
+// 传 nil 等价于恢复默认（静默）。
 func (ch *WsChannelServer) OnError(f func(err error)) {
-	ch.errHandler = f
+	ch.setErrHandler(f)
+}
+
+// setErrHandler 落库（nil 归一为空实现，调用点不必再判空）。
+func (ch *WsChannelServer) setErrHandler(f func(err error)) {
+	if f == nil {
+		f = func(err error) {}
+	}
+	ch.errHandler.Store(&f)
+}
+
+// fireErr 触发连接级错误钩子；未注册时是空实现，零开销。
+func (ch *WsChannelServer) fireErr(err error) {
+	if h := ch.errHandler.Load(); h != nil && *h != nil {
+		(*h)(err)
+	}
 }
 
 func (ch *WsChannelServer) Push(ctx context.Context, msg *message.Msg) (err error) {
