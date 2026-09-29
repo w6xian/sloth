@@ -618,17 +618,23 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 	for {
 		messageType, msg, err := ch.Conn.ReadMessage()
 		if err != nil {
+			// IsUnexpectedCloseError 只在 err 是 *websocket.CloseError 且 code 不在期望列表里时为 true：
+			// EOF、读超时（超过 PongWait 没收到 pong）、连接重置等非关闭帧错误**全部落在 else 分支**。
+			// 旧实现把这类常规断开既调 OnClose 又打 ERROR，且不带 err、不带 ctx
+			// （s.log 传 nil ctx → trace=-），于是每次客户端正常断开都刷一条无法定位的 ERR。
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				if s.handler != nil {
 					s.handler.OnError(ctx, r, s, ch, err)
 				}
+				// 真异常才记 ERROR；带 ctx 才能自动带上 trace 与连接的 ip 字段
+				logger.Errorw(ctx, "server readPump closed unexpectedly", "err", err)
 				return
-			} else {
-				if s.handler != nil {
-					s.handler.OnClose(ctx, r, s, ch)
-				}
 			}
-			s.log(logger.Error, "server readPump，ch.conn.ReadMessage return")
+			if s.handler != nil {
+				s.handler.OnClose(ctx, r, s, ch)
+			}
+			// 常规断开（对端主动 close / 页面离开 / EOF / 读超时）属预期行为，降级到 Info。
+			logger.Infow(ctx, "server readPump conn closed", "err", err)
 			return
 		}
 		if len(msg) == 0 || messageType == -1 {

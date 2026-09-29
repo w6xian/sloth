@@ -585,19 +585,20 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 		// 来自服务器的消息
 		messageType, msg, err := conn.ReadMessage()
 		if err != nil {
-			// 原实现 c.log(logger.Error, err.Error())：把动态错误串当 format，
-			// 错误文本里的 % 会被当成占位符，输出成 %!x(MISSING)。
-			logger.Errorw(ctx, "ws client readPump read failed", "err", err)
+			// 与服务端同一个坑：IsUnexpectedCloseError 对 EOF/读超时返回 false，
+			// 也就是"最常见的断开"走的是 else 分支，不该按 ERROR 刷。
+			// 旧实现先无差别 Errorw 一条，再补一条无上下文的 c.log(Error,"…")（nil ctx → 无 trace）。
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				if c.handler != nil {
 					c.handler.OnError(ctx, resp, c, ch, err)
 				}
+				logger.Errorw(ctx, "ws client readPump closed unexpectedly", "err", err)
 			} else {
 				if c.handler != nil {
 					c.handler.OnClose(ctx, resp, c, ch)
 				}
+				logger.Infow(ctx, "ws client readPump conn closed", "err", err)
 			}
-			c.log(logger.Error, "readPump，ch.Conn.ReadMessage return")
 			return
 		}
 		if len(msg) == 0 || messageType == -1 {

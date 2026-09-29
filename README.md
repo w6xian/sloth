@@ -384,3 +384,19 @@ resp, err := server.Call(ctx, userId, "http.Do", raw)  // raw = 请求报文
 ```bash
 go test ./...
 ```
+
+## TODO
+
+- [ ] **断连原因指标化（待办，暂未实现）**：给 `wsMetrics` 增加
+      `sloth_ws_close_reason_total{reason="normal_close|going_away|eof|read_timeout|abnormal|protocol_error|other"}`，
+      在 `WsServer.readPump` 与 `LocalClient.readPump` 的 `ReadMessage` 错误分支按原因 +1。
+
+      背景：断连目前只体现在日志里（`server readPump conn closed` / `server readPump closed unexpectedly`），
+      想看断连构成必须翻日志；指标化之后不用翻日志就能判断是"批量读超时"还是"客户端正常下线"。
+
+      注意点（踩过坑，别写错）：
+      - 分类别只依赖 `websocket.IsUnexpectedCloseError`：它只在 err 是 `*websocket.CloseError` 且 code 不在期望列表里时
+        才返回 true，**EOF 与读超时（i/o timeout）都返回 false**，会被误判成"正常断开"。
+      - 正确判法：`*websocket.CloseError` 取 `Code`；不是 CloseError 就用 `net.Error.Timeout()` 判 `read_timeout`，
+        `io.EOF` 判 `eof`，其余归 `other`。
+      - 服务端/客户端两侧用同一套枚举，label 名保持一致。
