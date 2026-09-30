@@ -24,7 +24,7 @@ class DataSlice {
     }
 
     Encode(opts = []) {
-        return Encode(this, opts);
+        return DataSliceEncode(this, opts);
     }
 }
 
@@ -63,24 +63,30 @@ class Option {
     }
 }
 
-function CheckCRC() {
-    return function(opt) {
-        opt.CheckCRC = true;
-    };
-}
-
 function IsComplete(src, dst) {
     if (!src || !dst) return false;
     if (src.length !== 2 || dst.length !== 2) return false;
     return src[0] === dst[0] && src[1] === dst[1];
 }
 
+function GetCrC(data) {
+    if (typeof getCRC !== 'function') {
+        throw new Error('getCRC is not available; load tools.js before slice.js');
+    }
+    return getCRC(data);
+}
+
 function CheckCRC(src, crc) {
-    return IsComplete(getCRC(src), crc);
+    if (arguments.length === 0) {
+        return function(opt) {
+            opt.CheckCRC = true;
+        };
+    }
+    return IsComplete(GetCrC(src), crc);
 }
 
 // Encode function
-function Encode(s, opts = []) {
+function DataSliceEncode(s, opts = []) {
     const opt = newOption(opts);
     // 1byte type
     // 2byte name
@@ -113,8 +119,16 @@ function Encode(s, opts = []) {
     
     // Write name (2 bytes)
     const nameBytes = new TextEncoder().encode(s.N);
-    buf[1] = nameBytes[0] || 0;
-    buf[2] = nameBytes[1] || 0;
+    if (nameBytes.length === 0) {
+        buf[1] = 0x30;
+        buf[2] = 0x30;
+    } else if (nameBytes.length === 1) {
+        buf[1] = 0x30;
+        buf[2] = nameBytes[0];
+    } else {
+        buf[1] = nameBytes[0];
+        buf[2] = nameBytes[1];
+    }
     
     buf[3] = s.T;
     buf[4] = s.I;
@@ -129,7 +143,7 @@ function Encode(s, opts = []) {
     
     // Write CRC if needed
     if (checkCRC) {
-        const crc = getCRC(s.D);
+        const crc = GetCrC(s.D);
         buf[headerSize - 2] = crc[0];
         buf[headerSize - 1] = crc[1];
     }
@@ -141,7 +155,7 @@ function Encode(s, opts = []) {
 }
 
 // Decode function
-function Decode(b) {
+function DataSliceDecode(b) {
     let headerSize = get_header_size(2, false);
     if (b.length < headerSize) {
         throw new Error("invalid slice data length");
@@ -160,6 +174,10 @@ function Decode(b) {
         opt.CheckCRC = true;
     }
     
+    if (b.length < 5 + opt.LengthSize) {
+        throw new Error("invalid slice data length");
+    }
+
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     let l = dv.getUint16(5, false); // Big endian
     if (opt.LengthSize === 4) {
@@ -192,6 +210,15 @@ function Decode(b) {
     return s;
 }
 
+// Keep the standalone script API; these generic names also exist in fn.js.
+function Encode(s, opts = []) {
+    return DataSliceEncode(s, opts);
+}
+
+function Decode(b) {
+    return DataSliceDecode(b);
+}
+
 // Export everything
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -200,8 +227,10 @@ if (typeof module !== 'undefined' && module.exports) {
         LongMessage,
         CRC,
         DataSlice,
-        Encode,
-        Decode,
+        Encode: DataSliceEncode,
+        Decode: DataSliceDecode,
+        DataSliceEncode,
+        DataSliceDecode,
         GetCrC,
         IsComplete,
         CheckCRC,

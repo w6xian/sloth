@@ -1,5 +1,5 @@
 /*!
- * sloth_v3_bundle.js  /  sloth_v3_min.js
+ * sloth_rpc_v3.js  /  sloth_rpc_v3.min.js
  *
  * Concatenated & built from:
  *   1. tools.js
@@ -8,8 +8,8 @@
  *   4. fn.js
  *   5. sock_rpc_v3.js
  *
- * Build order exactly matches: examples/ws/web/index_v3.html L17-L21
- * Generated at: 2026-09-13T03:03:50.874Z
+ * Build order matches the documented script order in examples/ws/web/index.html
+ * Generated at: 2026-09-30T16:39:26.949Z
  */
 (function () {
 "use strict";
@@ -516,8 +516,6 @@ function getCRC(data) {
 /* ============================================================
  * source: slice.js
  * ============================================================ */
-/* patch: slice.js 错误引用 GetCrC，自动别名 getCRC */
-if (typeof GetCrC === "undefined" && typeof getCRC !== "undefined") { var GetCrC = getCRC; }
 // Constants
 const TextMessage = 0x01;
 const BinaryMessage = 0x02;
@@ -544,7 +542,7 @@ class DataSlice {
     }
 
     Encode(opts = []) {
-        return Encode(this, opts);
+        return DataSliceEncode(this, opts);
     }
 }
 
@@ -583,24 +581,30 @@ class Option {
     }
 }
 
-function CheckCRC() {
-    return function(opt) {
-        opt.CheckCRC = true;
-    };
-}
-
 function IsComplete(src, dst) {
     if (!src || !dst) return false;
     if (src.length !== 2 || dst.length !== 2) return false;
     return src[0] === dst[0] && src[1] === dst[1];
 }
 
+function GetCrC(data) {
+    if (typeof getCRC !== 'function') {
+        throw new Error('getCRC is not available; load tools.js before slice.js');
+    }
+    return getCRC(data);
+}
+
 function CheckCRC(src, crc) {
-    return IsComplete(getCRC(src), crc);
+    if (arguments.length === 0) {
+        return function(opt) {
+            opt.CheckCRC = true;
+        };
+    }
+    return IsComplete(GetCrC(src), crc);
 }
 
 // Encode function
-function Encode(s, opts = []) {
+function DataSliceEncode(s, opts = []) {
     const opt = newOption(opts);
     // 1byte type
     // 2byte name
@@ -633,8 +637,16 @@ function Encode(s, opts = []) {
     
     // Write name (2 bytes)
     const nameBytes = new TextEncoder().encode(s.N);
-    buf[1] = nameBytes[0] || 0;
-    buf[2] = nameBytes[1] || 0;
+    if (nameBytes.length === 0) {
+        buf[1] = 0x30;
+        buf[2] = 0x30;
+    } else if (nameBytes.length === 1) {
+        buf[1] = 0x30;
+        buf[2] = nameBytes[0];
+    } else {
+        buf[1] = nameBytes[0];
+        buf[2] = nameBytes[1];
+    }
     
     buf[3] = s.T;
     buf[4] = s.I;
@@ -649,7 +661,7 @@ function Encode(s, opts = []) {
     
     // Write CRC if needed
     if (checkCRC) {
-        const crc = getCRC(s.D);
+        const crc = GetCrC(s.D);
         buf[headerSize - 2] = crc[0];
         buf[headerSize - 1] = crc[1];
     }
@@ -661,7 +673,7 @@ function Encode(s, opts = []) {
 }
 
 // Decode function
-function Decode(b) {
+function DataSliceDecode(b) {
     let headerSize = get_header_size(2, false);
     if (b.length < headerSize) {
         throw new Error("invalid slice data length");
@@ -680,6 +692,10 @@ function Decode(b) {
         opt.CheckCRC = true;
     }
     
+    if (b.length < 5 + opt.LengthSize) {
+        throw new Error("invalid slice data length");
+    }
+
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     let l = dv.getUint16(5, false); // Big endian
     if (opt.LengthSize === 4) {
@@ -712,6 +728,15 @@ function Decode(b) {
     return s;
 }
 
+// Keep the standalone script API; these generic names also exist in fn.js.
+function Encode(s, opts = []) {
+    return DataSliceEncode(s, opts);
+}
+
+function Decode(b) {
+    return DataSliceDecode(b);
+}
+
 // Export everything
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -720,8 +745,10 @@ if (typeof module !== 'undefined' && module.exports) {
         LongMessage,
         CRC,
         DataSlice,
-        Encode,
-        Decode,
+        Encode: DataSliceEncode,
+        Decode: DataSliceDecode,
+        DataSliceEncode,
+        DataSliceDecode,
         GetCrC,
         IsComplete,
         CheckCRC,
@@ -3109,8 +3136,8 @@ class SockRpcV3 {
                 // BinaryMessage → 用 slice.js 的 Decode
                 const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
                 try {
-                    if (window.DataSlice && typeof window.DataSlice === 'function' && typeof Decode === 'function') {
-                        slice = Decode(buf);
+                    if (typeof DataSliceDecode === 'function') {
+                        slice = DataSliceDecode(buf);
                     } else {
                         // 没加载 slice.js → 当作完整非分片消息
                         this._maybeHandleFullFrame(buf);
@@ -3763,6 +3790,8 @@ class SockRpcV3 {
   try { if (typeof LongMessage !== "undefined") __root__["LongMessage"] = LongMessage; } catch (_e) {}
   try { if (typeof CRC !== "undefined") __root__["CRC"] = CRC; } catch (_e) {}
   try { if (typeof DataSlice !== "undefined") __root__["DataSlice"] = DataSlice; } catch (_e) {}
+  try { if (typeof DataSliceEncode !== "undefined") __root__["DataSliceEncode"] = DataSliceEncode; } catch (_e) {}
+  try { if (typeof DataSliceDecode !== "undefined") __root__["DataSliceDecode"] = DataSliceDecode; } catch (_e) {}
   try { if (typeof newOption !== "undefined") __root__["newOption"] = newOption; } catch (_e) {}
   try { if (typeof get_header_size !== "undefined") __root__["get_header_size"] = get_header_size; } catch (_e) {}
   try { if (typeof serialize !== "undefined") __root__["serialize"] = serialize; } catch (_e) {}

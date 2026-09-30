@@ -28,7 +28,7 @@
         //      reconnectDelay(ms)   : 1000  首次失败 1s 后重试
         //      backoffMax(ms)       : 20000 最大间隔 20s（每次失败 *1.5 指数退避，cap 到这里）
         //      maxReconnectAttempts : 0     <=0 表示无限重试
-        const addr = `ws://127.0.0.1:9999/ws`;
+        const addr = `ws://127.0.0.1:8990/ws`;
         const rpc = new SockRpcV3({
             addr: addr,
             timeoutMs: 10000,   // 单次 Call 超时（对齐 Go ws_client.writeWait/readWait）
@@ -102,7 +102,7 @@
                 // );
 
                 // 同时演示 Promise 版
-                rpc.CallPromise('v1.Sign1', signPayload) 
+                rpc.CallPromise('v1.Sign', signPayload) 
                     .then(v => {
                          const peeled = window.TlvValue(v);
                         console.log('[V3]   TlvValue as text :', decode_string(peeled));

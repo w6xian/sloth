@@ -1,7 +1,7 @@
 /* ============================================================
- * build.js: 合并 index_v3.html 加载顺序的 5 个浏览器脚本 → sloth_v3_min.js
+ * build.js: 合并 index.html 文档中的 5 个浏览器脚本 → sloth_rpc_v3.js
  *
- *  输入顺序（和 index_v3.html L17-L21 保持严格一致）：
+ *  输入顺序（和 index.html 中记录的脚本加载顺序一致）：
  *      1. tools.js            (crc16 查表 / Base64 / Uint64 读写等基础工具)
  *      2. slice.js            (DataSlice 分片聚合二进制)
  *      3. ag.js               (AG 参数帧 Encode/Decode)
@@ -9,8 +9,9 @@
  *      5. sock_rpc_v3.js      (V3 SockRpc 客户端：WS/分片/TLV CRC/Call/Bind/重连)
  *
  *  输出：
- *      - sloth_v3_min.js        默认输出：terser 压缩（若可用）；无 terser 就直接合并 + 注释
- *      - sloth_v3_bundle.js     始终输出：合并后的"未压缩全量版本"（带 banner，方便调试）
+ *      - sloth_rpc_v3.js        始终输出：合并后的未压缩版本
+ *      - sloth_rpc_v3.min.js    terser 可用时输出压缩版；另生成 legacy 文件名
+ *      - sloth_v3_bundle.js / sloth_v3_min.js 兼容旧文件名
  *
  *  用法：
  *      cd examples/ws/web
@@ -22,7 +23,7 @@
  *  注意：
  *      · 本脚本完全"零默认依赖"——不要求全局 terser / 不要求 package.json。
  *        只有当你传 --install-terser 时，才会在 examples/ws/web 目录临时 npm i terser。
- *      · 合并顺序严格和 index_v3.html 保持一致，避免依赖加载错乱。
+ *      · 合并顺序和 index.html 记录的脚本加载顺序一致，避免依赖错乱。
  *      · 所有输入脚本都会用 UTF-8 读取；输出也为 UTF-8（无 BOM）。
  * ============================================================ */
 'use strict';
@@ -55,12 +56,12 @@ const INPUTS = [
 ];
 const BANNER = [
     '/*!',
-    ' * sloth_v3_bundle.js  /  sloth_v3_min.js',
+    ' * sloth_rpc_v3.js  /  sloth_rpc_v3.min.js',
     ' *',
     ' * Concatenated & built from:',
     INPUTS.map((f, i) => ` *   ${i + 1}. ${f}`).join('\n'),
     ' *',
-    ' * Build order exactly matches: examples/ws/web/index_v3.html L17-L21',
+    ' * Build order matches the documented script order in examples/ws/web/index.html',
     ' * Generated at: ' + new Date().toISOString(),
     ' */',
     '',
@@ -151,26 +152,23 @@ const GLOBAL_EXPORTS = [
     'crc16_l',
     'getCRC',
 
-    // ---- slice.js 顶层（注意：GetCrC 在原 slice.js 未定义，但原 module.exports
-    //                         写了 GetCrC，我们这里也一并列出来，避免 terser 报错；
-    //                         另：SliceMessage / newSlice* / SliceTypes / SliceSize /
-    //                         class Slice / function Slice 在 slice.js 内实际不存在，
-    //                         原 module.exports 也没导出它们，尾部 window 提升时
-    //                         typeof 检测会自动跳过。）----
+    // ---- slice.js 顶层 ----
     'TextMessage',
     'BinaryMessage',
     'LongMessage',
     'CRC',
     'DataSlice',
+    'DataSliceEncode',
+    'DataSliceDecode',
     'newOption',
     'get_header_size',
     'serialize',
     'Option',
     'IsComplete',
-    'CheckCRC',        // 同名函数有两个，JS 的 var/function 提升会让后者覆盖前者
+    'CheckCRC',
     'Encode',
     'Decode',
-    'GetCrC',          // 兼容 slice.js 原 module.exports 的写法（未定义但在导出里写了）
+    'GetCrC',
     'SliceMessage',
     'Slice',
     'newSliceText',
@@ -250,28 +248,6 @@ function concatAll() {
         const full = path.join(WEB_DIR, name);
         let src  = readUtf8(full);
 
-        /* ============================================================
-         * 每段 source 单独做一轮"导出语句的运行时安全化补丁"，
-         * 避免原脚本仅在 CommonJS / 浏览器全局里用短路写法，在"
-         * Node 调 require() 验证 bundle 时"走到错误分支"导致
-         * ReferenceError 或模块导出污染。
-         *
-         * 已发现的补丁点：
-         *  1) slice.js module.exports 里写了「GetCrC」，但源码本身
-         *     没有定义这个标识符（可能是历史残留 getCRC 命名错拼）。
-         *     → 在它被引用之前做：typeof GetCrC === 'undefined' && (GetCrC = getCRC);
-         *     让浏览器/node 都能正常运行。
-         *  2) slice.js/fn.js/ag.js 的 module.exports / window.Fn /
-         *     window.AG 分支，保持原样即可：浏览器端自然走 window，
-         *     Node require 走 module.exports；尾部 window/global 提升
-         *     还会再做一轮兜底把 裸名 也挂到 __root__。
-         * ============================================================ */
-        if (name === 'slice.js') {
-            src = '/* patch: slice.js 错误引用 GetCrC，自动别名 getCRC */\n' +
-                  'if (typeof GetCrC === "undefined" && typeof getCRC !== "undefined") { var GetCrC = getCRC; }\n' +
-                  src;
-        }
-
         pieces.push(
             `\n/* ============================================================\n` +
             ` * source: ${name}\n` +
@@ -321,7 +297,7 @@ async function minifyWithTerser(code) {
         const r = await terser.minify(code, {
             compress: {
                 passes: 2,
-                drop_console: false,   // 保留 console.log：用户 index_v3 有大量调试日志
+                drop_console: false,   // 保留 console.log：index.html 用于展示调试日志
                 dead_code: true,
                 // 关 unused 主开关，避免把"仅被尾部 window.xxx=xxx 读取"的顶层声明当未用删
                 unused: false,
@@ -342,7 +318,7 @@ async function minifyWithTerser(code) {
             module: false,
             output:   {
                 // 保留 banner（压缩版也能一眼看到来源）
-                preamble: '/*! sloth_v3_min.js — built from tools/slice/ag/fn/sock_rpc_v3 */\n',
+                preamble: '/*! sloth_rpc_v3.min.js — built from tools/slice/ag/fn/sock_rpc_v3 */\n',
                 comments: false,
                 // 换行长度 cap，便于调试时断点定位
                 max_line_len: 32766,

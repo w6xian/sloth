@@ -1050,8 +1050,8 @@ class SockRpcV3 {
                 // BinaryMessage → 用 slice.js 的 Decode
                 const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
                 try {
-                    if (window.DataSlice && typeof window.DataSlice === 'function' && typeof Decode === 'function') {
-                        slice = Decode(buf);
+                    if (typeof DataSliceDecode === 'function') {
+                        slice = DataSliceDecode(buf);
                     } else {
                         // 没加载 slice.js → 当作完整非分片消息
                         this._maybeHandleFullFrame(buf);
