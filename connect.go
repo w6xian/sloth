@@ -193,6 +193,8 @@ func newConnect(opts ...ConnOption) *Connect {
 	for _, opt := range opts {
 		opt(svr)
 	}
+	// 单参数限制可能只设在其中一个 rpc 对象上，补到另一个：入站与出站不同对象。
+	syncMaxParamSize(svr.client, svr.server)
 	// 自省服务："_.funcs" 返回本端注册的方法清单。服务端与客户端都会注册，
 	// 所以对端可以双向读取，详见 MetaService 的注释。
 	svr.serviceMap[MetaService] = ref.Register(&metaService{c: svr})
@@ -595,7 +597,10 @@ func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Respons
 	}
 	ctx = context.WithValue(ctx, HeaderKey, header)
 
-	funArgs := decoder.DecodeArgs(msgReq.Args, c.server.Decoder)
+	funArgs, err := decoder.DecodeArgs(msgReq.Args, c.server.Decoder)
+	if err != nil {
+		return nil, err
+	}
 	return ref.CallFuncWithContext(ctx, serviceFns, node.Method, funArgs...)
 }
 

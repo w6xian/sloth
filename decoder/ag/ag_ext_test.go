@@ -68,34 +68,64 @@ func TestShortVsExtBoundary(t *testing.T) {
 	}
 }
 
-// TestDefaultLimitUnchanged 不抬上限时行为与扩展帧出现前一致：65535 能过，65536 拒绝。
-func TestDefaultLimitUnchanged(t *testing.T) {
-	if MaxDataSize() != ArgumentMaxDataSize {
-		t.Fatalf("default limit=%d, want %d", MaxDataSize(), ArgumentMaxDataSize)
+// TestProtocolLimitIsDefault 未设限制时，协议上限（与 fn 帧对齐的 1GB）就是默认限制。
+//
+// 协议能力（能表达多大）与部署限制（这一侧收多大）是两件事：协议默认给到 1GB，
+// 想收紧才用 sloth.WithMaxParamSize——传大包不该需要任何"声明"。
+func TestProtocolLimitIsDefault(t *testing.T) {
+	if MaxDataSize() != MaxAgDataSize {
+		t.Fatalf("default limit=%d, want %d", MaxDataSize(), MaxAgDataSize)
 	}
-	if _, err := Encode(bytes.Repeat([]byte("x"), ArgumentMaxDataSize)); err != nil {
-		t.Fatalf("65535 bytes should encode: %v", err)
+	// 曾经撞墙的 65536 现在不需要任何设置就能编
+	if _, err := Encode(bytes.Repeat([]byte("x"), LegacyMaxDataSize+1)); err != nil {
+		t.Fatalf("65536 bytes should encode without setup: %v", err)
 	}
-	if _, err := Encode(bytes.Repeat([]byte("x"), ArgumentMaxDataSize+1)); !errors.Is(err, ErrAgDataTooLarge) {
-		t.Fatalf("65536 bytes err=%v, want ErrAgDataTooLarge", err)
+	// 超限仍被拒。用带限制的编码器验，避免为了触发它真去分配 1GB。
+	if _, err := NewEncoder(4096)(bytes.Repeat([]byte("x"), 4097)); !errors.Is(err, ErrAgDataTooLarge) {
+		t.Fatalf("over limit err=%v, want ErrAgDataTooLarge", err)
 	}
 }
 
-// TestSetMaxDataSize 抬上限后的往返、夹取与超限。
-func TestSetMaxDataSize(t *testing.T) {
-	defer SetMaxDataSize(ArgumentMaxDataSize) // 还原，别影响其它用例
+// TestNewEncoderDecoder 按实例设限制：两个编码器各管各的，进程级默认值不被带偏。
+func TestNewEncoderDecoder(t *testing.T) {
+	small, big := NewEncoder(1024), NewEncoder(1<<20)
 
-	// 夹取：低于默认值的按默认值，高于硬顶的按硬顶
+	if _, err := small(bytes.Repeat([]byte("x"), 2048)); !errors.Is(err, ErrAgDataTooLarge) {
+		t.Fatalf("small encoder should reject 2048B: %v", err)
+	}
+	raw, err := big(bytes.Repeat([]byte("x"), 1<<20))
+	if err != nil {
+		t.Fatalf("big encoder: %v", err)
+	}
+	// 进程级默认不受实例影响
+	if MaxDataSize() != MaxAgDataSize {
+		t.Fatalf("instance encoder changed global default: %d", MaxDataSize())
+	}
+	// 解码同理：小限制的解码器拒绝大帧，且不照它声明的长度分配
+	if _, err := NewDecoder(1024)(raw); !errors.Is(err, ErrAgDataTooLarge) {
+		t.Fatalf("small decoder should reject oversized frame: %v", err)
+	}
+	got, err := NewDecoder(1<<20)(raw)
+	if err != nil || len(got) != 1<<20 {
+		t.Fatalf("big decoder: %d bytes, err=%v", len(got), err)
+	}
+}
+
+// TestSetMaxDataSize 进程级默认值的夹取与生效（按连接设请用 WithMaxParamSize）。
+func TestSetMaxDataSize(t *testing.T) {
+	defer SetMaxDataSize(0) // 0 = 恢复默认，别影响其它用例
+
+	// 夹取：n ≤ 0 恢复默认，超过协议上限夹到协议上限
 	SetMaxDataSize(0)
-	if MaxDataSize() != ArgumentMaxDataSize {
-		t.Fatalf("clamp low: got %d, want %d", MaxDataSize(), ArgumentMaxDataSize)
+	if MaxDataSize() != MaxAgDataSize {
+		t.Fatalf("reset: got %d, want %d", MaxDataSize(), MaxAgDataSize)
 	}
 	SetMaxDataSize(MaxAgDataSize * 1024)
 	if MaxDataSize() != MaxAgDataSize {
 		t.Fatalf("clamp high: got %d, want %d", MaxDataSize(), MaxAgDataSize)
 	}
 
-	SetMaxDataSize(MaxAgDataSize)
+	SetMaxDataSize(4 << 20)
 	big := bytes.Repeat([]byte("x"), 4<<20) // 4MB
 	raw, err := Encode(big)
 	if err != nil {
@@ -112,25 +142,25 @@ func TestSetMaxDataSize(t *testing.T) {
 		t.Fatalf("4MB round trip mismatch: got %d bytes, want %d", len(got), len(big))
 	}
 
-	// 抬了上限也照旧拒绝更大的
-	_, err = Encode(bytes.Repeat([]byte("x"), MaxAgDataSize+1))
+	// 收紧后超限被拒，且错误能被 errors.Is 认出、带上实际值便于排查
+	_, err = Encode(bytes.Repeat([]byte("x"), (4<<20)+1))
 	if !errors.Is(err, ErrAgDataTooLarge) {
 		t.Fatalf("over limit err=%v, want ErrAgDataTooLarge", err)
 	}
-	// 抬过上限后错误仍能被 errors.Is 认出，且带上实际值便于排查
-	if errors.Is(err, ErrAgDataTooLarge) && !bytes.Contains([]byte(err.Error()), []byte("got")) {
-		t.Fatalf("raised-limit error should carry actual size: %q", err.Error())
+	if !bytes.Contains([]byte(err.Error()), []byte("got")) {
+		t.Fatalf("error should carry actual size: %q", err.Error())
 	}
 }
 
 // TestDecodeExtFrame 解析对端发来的扩展帧，以及各类坏帧。
 func TestDecodeExtFrame(t *testing.T) {
-	defer SetMaxDataSize(ArgumentMaxDataSize)
+	defer SetMaxDataSize(0)
 
 	payload := bytes.Repeat([]byte{0xAB}, 100000)
 	raw := extFrame(ArgumentTypeBytes, payload)
 
-	// 本端没抬上限：按超长拒绝，且不能当成合法帧透传
+	// 本侧限制收紧到老上限：按超长拒绝，且不能当成合法帧透传
+	SetMaxDataSize(LegacyMaxDataSize)
 	if err := Validate(raw); !errors.Is(err, ErrAgDataTooLarge) {
 		t.Fatalf("oversized err=%v, want ErrAgDataTooLarge", err)
 	}
@@ -141,7 +171,8 @@ func TestDecodeExtFrame(t *testing.T) {
 		t.Fatalf("Decoder should surface the error, got %v", err)
 	}
 
-	SetMaxDataSize(MaxAgDataSize)
+	// 默认（协议上限）：照常解
+	SetMaxDataSize(0)
 	if err := Validate(raw); err != nil {
 		t.Fatalf("validate ext frame: %v", err)
 	}

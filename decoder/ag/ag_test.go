@@ -438,15 +438,24 @@ func TestEncode_TypeExhaustive(t *testing.T) {
 		}
 	})
 
-	// 10. Encode 错误分支：超长 Value（>65535）
+	// 10. Encode 错误分支：超长 Value（超过当前限制）
+	//
+	// 限制是显式传入的（协议默认给到 1GB，传大包不需要声明），
+	// 取老上限 65535 顺带验证错误文本与老版本一致。
 	t.Run("ErrAgDataTooLarge", func(t *testing.T) {
-		big := make([]byte, ArgumentMaxDataSize+1)
-		_, err := Encode(big)
+		enc := NewEncoder(LegacyMaxDataSize)
+
+		big := make([]byte, LegacyMaxDataSize+1)
+		_, err := enc(big)
 		if !errors.Is(err, ErrAgDataTooLarge) {
 			t.Fatalf("big []byte err=%v, want ErrAgDataTooLarge", err)
 		}
-		boundary := make([]byte, ArgumentMaxDataSize)
-		if _, err := Encode(boundary); err != nil {
+		if err.Error() != ErrAgDataTooLarge.Error() {
+			t.Fatalf("legacy-limit error text changed: %q, want %q", err.Error(), ErrAgDataTooLarge.Error())
+		}
+
+		boundary := make([]byte, LegacyMaxDataSize)
+		if _, err := enc(boundary); err != nil {
 			t.Fatalf("boundary 65535 err=%v", err)
 		}
 	})

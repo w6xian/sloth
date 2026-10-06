@@ -40,35 +40,64 @@ const ArgumentExtHeaderSize = ArgumentHeaderSize + 4;
 const ArgumentExtLenFlag = 0xFFFF;
 /** 短帧能表达的 Value 上限（0xFFFF 已被转义位占用，所以是 65534 而非 65535） */
 const ArgumentMaxShortData = (1 << 16) - 2;
-/** 默认上限：不调 SetMaxDataSize 时行为与扩展帧出现前一致。
- *  对齐 Go 版取 65535 而非 65536——写 1<<16 会让 65536 字节的 Value 通过校验
- *  再被 2 字节长度截断成 0，编出长度 0 的帧导致数据静默丢失。
+/** 扩展帧出现之前的单帧上限。限制恰好等于它时，超长错误直接给哨兵——连错误文本
+ *  都与老版本一致，按文本 grep 的规则不会失效。
+ *  取 65535 而非 65536：写 1<<16 会让 65536 字节的 Value 通过校验，再被 2 字节
+ *  长度截断成 0，编出长度 0 的帧导致数据静默丢失。
  */
-const ArgumentMaxDataSize = (1 << 16) - 1;
-/** SetMaxDataSize 能抬到的硬顶（8MB）：长度字段由对端给出，抬太高等于把内存交给对端 */
-const MaxAgDataSize = 8 << 20;
+const LegacyMaxDataSize = (1 << 16) - 1;
+/** 协议能表达的 Value 上限，同时是**未设限制时的默认值**（与 fn 帧的 1GB 对齐）。
+ *
+ *  协议能力（能表达多大）与部署限制（这一侧收多大）是两件事：协议默认给到 1GB，
+ *  传大包不需要任何声明；想收窄才用 NewEncoder / NewDecoder 按连接设。
+ */
+const MaxAgDataSize = 1 << 30;
 
-/** 当前生效的 Value 上限（默认 ArgumentMaxDataSize） */
-let _maxDataSize = ArgumentMaxDataSize;
+/** 未按连接设限制时生效的上限（默认 = 协议上限） */
+let _maxDataSize = MaxAgDataSize;
 
-/** 读当前生效的 Value 上限 */
+/** 读进程级默认上限 */
 function MaxDataSize() { return _maxDataSize; }
 
-/** 调整 Value 上限，超出 [ArgumentMaxDataSize, MaxAgDataSize] 会被夹住。
- *  收发两端要一起抬：一端没抬，大包会在它那侧按超长拒绝，小包不受影响。
+/** 调整进程级默认上限：n ≤ 0 恢复默认，超过协议上限夹到协议上限。
+ *
+ *  这是一刀切的进程级开关；要按连接分别设请用 NewEncoder / NewDecoder。
  */
 function SetMaxDataSize(n) {
   let v = Number(n);
-  if (!isFinite(v)) v = ArgumentMaxDataSize;
-  if (v < ArgumentMaxDataSize) v = ArgumentMaxDataSize;
-  if (v > MaxAgDataSize) v = MaxAgDataSize;
+  if (!isFinite(v) || v <= 0 || v > MaxAgDataSize) v = MaxAgDataSize;
   _maxDataSize = v;
 }
 
-/** 超长错误：默认上限下给哨兵；抬过上限后附上实际值，wrap 哨兵便于 errors.Is 式匹配 */
+/** 把限制夹进 [1, MaxAgDataSize]。下限取 1：想收得比 65535 更紧是合理诉求 */
+function ClampLimit(n) {
+  let v = Number(n);
+  if (!isFinite(v) || v < 1) return 1;
+  if (v > MaxAgDataSize) return MaxAgDataSize;
+  return v;
+}
+
+/** 超长错误：限制等于老上限时给哨兵（文本与老版本一致）；否则附上实际值并 wrap */
 function agDataTooLarge(got, limit) {
-  if (limit === ArgumentMaxDataSize) return ErrAgDataTooLarge;
+  if (limit === LegacyMaxDataSize) return ErrAgDataTooLarge;
   return new Error(`ag: data length exceeds ${limit} (got ${got}): ${ErrAgDataTooLarge.message}`);
+}
+
+/** 生成按 limit 编码的编码器（与 Go 版 ag.NewEncoder 对应） */
+function NewEncoder(limit) {
+  const l = ClampLimit(limit);
+  return function (arg) { return EncodeArg(arg, l); };
+}
+
+/** 生成按 limit 解码的解码器：声明长度超过 limit 的帧直接报错，不照它分配内存 */
+function NewDecoder(limit) {
+  const l = ClampLimit(limit);
+  return function (b) { return agDecoderWith(l, b); };
+}
+
+/** limit 缺省时回落到进程级默认值 */
+function _resolveLimit(limit) {
+  return (typeof limit === 'number' && limit > 0) ? limit : MaxDataSize();
 }
 
 /**
@@ -139,7 +168,7 @@ const ArgumentTypeCustom = ArgumentType.Custom;
 const ErrAgTooShort = new Error('ag: payload too short for header');
 const ErrAgBadMagic = new Error('ag: bad magic header, expect :p');
 const ErrAgLengthMismatch = new Error('ag: payload length mismatch');
-const ErrAgDataTooLarge = new Error(`ag: data length exceeds ${ArgumentMaxDataSize}`);
+const ErrAgDataTooLarge = new Error(`ag: data length exceeds ${LegacyMaxDataSize}`);
 const ErrAgUnknownType = new Error('ag: unknown type tag');
 const ErrAgInvalidHeader = new Error('ag: invalid header');
 
@@ -152,22 +181,26 @@ const ErrAgInvalidHeader = new Error('ag: invalid header');
  * @param {Uint8Array} buf
  * @returns {{length: number, offset: number, err: Error|null}}
  */
-function ag_frame_layout(buf) {
+function ag_frame_layout(buf, limit) {
+  const lim = _resolveLimit(limit);
   if (!buf || buf.length < ArgumentHeaderSize) {
     return { length: 0, offset: 0, err: ErrAgTooShort };
   }
   const l = (buf[3] << 8) | buf[4];
   if (l !== ArgumentExtLenFlag) {
-    // 短帧：l ≤ 65534，恒小于当前上限（下限就是 65535），无需再校验
+    // 短帧也要比：限制设成 4KB 时，一条 60KB 的短帧同样得拒
+    if (l > lim) {
+      return { length: 0, offset: 0, err: agDataTooLarge(l, lim) };
+    }
     return { length: l, offset: ArgumentHeaderSize, err: null };
   }
   if (buf.length < ArgumentExtHeaderSize) {
     return { length: 0, offset: 0, err: ErrAgTooShort };
   }
-  // 无符号 32 位读取，避免符号位干扰；再与当前上限比较
+  // 无符号 32 位读取，避免符号位干扰；再与当前限制比较
   const n = (buf[5] * 16777216) + (buf[6] << 16) + (buf[7] << 8) + buf[8];
-  if (n > MaxDataSize()) {
-    return { length: 0, offset: 0, err: agDataTooLarge(n, MaxDataSize()) };
+  if (n > lim) {
+    return { length: 0, offset: 0, err: agDataTooLarge(n, lim) };
   }
   return { length: n, offset: ArgumentExtHeaderSize, err: null };
 }
@@ -181,11 +214,11 @@ function ag_frame_layout(buf) {
  * @returns {Uint8Array}
  * @throws {ErrAgDataTooLarge} 数据超过当前上限
  */
-function encode_ag(t, data) {
+function encode_ag(t, data, limit) {
   const payload = data || new Uint8Array(0);
-  const limit = MaxDataSize();
-  if (payload.length > limit) {
-    throw agDataTooLarge(payload.length, limit);
+  const lim = _resolveLimit(limit);
+  if (payload.length > lim) {
+    throw agDataTooLarge(payload.length, lim);
   }
   if (payload.length <= ArgumentMaxShortData) {
     const out = new Uint8Array(ArgumentHeaderSize + payload.length);
@@ -222,11 +255,11 @@ function encode_ag(t, data) {
  * @param {Uint8Array|ArrayBuffer|Array<number>} b
  * @returns {boolean}
  */
-function IsArgument(b) {
+function IsArgument(b, limit) {
   const buf = _asU8(b);
   if (!buf || buf.length < ArgumentHeaderSize) return false;
   if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return false;
-  const { length, offset, err } = ag_frame_layout(buf);
+  const { length, offset, err } = ag_frame_layout(buf, limit);
   if (err) return false;
   return buf.length === offset + length;
 }
@@ -236,11 +269,11 @@ function IsArgument(b) {
  * @param {Uint8Array} b
  * @returns {Error|null}
  */
-function Validate(b) {
+function Validate(b, limit) {
   const buf = _asU8(b);
   if (!buf || buf.length < ArgumentHeaderSize) return ErrAgTooShort;
   if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return ErrAgBadMagic;
-  const { length, offset, err } = ag_frame_layout(buf);
+  const { length, offset, err } = ag_frame_layout(buf, limit);
   if (err) return err;
   if (buf.length !== offset + length) return ErrAgLengthMismatch;
   return null;
@@ -251,12 +284,12 @@ function Validate(b) {
  * @param {Uint8Array} b
  * @returns {{t: number, v: Uint8Array}}
  */
-function ag_get_frame(b) {
-  const err = Validate(b);
+function ag_get_frame(b, limit) {
+  const err = Validate(b, limit);
   if (err) throw err;
   const buf = _asU8(b);
   const t = buf[2];
-  const v =  ag_get_data(buf);
+  const v =  ag_get_data(buf, limit);
   return { t, v };
 }
 
@@ -271,9 +304,9 @@ function ag_get_frame(b) {
  * @param {Uint8Array} b
  * @returns {Uint8Array|null}
  */
-function ag_get_data(b) {
+function ag_get_data(b, limit) {
   const buf = _asU8(b);
-  const { length, offset, err } = ag_frame_layout(buf);
+  const { length, offset, err } = ag_frame_layout(buf, limit);
   if (err || length === 0) return null;
   // 帧被截断时不能越界读：IsArgument/Validate 之外也有直接调 ag_get_data 的路径
   if (offset + length > buf.length) return null;
@@ -305,9 +338,9 @@ function ag_get_data(b) {
  * @param {Uint8Array} b
  * @returns {Uint8Array|null}
  */
-function Data(b) {
-  if (!IsArgument(b)) return b;
-  return ag_get_data(b);
+function Data(b, limit) {
+  if (!IsArgument(b, limit)) return b;
+  return ag_get_data(b, limit);
 }
 
 /** Value = Data 别名 */
@@ -319,18 +352,22 @@ function Value(b) { return Data(b); }
  * @param {Uint8Array} b
  * @returns {Uint8Array|null}
  */
-function Decoder(b) {
-  if (!IsArgument(b)) {
-    // 有 magic 却解析不了，通常是对端抬了上限而本端没抬（或帧被截断）。
+function Decoder(b, limit) {
+  return agDecoderWith(_resolveLimit(limit), b);
+}
+
+function agDecoderWith(limit, b) {
+  if (!IsArgument(b, limit)) {
+    // 有 magic 却解析不了，通常是本侧限制小于对端发的帧（或帧被截断）。
     // 这里抛错，而不是把带头字节的原样透传上去——那只会变成静默错数据。
     const buf = _asU8(b);
     if (buf && buf.length >= ArgumentHeaderSize && buf[0] === ArgumentMagic1 && buf[1] === ArgumentMagic2) {
-      const layout = ag_frame_layout(buf);
+      const layout = ag_frame_layout(buf, limit);
       if (layout.err) throw layout.err;
     }
     return b;
   }
-  return ag_get_data(b);
+  return ag_get_data(b, limit);
 }
 
 /* ============================================================
@@ -393,14 +430,15 @@ function typeofTag(arg) {
  * @returns {Uint8Array}
  * @throws {ErrAgDataTooLarge}
  */
-function EncodeArg(arg) {
+function EncodeArg(arg, limit) {
+  const lim = _resolveLimit(limit);
   if (arg === null || arg === undefined) {
-    return encode_ag(ArgumentTypeNil, null);
+    return encode_ag(ArgumentTypeNil, null, lim);
   }
   const t = typeofTag(arg);
   switch (t) {
     case ArgumentTypeBool: {
-      return encode_ag(t, new Uint8Array([arg ? 1 : 0]));
+      return encode_ag(t, new Uint8Array([arg ? 1 : 0]), lim);
     }
 
     case ArgumentTypeInt:
@@ -408,7 +446,7 @@ function EncodeArg(arg) {
     case ArgumentTypeInt16:
     case ArgumentTypeInt32:
     case ArgumentTypeInt64: {
-      return encode_ag(t, _intToByteImpl(_toBig(arg)));
+      return encode_ag(t, _intToByteImpl(_toBig(arg)), lim);
     }
 
     case ArgumentTypeUint:
@@ -417,18 +455,18 @@ function EncodeArg(arg) {
     case ArgumentTypeUint32:
     case ArgumentTypeUint64:
     case ArgumentTypeUintptr: {
-      return encode_ag(t, uint_to_byte(arg));
+      return encode_ag(t, uint_to_byte(arg), lim);
     }
 
     case ArgumentTypeFloat32: {
       const buf = new ArrayBuffer(4);
       new DataView(buf).setFloat32(0, Number(arg), true); // LittleEndian
-      return encode_ag(t, new Uint8Array(buf));
+      return encode_ag(t, new Uint8Array(buf), lim);
     }
     case ArgumentTypeFloat64: {
       const buf = new ArrayBuffer(8);
       new DataView(buf).setFloat64(0, Number(arg), true);
-      return encode_ag(t, new Uint8Array(buf));
+      return encode_ag(t, new Uint8Array(buf), lim);
     }
 
     case ArgumentTypeComplex64: {
@@ -436,34 +474,34 @@ function EncodeArg(arg) {
       const dv = new DataView(buf);
       dv.setFloat32(0, Number(arg.real), true);
       dv.setFloat32(4, Number(arg.imag), true);
-      return encode_ag(t, new Uint8Array(buf));
+      return encode_ag(t, new Uint8Array(buf), lim);
     }
     case ArgumentTypeComplex128: {
       const buf = new ArrayBuffer(16);
       const dv = new DataView(buf);
       dv.setFloat64(0, Number(arg.real), true);
       dv.setFloat64(8, Number(arg.imag), true);
-      return encode_ag(t, new Uint8Array(buf));
+      return encode_ag(t, new Uint8Array(buf), lim);
     }
 
     case ArgumentTypeString: {
-      return encode_ag(t, new TextEncoder().encode(String(arg)));
+      return encode_ag(t, new TextEncoder().encode(String(arg)), lim);
     }
     case ArgumentTypeBytes: {
       const copy = new Uint8Array(arg.length);
       copy.set(arg, 0);
-      return encode_ag(t, copy);
+      return encode_ag(t, copy, lim);
     }
 
     case ArgumentTypeSlice:
     case ArgumentTypeMap:
     case ArgumentTypeStruct: {
       const s = jsonMarshalFallback(arg);
-      return encode_ag(ArgumentTypeString, new TextEncoder().encode(s));
+      return encode_ag(ArgumentTypeString, new TextEncoder().encode(s), lim);
     }
   }
   // 兜底：Custom 类型走 serialize
-  return encode_ag(ArgumentTypeCustom, _serialize(arg));
+  return encode_ag(ArgumentTypeCustom, _serialize(arg), lim);
 }
 
 /** Encoder = EncodeArg 别名 */
@@ -589,8 +627,8 @@ function get_value_from(t, v) {
  * @param {Uint8Array} b
  * @returns {any}
  */
-function get_value(b) {
-  const { t, v } = ag_get_frame(b);
+function get_value(b, limit) {
+  const { t, v } = ag_get_frame(b, limit);
   return get_value_from(t, v);
 }
 
@@ -600,11 +638,11 @@ function get_value(b) {
  * @returns {any}
  * @throws {ErrAgInvalidHeader} 非合法 AG 帧
  */
-function DecodeArg(b) {
-  if (!IsArgument(b)) {
+function DecodeArg(b, limit) {
+  if (!IsArgument(b, limit)) {
     throw ErrAgInvalidHeader;
   }
-  return get_value(b);
+  return get_value(b, limit);
 }
 
 /* ============================================================
@@ -800,10 +838,13 @@ const AGExports = {
   ArgumentExtHeaderSize,
   ArgumentExtLenFlag,
   ArgumentMaxShortData,
-  ArgumentMaxDataSize,
+  LegacyMaxDataSize,
   MaxAgDataSize,
   MaxDataSize,
   SetMaxDataSize,
+  ClampLimit,
+  NewEncoder,
+  NewDecoder,
   ArgumentType,
   ArgumentTypeNil,
   ArgumentTypeBool,

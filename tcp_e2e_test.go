@@ -23,7 +23,7 @@ import (
 // 改造前这是不可能的：Connect.Listen/Dial 里只有 ws 分支，其它协议直接报错。
 
 // startTcpEnv 启动 TCP 服务端与已连接的客户端（测试与基准共用）。
-func startTcpEnv(tb testing.TB) (ctx context.Context, cli *Connect) {
+func startTcpEnv(tb testing.TB, opts ...IRpcOption) (ctx context.Context, cli *Connect) {
 	tb.Helper()
 	// 连接建立/关闭会产生 ERROR 日志，不静音的话会混进测试/基准输出
 	logger.SetOutput(io.Discard)
@@ -32,7 +32,7 @@ func startTcpEnv(tb testing.TB) (ctx context.Context, cli *Connect) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	tb.Cleanup(cancel)
 
-	svr := ServerConn(DefaultServer())
+	svr := ServerConn(DefaultServer(opts...))
 	if err := svr.Register("v1", &echoService{}, "echo service"); err != nil {
 		tb.Fatalf("register err: %v", err)
 	}
@@ -44,7 +44,7 @@ func startTcpEnv(tb testing.TB) (ctx context.Context, cli *Connect) {
 	tb.Cleanup(func() { svr.Close() })
 	waitTcpServerReady(tb, ctx, addr)
 
-	cli = ClientConn(DefaultClient())
+	cli = ClientConn(DefaultClient(opts...))
 	// TCP 客户端的 Dial 不阻塞（连接由后台 goroutine 服务）
 	if err := cli.Dial(ctx, "tcp", addr); err != nil {
 		tb.Fatalf("dial err: %v", err)
@@ -128,9 +128,9 @@ func TestTcpTransportRpc(t *testing.T) {
 // 不会因为一次 Read 没读满而把一帧拆坏（TCP 是字节流，这是最容易写错的地方）。
 func TestTcpTransportBigPayload(t *testing.T) {
 	ctx, cli := startTcpEnv(t)
-	// 32KB 远超读循环的单次读缓冲（4KB），足以验证"按 length 读完整帧"；
-	// 再大就会撞上 ag 编码器的默认上限 65535（不是传输的锅），
-	// 需要传更大包时抬 ag.SetMaxDataSize，见 TestAgExtFrameEndToEnd。
+	// 32KB 远超读循环的单次读缓冲（4KB），足以验证"按 length 读完整帧"。
+	// 这里不需要为参数上限做任何设置：ag 的协议/默认上限是 1GB，
+	// 想按部署收紧时才用 WithMaxParamSize，见 ag_big_e2e_test.go。
 	payload := strings.Repeat("x", 32*1024)
 	resp, err := cli.server.Call(ctx, "v1.Echo", payload)
 	if err != nil {

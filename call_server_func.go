@@ -38,7 +38,20 @@ type ServerRpc struct {
 	// network 本连接使用的传输协议名（ws / tcp / quic），由 Dial 写入。
 	// 与 Listen 同锁：写发生在 Dial 的 goroutine，读发生在业务调用的 goroutine。
 	network string
+	// maxParamSize 本侧单参数上限，0 表示未设（用 ag 的进程级默认值）。
+	// 由 SetMaxParamSize 写入，建连接时会在两个 rpc 对象间同步。
+	maxParamSize int
 }
+
+// SetMaxParamSize 设本侧单参数（AG 帧）上限，并装上按该上限工作的 Encoder/Decoder。
+func (c *ServerRpc) SetMaxParamSize(n int) {
+	c.maxParamSize = ag.ClampLimit(n)
+	c.Encoder = ag.NewEncoder(c.maxParamSize)
+	c.Decoder = ag.NewDecoder(c.maxParamSize)
+}
+
+// MaxParamSize 返回本侧单参数上限，0 表示未设。
+func (c *ServerRpc) MaxParamSize() int { return c.maxParamSize }
 
 // setListen 在 Dial 建立连接时写入底层调用通道与该连接的协议名。
 func (c *ServerRpc) setListen(l trpc.ICall, network string) {

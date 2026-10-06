@@ -35,6 +35,7 @@ conn.Dial(ctx, sloth.TCP, "localhost:8991")
 
 ## 发布说明
 
+- [v4.2.3](doc/v4.2.3.md)：AG 扩展帧，协议上限抬到 1GB；限制改为按连接设（`sloth.WithMaxParamSize`）
 - [v4.2.2](doc/v4.2.2.md)：断连日志按原因分级（ws / tcp / quic / kcp），ws 连接级 `OnError` 钩子接进读循环
 - [v4.2.0](doc/v4.2.0.md)：方法自省 `_.Funcs`、媒体代理（HTTP 隧道）示例、TCP / QUIC 客户端断线自动重连
 
@@ -288,6 +289,57 @@ ch.OnError(func(err error) { /* 连接级处理 */ })   // 传 nil 复位为默�
 - 参数与返回值默认以 `[]byte` 在连接上流转；项目示例里常用 `github.com/w6xian/tlv` 做结构体序列化（如 `tlv.Json(...)` / `tlv.Json2Struct(...)`）
 - 诊断接口：调用 `pprof.Info` 可拿到运行时内存信息（`alloc/heap_alloc/next_gc/num_gc`）
 
+## AG 帧格式与单帧上限（可调）
+
+参数在连接上以 AG 帧（Argument Grid，`decoder/ag`）承载，两种帧长：
+
+```
+短帧（Value ≤ 65534）——与扩展帧出现之前逐字节一致
+  MAGIC  :p   2 byte   0x3A 0x70（ASCII ":p"）
+  TYPE   t    1 byte   ArgumentType* 枚举
+  LEN    l    2 byte   big endian，Value 字节数（0 ~ 65534）
+  VALUE  d    l byte
+
+扩展帧（Value ≥ 65535）——LEN 写满值作转义位，真实长度跟在后面
+  MAGIC  :p   2 byte
+  TYPE   t    1 byte
+  FLAG       2 byte   固定 0xFFFF
+  LEN32  n   4 byte   big endian，Value 字节数（65535 ~ MaxDataSize()）
+  VALUE  d   n byte
+```
+
+**协议上限是 1GB**（`ag.MaxAgDataSize`，与 fn 帧的 `FnMaxDataSize` 对齐），**它同时也是
+未设限制时的默认值**：AG 帧只是装在 fn 帧 payload 里的参数编码，不该比外层先撞墙。
+传大块内容（扫描件、PDF base64 会再膨胀约三分之一）**不需要任何声明**。
+
+### 限制是部署策略：`WithMaxParamSize`
+
+协议决定"能表达多大"，部署决定"这一侧收多大"。后者按连接设：
+
+```go
+server := sloth.DefaultServer(sloth.WithMaxParamSize(4 << 20))
+client := sloth.DefaultClient(sloth.WithMaxParamSize(4 << 20))
+```
+
+- 入站：长度字段超过它直接拒绝，**不照对端声明的数字分配内存**；
+- 出站：编码阶段就报错，不会发出去白跑一趟再被对端拒；
+- 只设一侧也行：建连接时会同步到另一个 rpc 对象（入站与出站走的是不同对象）；
+- 想收得比 65535 更紧也支持（下限 1），公网入口收窄到几 KB 是合理用法；
+- 走 **ws** 且单包超过 1MB，还要抬 `option.WithMaxMessageSize`（默认 1MB），否则先卡在 ws 层；
+  tcp / quic / kcp 的 fn 帧长度是 uint32（1GB），不是瓶颈。
+
+`ag.SetMaxDataSize(n)` 是**进程级兜底**，只在这条连接没设 `WithMaxParamSize` 时生效，
+一刀切、建议启动时设一次。JS 侧（`examples/ws/web`）同名同语义：`AG.SetMaxDataSize(n)`、
+`AG.NewEncoder(n)` / `AG.NewDecoder(n)`，帧格式与 Go 端逐字节对齐。
+
+兼容性边界：
+
+- 短帧双向兼容，可以混版本；
+- **扩展帧只有两端都升级过才通**。老端收到扩展帧解不开，会按"非 AG 帧"把带头字节透传上去，
+  属于静默错数据；本端解不开时现在会**返回错误**而不是透传（`DecodeArgs` 也不再吞掉解码错误）；
+- 短帧上限从 65535 降到 65534：占用 `0xFFFF` 当转义位。Value 恰好 65535 字节时，
+  编码结果从短帧变成扩展帧，未升级的老端解不开（这是唯一一处不兼容的长度）。
+
 ## 服务方法签名约定
 
 常见可用的签名（更多见示例）：
@@ -386,7 +438,7 @@ resp, err := server.Call(ctx, userId, "http.Do", raw)  // raw = 请求报文
 
 | 方向 | 载体 | 上限 | 结论 |
 |---|---|---|---|
-| 请求报文 | 入参（ag 编码） | 单参数 65535 字节 | 只放请求头 → **只转发不带 body 的 GET** |
+| 请求报文 | 入参（ag 编码） | 单参数默认 1GB（协议上限）；`WithMaxParamSize` 可按连接收窄 | 只放请求头 → **只转发不带 body 的 GET** |
 | 响应报文 | 返回值（fn 帧裸 payload） | 1GB | 一个 206 分片绰绰有余 |
 
 其余注意点：

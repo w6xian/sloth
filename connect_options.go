@@ -223,6 +223,56 @@ func UseDecoder(decoder Decoder) IRpcOption {
 	}
 }
 
+// WithMaxParamSize 设这一侧**单个参数（AG 帧）的最大字节数**。
+//
+// 协议能表达到 1GB（ag.MaxAgDataSize，与 fn 帧对齐），那是"线格式能装多大"；
+// 这里设的是部署策略——"本进程最多收多大"：
+//   - 入站：长度字段超过它直接拒绝，不照对端声明的数字分配内存；
+//   - 出站：编码阶段就报错，不会发出去白跑一趟再被对端拒。
+//
+// 用法（传给你这一侧的角色即可）：
+//
+//	server := sloth.DefaultServer(sloth.WithMaxParamSize(4<<20))
+//	client := sloth.DefaultClient(sloth.WithMaxParamSize(4<<20))
+//
+// 只设一侧也生效：建连接时会同步到另一个 rpc 对象（入站与出站走的是不同对象，
+// 只设一个会漏掉一半方向）。不设则沿用 ag 的进程级默认（1GB）。
+func WithMaxParamSize(n int) IRpcOption {
+	return func(ch IRpc) {
+		if s, ok := ch.(maxParamSizeSetter); ok {
+			s.SetMaxParamSize(n)
+		}
+	}
+}
+
+// maxParamSizeSetter 窄接口：只为让 WithMaxParamSize 不用改 IRpc 定义
+// （改接口会波及所有 IRpc 实现方）。
+type maxParamSizeSetter interface {
+	SetMaxParamSize(int)
+}
+
+type maxParamSizeHolder interface {
+	MaxParamSize() int
+	SetMaxParamSize(int)
+}
+
+// syncMaxParamSize 把设过的单参数限制补到另一侧。
+//
+// 入站（Connect.CallFunc 解参）与出站（Call/CallRoom 编码）走的是两个不同的
+// rpc 对象，WithMaxParamSize 只设一个就会漏掉一个方向。只补没设的那一边，
+// 两边都显式设过则各保持原值（例如服务端对下游收紧、对上游放开）。
+func syncMaxParamSize(a, b maxParamSizeHolder) {
+	if a == nil || b == nil {
+		return
+	}
+	switch {
+	case a.MaxParamSize() > 0 && b.MaxParamSize() == 0:
+		b.SetMaxParamSize(a.MaxParamSize())
+	case b.MaxParamSize() > 0 && a.MaxParamSize() == 0:
+		a.SetMaxParamSize(b.MaxParamSize())
+	}
+}
+
 func Listen(network, address string) ConnOption {
 	return func(ch *Connect) {
 

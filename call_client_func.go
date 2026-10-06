@@ -31,7 +31,20 @@ type ClientRpc struct {
 	Encoder func(any) ([]byte, error)
 	Decoder func([]byte) ([]byte, error)
 	Header  message.Header
+	// maxParamSize 本侧单参数上限，0 表示未设（用 ag 的进程级默认值）。
+	// 由 SetMaxParamSize 写入，建连接时会在两个 rpc 对象间同步。
+	maxParamSize int
 }
+
+// SetMaxParamSize 设本侧单参数（AG 帧）上限，并装上按该上限工作的 Encoder/Decoder。
+func (c *ClientRpc) SetMaxParamSize(n int) {
+	c.maxParamSize = ag.ClampLimit(n)
+	c.Encoder = ag.NewEncoder(c.maxParamSize)
+	c.Decoder = ag.NewDecoder(c.maxParamSize)
+}
+
+// MaxParamSize 返回本侧单参数上限，0 表示未设。
+func (c *ClientRpc) MaxParamSize() int { return c.maxParamSize }
 
 // setServe 在服务启动（initWsServerInstance）时写入服务端实例
 func (c *ClientRpc) setServe(s types.IServer) {
