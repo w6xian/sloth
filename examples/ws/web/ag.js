@@ -1,13 +1,21 @@
 /**
  * @file AG 协议 (Argument Grid) 参数帧格式 - JavaScript 实现
  *
- * 帧格式：
+ * 短帧（Value ≤ 65534）——与扩展帧出现之前逐字节一致：
  *   MAGIC  :p   2 byte   0x3A 0x70  (ASCII ":p")
  *   TYPE   t    1 byte   ArgumentType* 枚举
- *   LEN    l    2 byte   big endian，Value 字节数 (0~65535)
+ *   LEN    l    2 byte   big endian，Value 字节数 (0~65534)
  *   VALUE  d    l byte   payload，长度 = l
  *
- * 总帧最小 5 字节，最大 5 + 65535 = 65540 字节。
+ * 扩展帧（Value ≥ 65535）——LEN 写满值作转义位，真实长度跟在后面：
+ *   MAGIC  :p   2 byte
+ *   TYPE   t    1 byte
+ *   FLAG       2 byte   固定 0xFFFF
+ *   LEN32  n   4 byte   big endian，Value 字节数 (65535 ~ MaxDataSize())
+ *   VALUE  d   n byte   payload，长度 = n
+ *
+ * 与 Go 版 decoder/ag 必须逐字节对齐：同一条连接上两端各编各解，帧格式差一点
+ * 就是静默错数据。抬上限要两端一起抬（SetMaxDataSize），小包不受影响。
  *
  * 说明：
  *   - 整数编码采用 Big Endian + 简易压缩（去除前导 0，负数保留 FF 符号位）
@@ -26,11 +34,42 @@ const ArgumentMagic1 = 0x3A;
 const ArgumentMagic2 = 0x70;
 /** 帧头大小 = Magic(2) + Type(1) + Length(2) = 5 */
 const ArgumentHeaderSize = 2 + 1 + 2;
-/** Value 段最大字节数上限（>此值时报 ErrAgDataTooLarge）。
- *  注意：LEN 字段是 16 位无符号，实际最大可表达 65535；当 data 长度恰好 65536 时
- *  不会触发错误但会使 LEN 溢位（与 Go 版行为完全一致）。
+/** 扩展帧头 = 短帧头 + 4 字节长度 */
+const ArgumentExtHeaderSize = ArgumentHeaderSize + 4;
+/** 短帧 LEN 的转义位：命中即表示后面跟 4 字节真实长度 */
+const ArgumentExtLenFlag = 0xFFFF;
+/** 短帧能表达的 Value 上限（0xFFFF 已被转义位占用，所以是 65534 而非 65535） */
+const ArgumentMaxShortData = (1 << 16) - 2;
+/** 默认上限：不调 SetMaxDataSize 时行为与扩展帧出现前一致。
+ *  对齐 Go 版取 65535 而非 65536——写 1<<16 会让 65536 字节的 Value 通过校验
+ *  再被 2 字节长度截断成 0，编出长度 0 的帧导致数据静默丢失。
  */
-const ArgumentMaxDataSize = 1 << 16;
+const ArgumentMaxDataSize = (1 << 16) - 1;
+/** SetMaxDataSize 能抬到的硬顶（8MB）：长度字段由对端给出，抬太高等于把内存交给对端 */
+const MaxAgDataSize = 8 << 20;
+
+/** 当前生效的 Value 上限（默认 ArgumentMaxDataSize） */
+let _maxDataSize = ArgumentMaxDataSize;
+
+/** 读当前生效的 Value 上限 */
+function MaxDataSize() { return _maxDataSize; }
+
+/** 调整 Value 上限，超出 [ArgumentMaxDataSize, MaxAgDataSize] 会被夹住。
+ *  收发两端要一起抬：一端没抬，大包会在它那侧按超长拒绝，小包不受影响。
+ */
+function SetMaxDataSize(n) {
+  let v = Number(n);
+  if (!isFinite(v)) v = ArgumentMaxDataSize;
+  if (v < ArgumentMaxDataSize) v = ArgumentMaxDataSize;
+  if (v > MaxAgDataSize) v = MaxAgDataSize;
+  _maxDataSize = v;
+}
+
+/** 超长错误：默认上限下给哨兵；抬过上限后附上实际值，wrap 哨兵便于 errors.Is 式匹配 */
+function agDataTooLarge(got, limit) {
+  if (limit === ArgumentMaxDataSize) return ErrAgDataTooLarge;
+  return new Error(`ag: data length exceeds ${limit} (got ${got}): ${ErrAgDataTooLarge.message}`);
+}
 
 /**
  * 基本类型枚举（与 Go 原语一一对应，0x01~0x1F 为基础标量；0x20~0x3F 为复合/扩展）
@@ -109,27 +148,71 @@ const ErrAgInvalidHeader = new Error('ag: invalid header');
  * ============================================================ */
 
 /**
+ * 解析帧布局：Value 长度与起始偏移（短帧 5，扩展帧 9）
+ * @param {Uint8Array} buf
+ * @returns {{length: number, offset: number, err: Error|null}}
+ */
+function ag_frame_layout(buf) {
+  if (!buf || buf.length < ArgumentHeaderSize) {
+    return { length: 0, offset: 0, err: ErrAgTooShort };
+  }
+  const l = (buf[3] << 8) | buf[4];
+  if (l !== ArgumentExtLenFlag) {
+    // 短帧：l ≤ 65534，恒小于当前上限（下限就是 65535），无需再校验
+    return { length: l, offset: ArgumentHeaderSize, err: null };
+  }
+  if (buf.length < ArgumentExtHeaderSize) {
+    return { length: 0, offset: 0, err: ErrAgTooShort };
+  }
+  // 无符号 32 位读取，避免符号位干扰；再与当前上限比较
+  const n = (buf[5] * 16777216) + (buf[6] << 16) + (buf[7] << 8) + buf[8];
+  if (n > MaxDataSize()) {
+    return { length: 0, offset: 0, err: agDataTooLarge(n, MaxDataSize()) };
+  }
+  return { length: n, offset: ArgumentExtHeaderSize, err: null };
+}
+
+/**
  * 构造一帧 AG 字节流
- *   Layout: [Magic1 Magic2 Type Len(BE,2B) Data...]
+ *   短帧 Layout: [Magic1 Magic2 Type Len(BE,2B) Data...]
+ *   扩展帧 Layout: [Magic1 Magic2 Type 0xFFFF Len32(BE,4B) Data...]
  * @param {number} t 类型标签 (ArgumentType*)
  * @param {Uint8Array|null} data Value 段
  * @returns {Uint8Array}
- * @throws {ErrAgDataTooLarge} 数据超过 65535 字节
+ * @throws {ErrAgDataTooLarge} 数据超过当前上限
  */
 function encode_ag(t, data) {
   const payload = data || new Uint8Array(0);
-  if (payload.length > ArgumentMaxDataSize) {
-    throw ErrAgDataTooLarge;
+  const limit = MaxDataSize();
+  if (payload.length > limit) {
+    throw agDataTooLarge(payload.length, limit);
   }
-  const out = new Uint8Array(ArgumentHeaderSize + payload.length);
+  if (payload.length <= ArgumentMaxShortData) {
+    const out = new Uint8Array(ArgumentHeaderSize + payload.length);
+    out[0] = ArgumentMagic1;
+    out[1] = ArgumentMagic2;
+    out[2] = t & 0xFF;
+    // 写入 2 字节 BigEndian 长度
+    out[3] = (payload.length >> 8) & 0xFF;
+    out[4] = payload.length & 0xFF;
+    if (payload.length > 0) {
+      out.set(payload, ArgumentHeaderSize);
+    }
+    return out;
+  }
+  const n = payload.length;
+  const out = new Uint8Array(ArgumentExtHeaderSize + n);
   out[0] = ArgumentMagic1;
   out[1] = ArgumentMagic2;
   out[2] = t & 0xFF;
-  // 写入 2 字节 BigEndian 长度
-  out[3] = (payload.length >> 8) & 0xFF;
-  out[4] = payload.length & 0xFF;
-  if (payload.length > 0) {
-    out.set(payload, ArgumentHeaderSize);
+  out[3] = 0xFF;
+  out[4] = 0xFF;
+  out[5] = (n >>> 24) & 0xFF;
+  out[6] = (n >>> 16) & 0xFF;
+  out[7] = (n >>> 8) & 0xFF;
+  out[8] = n & 0xFF;
+  if (n > 0) {
+    out.set(payload, ArgumentExtHeaderSize);
   }
   return out;
 }
@@ -143,8 +226,9 @@ function IsArgument(b) {
   const buf = _asU8(b);
   if (!buf || buf.length < ArgumentHeaderSize) return false;
   if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return false;
-  const length = (buf[3] << 8) | buf[4];
-  return buf.length === ArgumentHeaderSize + length;
+  const { length, offset, err } = ag_frame_layout(buf);
+  if (err) return false;
+  return buf.length === offset + length;
 }
 
 /**
@@ -156,9 +240,9 @@ function Validate(b) {
   const buf = _asU8(b);
   if (!buf || buf.length < ArgumentHeaderSize) return ErrAgTooShort;
   if (buf[0] !== ArgumentMagic1 || buf[1] !== ArgumentMagic2) return ErrAgBadMagic;
-  const length = (buf[3] << 8) | buf[4];
-  if (length > ArgumentMaxDataSize) return ErrAgDataTooLarge;
-  if (buf.length !== ArgumentHeaderSize + length) return ErrAgLengthMismatch;
+  const { length, offset, err } = ag_frame_layout(buf);
+  if (err) return err;
+  if (buf.length !== offset + length) return ErrAgLengthMismatch;
   return null;
 }
 
@@ -189,10 +273,12 @@ function ag_get_frame(b) {
  */
 function ag_get_data(b) {
   const buf = _asU8(b);
-  const length = (buf[3] << 8) | buf[4];
-  if (length === 0) return null;
+  const { length, offset, err } = ag_frame_layout(buf);
+  if (err || length === 0) return null;
+  // 帧被截断时不能越界读：IsArgument/Validate 之外也有直接调 ag_get_data 的路径
+  if (offset + length > buf.length) return null;
   const raw = new Uint8Array(length);
-  raw.set(buf.subarray(ArgumentHeaderSize, ArgumentHeaderSize + length), 0);
+  raw.set(buf.subarray(offset, offset + length), 0);
   const t = buf[2];
   switch (t) {
     case ArgumentTypeUint8:
@@ -234,7 +320,16 @@ function Value(b) { return Data(b); }
  * @returns {Uint8Array|null}
  */
 function Decoder(b) {
-  if (!IsArgument(b)) return b;
+  if (!IsArgument(b)) {
+    // 有 magic 却解析不了，通常是对端抬了上限而本端没抬（或帧被截断）。
+    // 这里抛错，而不是把带头字节的原样透传上去——那只会变成静默错数据。
+    const buf = _asU8(b);
+    if (buf && buf.length >= ArgumentHeaderSize && buf[0] === ArgumentMagic1 && buf[1] === ArgumentMagic2) {
+      const layout = ag_frame_layout(buf);
+      if (layout.err) throw layout.err;
+    }
+    return b;
+  }
   return ag_get_data(b);
 }
 
@@ -702,7 +797,13 @@ const AGExports = {
   ArgumentMagic1,
   ArgumentMagic2,
   ArgumentHeaderSize,
+  ArgumentExtHeaderSize,
+  ArgumentExtLenFlag,
+  ArgumentMaxShortData,
   ArgumentMaxDataSize,
+  MaxAgDataSize,
+  MaxDataSize,
+  SetMaxDataSize,
   ArgumentType,
   ArgumentTypeNil,
   ArgumentTypeBool,
@@ -750,6 +851,7 @@ const AGExports = {
 
   // 帧处理
   encode_ag,
+  ag_frame_layout,
   IsArgument,
   Validate,
   ag_get_frame,

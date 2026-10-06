@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync/atomic"
 
 	"github.com/w6xian/sloth/v4/utils"
 )
@@ -14,23 +15,89 @@ import (
 /**
  * @brief AG 协议 (Argument Grid) 参数帧格式
  *
- * MAGIC  :p   2 byte   0x3A 0x70  (ASCII ":p")
- * TYPE   t    1 byte   ArgumentType* 枚举
- * LEN    l    2 byte   big endian，Value 字节数 (0~65535)
- * VALUE  d    l byte   payload，长度 = l
+ * 短帧（Value ≤ 65534）——与扩展帧出现之前逐字节一致：
+ *   MAGIC  :p   2 byte   0x3A 0x70  (ASCII ":p")
+ *   TYPE   t    1 byte   ArgumentType* 枚举
+ *   LEN    l    2 byte   big endian，Value 字节数 (0~65534)
+ *   VALUE  d    l byte   payload，长度 = l
  *
- * 总帧最小 5 字节，最大 5 + 65535 = 65540 字节。
+ * 扩展帧（Value ≥ 65535）——LEN 写满值作转义位，真实长度跟在后面：
+ *   MAGIC  :p   2 byte
+ *   TYPE   t    1 byte
+ *   FLAG       2 byte   固定 0xFFFF
+ *   LEN32  n   4 byte   big endian，Value 字节数 (65535 ~ MaxDataSize())
+ *   VALUE  d   n byte   payload，长度 = n
+ *
+ * 为什么占用 LEN 满值、而不是新增 type 标签：type 是既有语义（Bytes/String…），
+ * 老端碰到未知 tag 的行为不确定；让出 0xFFFF 则 type 一字不动，短帧格式也一字
+ * 不动——未升级的对端照样能收发小包。代价是短帧上限从 65535 降到 65534。
+ *
+ * 兼容性边界（必须知道）：
+ *   - 短帧双向兼容，随便混版本；
+ *   - 扩展帧**只有两端都升级过才通**。老端收到扩展帧解不开，会按"非 AG 帧"把
+ *     带头的原始字节透传上去，属于静默错数据——所以大包链路要两端一起抬上限。
  */
 
 const (
 	ArgumentMagic1      byte = 0x3A // ':'
 	ArgumentMagic2      byte = 0x70 // 'p'
 	ArgumentHeaderSize       = 2 + 1 + 2
-	// ArgumentMaxDataSize 是 Value 段字节数上限。长度字段只有 2 字节（uint16），
+	// ArgumentExtHeaderSize 扩展帧头 = 短帧头 + 4 字节长度
+	ArgumentExtHeaderSize = ArgumentHeaderSize + 4
+	// ArgumentExtLenFlag 短帧 LEN 的转义位：命中即表示后面跟 4 字节真实长度。
+	ArgumentExtLenFlag = 1<<16 - 1
+	// ArgumentMaxShortData 短帧能表达的 Value 上限（0xFFFF 已被转义位占用，
+	// 所以是 65534 而不是 65535）。
+	ArgumentMaxShortData = 1<<16 - 2
+	// ArgumentMaxDataSize 默认上限。不调 SetMaxDataSize 时行为与扩展帧出现前
+	// 一致：Value > 65535 一律拒绝。
+	//
 	// 上限是 65535 而非 65536：原先写成 1<<16，encode_ag 会接受 65536 字节的
 	// Value，再被 PutUint16 截断成 0 → 编出长度 0 的帧，数据静默丢失。
 	ArgumentMaxDataSize = 1<<16 - 1
+	// MaxAgDataSize SetMaxDataSize 能抬到的硬顶（8MB）。
+	//
+	// 传输层装得下更多（fn 帧上限 1GB），这里压到 8MB 是内存考量：长度字段由
+	// 对端给出，解码侧照它分配，抬太高等于把内存控制权交给对端。
+	MaxAgDataSize = 8 << 20
 )
+
+// maxDataSize 当前生效的 Value 上限，默认 ArgumentMaxDataSize。
+//
+// 用原子量：允许启动后再调整，与收发两侧的读不打架。
+var maxDataSize atomic.Int64
+
+func init() {
+	maxDataSize.Store(ArgumentMaxDataSize)
+}
+
+// MaxDataSize 返回当前生效的 Value 上限。
+func MaxDataSize() int { return int(maxDataSize.Load()) }
+
+// SetMaxDataSize 调整 Value 上限，超出 [ArgumentMaxDataSize, MaxAgDataSize] 会被夹住。
+//
+// 收发两端要一起抬：一端没抬，大包会在它那侧按超长拒绝，小包不受影响。
+// 建议只在启动时设一次——运行期调高/调低会让在途调用的判定前后不一致。
+func SetMaxDataSize(n int) {
+	switch {
+	case n < ArgumentMaxDataSize:
+		n = ArgumentMaxDataSize
+	case n > MaxAgDataSize:
+		n = MaxAgDataSize
+	}
+	maxDataSize.Store(int64(n))
+}
+
+// dataTooLarge 超长错误。
+//
+// 默认上限下直接给哨兵 ErrAgDataTooLarge，连错误文本都与原来一致；抬过上限后
+// 附上实际值与当前上限，同时 wrap 哨兵——errors.Is 与按文本匹配的老调用方都认得。
+func dataTooLarge(got, limit int) error {
+	if limit == ArgumentMaxDataSize {
+		return ErrAgDataTooLarge
+	}
+	return fmt.Errorf("ag: data length exceeds %d (got %d): %w", limit, got, ErrAgDataTooLarge)
+}
 
 // 基本类型穷举（与 Go 原语一一对应，0x01~0x1F 为基础标量；0x20~0x3F 为复合/扩展）
 const (
@@ -74,15 +141,41 @@ var (
 	ErrAgInvalidHeader  = errors.New("ag: invalid header")
 )
 
+// frameLayout 解析帧布局，返回 Value 长度与起始偏移（短帧 5，扩展帧 9）。
+//
+// 长度是对端给的，这里先按当前上限校验再交给调用方分配：不然声明个 4GB 就照着
+// 分配，一个包打爆内存。
+func frameLayout(b []byte) (length, offset int, err error) {
+	if len(b) < ArgumentHeaderSize {
+		return 0, 0, ErrAgTooShort
+	}
+	l := int(binary.BigEndian.Uint16(b[3:5]))
+	if l != ArgumentExtLenFlag {
+		// 短帧：l ≤ 65534，恒小于当前上限（下限就是 65535），无需再校验
+		return l, ArgumentHeaderSize, nil
+	}
+	if len(b) < ArgumentExtHeaderSize {
+		return 0, 0, ErrAgTooShort
+	}
+	// uint64 域比较：32 位平台上 int(uint32) 可能溢出成负数绕过校验
+	n := uint64(binary.BigEndian.Uint32(b[5:9]))
+	limit := uint64(MaxDataSize())
+	if n > limit {
+		return 0, 0, dataTooLarge(int(min(n, uint64(math.MaxInt))), int(limit))
+	}
+	return int(n), ArgumentExtHeaderSize, nil
+}
+
 // IsArgument O(1) 校验帧完整性（magic + length 匹配）
 func IsArgument(b []byte) bool {
 	if len(b) < ArgumentHeaderSize || b[0] != ArgumentMagic1 || b[1] != ArgumentMagic2 {
 		return false
 	}
-	t := b[2]
-	_ = t
-	length := binary.BigEndian.Uint16(b[3:5])
-	return len(b) == ArgumentHeaderSize+int(length)
+	length, offset, err := frameLayout(b)
+	if err != nil {
+		return false
+	}
+	return len(b) == offset+length
 }
 
 // Data 取 Value 段；非 AG 帧或不合法返回源切片（兼容旧调用方直接透传）
@@ -109,12 +202,16 @@ func Json(v any) []byte {
 }
 
 func get_data(b []byte) []byte {
-	length := binary.BigEndian.Uint16(b[3:5])
-	if length == 0 {
+	length, offset, err := frameLayout(b)
+	if err != nil || length == 0 {
+		return nil
+	}
+	// 帧被截断时不能越界读：IsArgument/Validate 之外还有直接调 get_data 的路径
+	if offset+length > len(b) {
 		return nil
 	}
 	out := make([]byte, length)
-	copy(out, b[ArgumentHeaderSize:ArgumentHeaderSize+int(length)])
+	copy(out, b[offset:offset+length])
 	t := b[2]
 	switch t {
 	case ArgumentTypeUint8, ArgumentTypeInt8:
@@ -137,11 +234,11 @@ func Validate(b []byte) error {
 	if b[0] != ArgumentMagic1 || b[1] != ArgumentMagic2 {
 		return ErrAgBadMagic
 	}
-	length := binary.BigEndian.Uint16(b[3:5])
-	if int(length) > ArgumentMaxDataSize {
-		return ErrAgDataTooLarge
+	length, offset, err := frameLayout(b)
+	if err != nil {
+		return err
 	}
-	if len(b) != ArgumentHeaderSize+int(length) {
+	if len(b) != offset+length {
 		return ErrAgLengthMismatch
 	}
 	return nil
@@ -239,6 +336,13 @@ func Decode(b []byte) (any, error) {
 
 func Decoder(b []byte) ([]byte, error) {
 	if !IsArgument(b) {
+		// 有 magic 却解析不了，通常是对端抬了上限而本端没抬（或帧被截断）。
+		// 这里明确报错，而不是把带头字节的原样透传上去——那只会变成静默错数据。
+		if len(b) >= ArgumentHeaderSize && b[0] == ArgumentMagic1 && b[1] == ArgumentMagic2 {
+			if _, _, err := frameLayout(b); err != nil {
+				return nil, err
+			}
+		}
 		return b, nil
 	}
 	return get_data(b), nil
@@ -302,17 +406,30 @@ func typeof(arg any) uint8 {
 	return ArgumentTypeCustom
 }
 
-// Encode 写一帧；Length 超 65535 返回 ErrAgDataTooLarge
+// Encode 写一帧；Value 超过当前上限返回 ErrAgDataTooLarge（抬过上限时是包装值）。
+//
+// Value ≤ 65534 走短帧，与老格式逐字节一致；再大走扩展帧。
 func encode_ag(t uint8, data []byte) ([]byte, error) {
-	if len(data) > ArgumentMaxDataSize {
-		return nil, ErrAgDataTooLarge
+	limit := MaxDataSize()
+	if len(data) > limit {
+		return nil, dataTooLarge(len(data), limit)
 	}
-	out := make([]byte, ArgumentHeaderSize+len(data))
+	if len(data) <= ArgumentMaxShortData {
+		out := make([]byte, ArgumentHeaderSize+len(data))
+		out[0] = ArgumentMagic1
+		out[1] = ArgumentMagic2
+		out[2] = t
+		binary.BigEndian.PutUint16(out[3:5], uint16(len(data)))
+		copy(out[ArgumentHeaderSize:], data)
+		return out, nil
+	}
+	out := make([]byte, ArgumentExtHeaderSize+len(data))
 	out[0] = ArgumentMagic1
 	out[1] = ArgumentMagic2
 	out[2] = t
-	binary.BigEndian.PutUint16(out[3:5], uint16(len(data)))
-	copy(out[ArgumentHeaderSize:], data)
+	binary.BigEndian.PutUint16(out[3:5], ArgumentExtLenFlag)
+	binary.BigEndian.PutUint32(out[5:9], uint32(len(data)))
+	copy(out[ArgumentExtHeaderSize:], data)
 	return out, nil
 }
 

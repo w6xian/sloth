@@ -129,7 +129,8 @@ func TestTcpTransportRpc(t *testing.T) {
 func TestTcpTransportBigPayload(t *testing.T) {
 	ctx, cli := startTcpEnv(t)
 	// 32KB 远超读循环的单次读缓冲（4KB），足以验证"按 length 读完整帧"；
-	// 再大就会撞上 ag 编码器的 65535 上限（框架既有约束，与传输无关）。
+	// 再大就会撞上 ag 编码器的默认上限 65535（不是传输的锅），
+	// 需要传更大包时抬 ag.SetMaxDataSize，见 TestAgExtFrameEndToEnd。
 	payload := strings.Repeat("x", 32*1024)
 	resp, err := cli.server.Call(ctx, "v1.Echo", payload)
 	if err != nil {
