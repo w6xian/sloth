@@ -9,7 +9,7 @@
  *   5. sock_rpc_v3.js
  *
  * Build order matches the documented script order in examples/ws/web/index.html
- * Generated at: 2026-10-06T10:09:07.691Z
+ * Generated at: 2026-10-06T10:11:53.716Z
  */
 (function () {
 "use strict";

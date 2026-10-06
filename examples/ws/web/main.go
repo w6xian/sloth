@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/w6xian/sloth/v4/utils"
 	"github.com/w6xian/sloth/v4/nrpc/wsocket"
+	"github.com/w6xian/sloth/v4/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -52,8 +52,8 @@ func main() {
 		http.ServeFile(w, r, "./sloth_v3_min.js")
 	})
 
-	fmt.Println("Server is running on http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	fmt.Println("Server is running on http://localhost:8011")
+	http.ListenAndServe(":8011", nil)
 }
 
 type Handler struct {

@@ -624,7 +624,7 @@ class SockRpcV3 {
         this._closing = true;
         this._cancelReconnect('Stop() called');
         if (this.sock) {
-            try { this.sock.close(); } catch (_) { /* ignore */ }
+            try { this.sock.close(1000, 'normal closure'); } catch (_) { /* ignore */ }
             this.sock = null;
         }
         this.connected = false;
@@ -648,7 +648,7 @@ class SockRpcV3 {
         // 若当前仍连接，先主动 close（标记 manualClose，防止触发自动重连）
         if (this.sock) {
             this._manualClose = true;
-            try { this.sock.close(); } catch (_) { /* ignore */ }
+            try { this.sock.close(1000, 'normal closure'); } catch (_) { /* ignore */ }
             this.sock = null;
             this.connected = false;
             this._rejectAllPending(new Error('reconnecting'));

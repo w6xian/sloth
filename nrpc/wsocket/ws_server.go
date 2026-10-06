@@ -14,14 +14,14 @@ import (
 
 	"github.com/w6xian/sloth/v4/bucket"
 	"github.com/w6xian/sloth/v4/logger"
-	"github.com/w6xian/sloth/v4/metrics"
-	"github.com/w6xian/sloth/v4/tools"
-	"github.com/w6xian/sloth/v4/utils/array"
 	"github.com/w6xian/sloth/v4/message"
+	"github.com/w6xian/sloth/v4/metrics"
 	"github.com/w6xian/sloth/v4/nrpc"
 	"github.com/w6xian/sloth/v4/option"
+	"github.com/w6xian/sloth/v4/tools"
 	"github.com/w6xian/sloth/v4/types/handler"
 	"github.com/w6xian/sloth/v4/types/trpc"
+	"github.com/w6xian/sloth/v4/utils/array"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -422,6 +422,7 @@ func (s *WsServer) ListenAndServe(ctx context.Context) error {
 	})
 	return nil
 }
+
 // getUpgrader 惰性构建并复用 Upgrader（并发安全）。
 func (s *WsServer) getUpgrader() *websocket.Upgrader {
 	s.upgraderMu.Lock()
@@ -622,7 +623,7 @@ func (s *WsServer) readPump(ctx context.Context, r *http.Request, ch *WsChannelS
 			// EOF、读超时（超过 PongWait 没收到 pong）、连接重置等非关闭帧错误**全部落在 else 分支**。
 			// 旧实现把这类常规断开既调 OnClose 又打 ERROR，且不带 err、不带 ctx
 			// （s.log 传 nil ctx → trace=-），于是每次客户端正常断开都刷一条无法定位的 ERR。
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived, websocket.CloseAbnormalClosure) {
 				if s.handler != nil {
 					s.handler.OnError(ctx, r, s, ch, err)
 				}

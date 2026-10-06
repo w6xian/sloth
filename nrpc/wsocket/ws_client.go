@@ -588,7 +588,7 @@ func (c *LocalClient) readPump(ctx context.Context, ch *WsChannelClient, closeCh
 			// 与服务端同一个坑：IsUnexpectedCloseError 对 EOF/读超时返回 false，
 			// 也就是"最常见的断开"走的是 else 分支，不该按 ERROR 刷。
 			// 旧实现先无差别 Errorw 一条，再补一条无上下文的 c.log(Error,"…")（nil ctx → 无 trace）。
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived, websocket.CloseAbnormalClosure) {
 				if c.handler != nil {
 					c.handler.OnError(ctx, resp, c, ch, err)
 				}
