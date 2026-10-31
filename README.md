@@ -115,6 +115,10 @@ go run ./examples/multi/client
 # 媒体代理（HTTP 反向代理）：把内网客户端的目录暴露成公网 HTTP
 go run ./examples/media/server   # RPC :8991 + HTTP 网关 :8080，浏览器打开 http://localhost:8080/
 go run ./examples/media/client   # 连上来，把 -root 指向的目录暴露成 /m/media/
+
+# AI 流式对话：一次调用 + 持续推送，前端"堆内容"
+go run ./examples/ai-stream                                  # 默认 mock 上游，无需 Key；浏览器打开 http://localhost:8012
+go run ./examples/ai-stream -upstream=openai -key=$OPENAI_API_KEY   # 转发 OpenAI 兼容端点
 ```
 
 ### 多协议同时监听
@@ -133,6 +137,17 @@ go drpc.Serve()
 - 服务端主动推送（`Call` / `CallRoom` / `CallBucket` / `Broadcast`）会**覆盖三条链路**——
   连接分桶是每个传输各自持有的，库内部用一个合成实例跨传输查找；
 - 给 QUIC 配的 TLS 只作用于 QUIC（与 `wss`），ws / tcp 端口仍是明文。
+
+### 流式应答：一次调用 + 多次推送
+
+AI 对话这类"问一次、持续吐增量、前端往气泡里追加"的场景，在 sloth 上的映射是固定的：
+
+1. 前端 `Call("ai.Chat", {prompt})`，服务端方法**只登记会话并立刻返回 sid**，绝不等生成结束——一次 Call 是"发一帧、等一个回包"，等回包有 `PReadWait`（默认 10s）兜底，生成半分钟必然超时断连，而这期间前端一个字都收不到；
+2. 服务端在 goroutine 里读上游，用 `channel.Push` 把增量推回**发起调用的那条连接**（`sloth.GetChannel(ctx)`，不需要 userId、不需要先 Sign，天然不会串到别的标签页）；
+3. 增量帧里自带 sid 与类型（`delta` / `done` / `err`），前端按 sid 找到气泡追加；
+4. "停止生成"是同一条连接上的另一次 RPC（`ai.Stop`）——这正是这类场景用 ws 而不是 SSE 的主要原因（SSE 是单向的，停止得另开一个 HTTP 请求）。
+
+两个必要的工程细节：**攒批**（token 每秒几十条，逐条推会把连接队列打满并丢帧，`option.WithChannelQueueSize` 可放宽）、**中断表**（sid → cancel）。完整样例见 [examples/ai-stream](examples/ai-stream)：默认 mock 上游无需 Key，给一个 `-key` 就能转发 OpenAI 兼容端点。
 
 ## 怎么选传输：ws / wss / tcp / quic / kcp
 

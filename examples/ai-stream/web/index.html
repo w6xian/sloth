@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <title>sloth · AI 流式对话</title>
+    <style>
+        body {
+            font: 14px/1.7 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            margin: 0;
+            background: #f6f7f9;
+            color: #222;
+        }
+
+        #app {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 24px 16px 120px;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0 0 4px;
+        }
+
+        .hint {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 16px;
+        }
+
+        #status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: #e8eaed;
+            color: #555;
+        }
+
+        #log {
+            background: #fff;
+            border: 1px solid #e3e5e8;
+            border-radius: 10px;
+            padding: 8px 12px;
+            min-height: 200px;
+        }
+
+        .msg {
+            margin: 10px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .msg .who {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 2px;
+        }
+
+        .msg.ai .body {
+            background: #fff;
+            border: 1px solid #e3e5e8;
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+
+        .msg.me .body {
+            background: #e8f0fe;
+            border-radius: 8px;
+            padding: 8px 10px;
+            display: inline-block;
+        }
+
+        .msg.streaming .body::after {
+            content: "▌";
+            animation: blink 1s steps(2, start) infinite;
+            color: #4a7cf7;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        #bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #fff;
+            border-top: 1px solid #e3e5e8;
+            padding: 12px;
+        }
+
+        #bar .inner {
+            max-width: 760px;
+            margin: 0 auto;
+            display: flex;
+            gap: 8px;
+        }
+
+        textarea {
+            flex: 1;
+            height: 46px;
+            resize: none;
+            border: 1px solid #d7d9dd;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font: inherit;
+        }
+
+        button {
+            border: 0;
+            border-radius: 8px;
+            padding: 0 18px;
+            background: #4a7cf7;
+            color: #fff;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        button.ghost {
+            background: #e8eaed;
+            color: #555;
+        }
+
+        button:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <h1>sloth · AI 流式对话 <span id="status">连接中…</span></h1>
+        <div class="hint">
+            一次 <code>Call("ai.Chat")</code> 发起，服务端按批 <code>Push</code> 增量，前端只做一件事：往气泡里追加文本。
+            「停止」是同一条连接上的另一次 RPC，这也是用 ws 而不是 SSE 的原因。
+        </div>
+        <div id="log"></div>
+    </div>
+
+    <div id="bar">
+        <div class="inner">
+            <textarea id="input" placeholder="随便问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+            <button id="send">发送</button>
+            <button id="stop" class="ghost" disabled>停止</button>
+        </div>
+    </div>
+
+    <!-- 复用 examples/ws/web 下现成的 bundle（服务端把该目录挂到 /web/） -->
+    <script src="/web/sloth_rpc_v3.min.js"></script>
+    <script>
+        const ADDR = `ws://${location.hostname || '127.0.0.1'}:8994/ws`;
+
+        const $status = document.getElementById('status');
+        const $log = document.getElementById('log');
+        const $input = document.getElementById('input');
+        const $send = document.getElementById('send');
+        const $stop = document.getElementById('stop');
+
+        // sid → 气泡节点：一路会话一个气泡，多路并行也不会串台。
+        const bubbles = new Map();
+        let seq = 0;
+        let current = '';
+
+        const rpc = new SockRpcV3({
+            addr: ADDR,
+            timeoutMs: 15000,   // 单次 Call 超时；Chat 只返回 sid，不会用到这么久
+            autoReconnect: true,
+            reconnectDelay: 1000,
+            backoffMax: 10000,
+            onMessage: onPush,  // 服务端推送的增量从这里进来
+            onError: (e) => console.error('[ws] error', e),
+        });
+
+        rpc.OnOpen(() => setStatus('已连接', '#e6f4ea', '#1e7e34'));
+        rpc.OnClose(() => setStatus('已断开', '#fce8e6', '#c5221f'));
+
+        function setStatus(text, bg, fg) {
+            $status.textContent = text;
+            $status.style.background = bg;
+            $status.style.color = fg;
+        }
+
+        // ── 调用 ──────────────────────────────────────────────────────────
+        async function send() {
+            const prompt = $input.value.trim();
+            if (!prompt) return;
+            $input.value = '';
+
+            const sid = 'c' + (++seq) + '-' + Date.now();
+            addMsg('me', prompt);
+            const el = addMsg('ai', '');
+            el.classList.add('streaming');
+            bubbles.set(sid, el);
+            current = sid;
+            $stop.disabled = false;
+
+            try {
+                // 入参是结构体：直接传 JSON 文本，服务端按 json.Unmarshal 还原。
+                const v = await rpc.CallPromise('ai.Chat', JSON.stringify({ prompt, sid }));
+                // 回包是 JSON 字节（utils.Serialize），解码后拿到服务端确认的 sid。
+                const resp = JSON.parse(toText(v));
+                if (resp && resp.sid && resp.sid !== sid) {
+                    // 服务端没用前端给的 sid（例如留空时它自己分配）
+                    bubbles.delete(sid);
+                    bubbles.set(resp.sid, el);
+                    current = resp.sid;
+                }
+            } catch (e) {
+                el.classList.remove('streaming');
+                el.querySelector('.body').textContent = '调用失败：' + (e && e.message ? e.message : e);
+                bubbles.delete(sid);
+                $stop.disabled = true;
+            }
+        }
+
+        async function stop() {
+            if (!current) return;
+            try {
+                await rpc.CallPromise('ai.Stop', current);
+            } catch (e) {
+                console.warn('[stop] failed', e);
+            }
+        }
+
+        // ── 推送 ──────────────────────────────────────────────────────────
+        function onPush(raw) {
+            const text = unwrap(raw);
+            let ev;
+            try { ev = JSON.parse(text); } catch (_) { return; }
+            if (!ev || !ev.sid) return;
+
+            const el = bubbles.get(ev.sid);
+            if (!el) return;
+            const body = el.querySelector('.body');
+
+            if (ev.t === 'delta') {
+                body.textContent += ev.text || '';
+                $log.scrollTop = $log.scrollHeight;
+            } else if (ev.t === 'done') {
+                el.classList.remove('streaming');
+                bubbles.delete(ev.sid);
+                if (current === ev.sid) { current = ''; $stop.disabled = true; }
+            } else if (ev.t === 'err') {
+                el.classList.remove('streaming');
+                body.textContent += '\n[错误] ' + (ev.err || 'unknown');
+                bubbles.delete(ev.sid);
+                if (current === ev.sid) { current = ''; $stop.disabled = true; }
+            }
+        }
+
+        // ── 编码/解码小工具 ───────────────────────────────────────────────
+        // 推送走的是 message.Msg：{"type":1,"body":"<base64>"}，body 才是业务 JSON。
+        function unwrap(raw) {
+            const s = toText(raw);
+            try {
+                const o = JSON.parse(s);
+                if (o && typeof o.body === 'string') return b64ToText(o.body);
+            } catch (_) { /* 不是 Msg，按原文处理 */ }
+            return s;
+        }
+
+        function toText(v) {
+            if (typeof v === 'string') return v;
+            if (v instanceof Uint8Array) return new TextDecoder().decode(v);
+            if (v instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(v));
+            try { return JSON.stringify(v); } catch (_) { return String(v); }
+        }
+
+        function b64ToText(b64) {
+            const bin = atob(b64);
+            const u8 = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+            return new TextDecoder().decode(u8);
+        }
+
+        function addMsg(who, text) {
+            const el = document.createElement('div');
+            el.className = 'msg ' + who;
+            el.innerHTML = `<div class="who">${who === 'me' ? '我' : 'AI'}</div><div class="body"></div>`;
+            el.querySelector('.body').textContent = text;
+            $log.appendChild(el);
+            $log.scrollTop = $log.scrollHeight;
+            return el;
+        }
+
+        $send.onclick = send;
+        $stop.onclick = stop;
+        $input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+        $input.focus();
+    </script>
+</body>
+
+</html>
