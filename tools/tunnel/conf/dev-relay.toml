@@ -1,0 +1,20 @@
+rpc_addr = "127.0.0.1:9100"
+
+[[tunnel]]
+id = "files"
+token = "dev-token-files"
+mode = "tcp"
+listen = "127.0.0.1:18080"
+
+[[tunnel]]
+id = "files-web"
+token = "dev-token-web"
+mode = "http"
+listen = "127.0.0.1:18081"
+host = "files.local"
+
+[[tunnel]]
+id = "udp-echo"
+token = "dev-token-udp"
+mode = "udp"
+listen = "127.0.0.1:18082"

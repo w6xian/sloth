@@ -1,0 +1,26 @@
+# agent 拨入的 ws 监听地址（公网）。
+rpc_addr = "0.0.0.0:9100"
+
+# TCP 端口映射：访客连 listen，流量透传给持有该隧道的 agent。
+# 场景：家里 file-server 跑在 127.0.0.1:8080，公网入口 18080。
+[[tunnel]]
+id = "files"
+token = "change-me-files-1"
+mode = "tcp"
+listen = "0.0.0.0:18080"
+
+# HTTP Host 路由：多条隧道可共用同一个 listen 端口，按请求 Host 头分发。
+# 场景：公网 80 端口上按域名挂多个内网 HTTP 服务。
+[[tunnel]]
+id = "files-web"
+token = "change-me-files-2"
+mode = "http"
+listen = "0.0.0.0:80"
+host = "files.example.com"
+
+[[tunnel]]
+id = "blog-web"
+token = "change-me-blog-1"
+mode = "http"
+listen = "0.0.0.0:80"
+host = "*.blog.example.com"

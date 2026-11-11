@@ -1,0 +1,16 @@
+# relay 的 ws 地址（公网 IP 或域名，ws 走 HTTP 语义，出站几乎不会被封）。
+relay = "1.2.3.4:9100"
+# agent 名，仅用于日志辨识。
+name = "home-nas"
+
+# 与 relay 配置同 id 的隧道；target 是本机/内网真正要拨的服务地址。
+# token 必须与 relay 侧一致，否则该隧道不会被接管。
+[[tunnel]]
+id = "files"
+token = "change-me-files-1"
+target = "127.0.0.1:8080"
+
+[[tunnel]]
+id = "files-web"
+token = "change-me-files-2"
+target = "127.0.0.1:8080"

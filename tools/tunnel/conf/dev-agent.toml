@@ -1,0 +1,18 @@
+relay = "127.0.0.1:9100"
+name = "dev-home"
+
+[[tunnel]]
+id = "files"
+token = "dev-token-files"
+target = "127.0.0.1:8080"
+
+[[tunnel]]
+id = "files-web"
+token = "dev-token-web"
+target = "127.0.0.1:8080"
+
+[[tunnel]]
+id = "udp-echo"
+token = "dev-token-udp"
+mode = "udp"
+target = "127.0.0.1:8081"
