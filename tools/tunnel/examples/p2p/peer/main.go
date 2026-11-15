@@ -17,8 +17,8 @@ package main
 // 运行（两端各一台机器，各一个终端）：
 //
 //	go build -o peer.exe ./peer
-//	./peer.exe -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id home
-//	./peer.exe -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id office -connect home
+//	./peer.exe -server ws://coord.graybook.com.cn:9100 -coord coord.graybook.com.cn:9101 -id home
+//	./peer.exe -server ws://coord.graybook.com.cn:9100 -coord coord.graybook.com.cn:9101 -id office -connect home
 //
 // 连上后直接敲回车聊天，Ctrl+C 退出。
 

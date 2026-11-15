@@ -259,7 +259,7 @@ func (c *Connect) Listen(ctx context.Context, network, address string, opts ...o
 	// 底层监听：默认 TCP（ws/wss/tcp 都跑在 TCP 上，wss 的 TLS 由
 	// http.Server.ServeTLS 在握手阶段接管，因此这里始终是明文 listener）；
 	// QUIC 走 ListenerFactory，自己造 UDP 监听器。
-	ln, err := c.makeListenerFor(factory, address, opts...)
+	ln, err := c.makeListenerFor(ctx, factory, address, opts...)
 	if err != nil {
 		return err
 	}
@@ -611,4 +611,18 @@ func (c *Connect) CallFunc(ctx context.Context, r *http.Request, w *http.Respons
 // 现在走统一门面：级别过滤生效，trace/字段由 ctx 携带（此处无 ctx 可传）。
 func (w *Connect) Log(lvl logger.LogLevel, line string, args ...any) {
 	logger.Logf(lvl, nil, line, args...)
+}
+
+// Coordinate p2p coordinator 信令地址（option.Coordinate 的别名）。
+//
+// 真身定义在 option 包：根包 import option，option 不能反 import 根包
+// （否则循环引用），但对外 API 保持 sloth.Coordinator(...) 的写法不变。
+type Coordinate = option.Coordinate
+
+// Coordinator 构造一条 coordinator 信令地址描述。
+func Coordinator(network, address string) Coordinate {
+	return Coordinate{
+		Network: network,
+		Address: address,
+	}
 }

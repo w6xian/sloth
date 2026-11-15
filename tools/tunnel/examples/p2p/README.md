@@ -34,21 +34,86 @@ socket 的出站映射稳定，coordinator 观测到的地址即对端可直达�
 
 ## 运行
 
+交叉编译（Windows 上可用 `build.ps1`）：
+
+```powershell
+./build.ps1                          # coordinator-linux-amd64（CentOS）
+./build.ps1 -OS windows -Arch amd64  # coordinator-windows-amd64
+./build.ps1 -All                     # coordinator + peer 一起编
+```
+
 ```bash
 # 云端（固定 IP）
-go build -o coordinator.exe ./coordinator
-./coordinator.exe -rpc :9100 -udp :9101
+./coordinator-linux-amd64 -rpc :9100 -udp :9101
 
-# 家里
-go build -o peer.exe ./peer
-./peer.exe -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id home
+# 家里（peer 同一二进制，按平台取对应产物）
+./peer-linux-amd64 -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id home
 
 # 公司（主动连家里）
-./peer.exe -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id office -connect home
+./peer-windows-amd64.exe -server ws://<云端IP>:9100 -coord <云端IP>:9101 -id office -connect home
 ```
 
 连上后任意一端敲回车即可互发消息；`★ P2P 直连建立` 一行会打印两端的
 实际 UDP 地址，可对照确认流量没有经过云端。
+
+### 云端端口放行（CentOS）
+
+coordinator 需要两个端口：**TCP 9100**（ws 信令）+ **UDP 9101**（地址观测）。
+
+CentOS 默认防火墙是 firewalld：
+
+```bash
+sudo firewall-cmd --permanent --add-port=9100/tcp
+sudo firewall-cmd --permanent --add-port=9101/udp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports   # 应看到 9100/tcp 9101/udp
+```
+
+云服务器多半还有一层**安全组**（阿里云/腾讯云/AWS 控制台），firewalld 只管
+本机这一层，控制台里也要放行 TCP 9100 和 UDP 9101，两处缺一不可。
+
+外网验证端口连通（UDP 端无响应属正常——coordinator 只认 REG 报文，只要
+peer 能打印"观测到本端公网 UDP 地址"即说明通了）：
+
+```bash
+curl -v --max-time 5 http://<云端IP>:9100
+echo "P2P1 REG test" | nc -u -w2 <云端IP> 9101
+```
+
+个别 CentOS 镜像用 iptables 而非 firewalld（`systemctl status firewalld`
+显示 inactive 即查 iptables）：
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 9100 -j ACCEPT
+sudo iptables -I INPUT -p udp --dport 9101 -j ACCEPT
+```
+
+### 云端部署为 systemd 服务（开机自启 + 崩溃自动拉起）
+
+`coordinator.service` 在本目录，安装四步：
+
+```bash
+# 本机上传（PowerShell）
+scp coordinator-linux-amd64 root@<云端IP>:/usr/local/bin/coordinator
+scp coordinator.service      root@<云端IP>:/etc/systemd/system/
+
+# 云端
+sudo chmod +x /usr/local/bin/coordinator
+sudo systemctl daemon-reload
+sudo systemctl enable --now coordinator
+```
+
+常用运维命令：
+
+```bash
+systemctl status coordinator      # 状态
+journalctl -u coordinator -f      # 跟日志
+sudo systemctl restart coordinator
+```
+
+服务已带 `Restart=always`（崩溃 3s 后自动拉起）、开机自启、非 root
+运行（端口 >1024 无需特权）；改监听端口就改 `/etc/systemd/system/coordinator.service`
+里的 `ExecStart` 再 `daemon-reload` + `restart`。
 
 ### 本地联调（同一台机器跑三端）
 

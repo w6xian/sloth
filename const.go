@@ -27,6 +27,7 @@ const (
 	// QUIK 是 QUIC 的拼写兼容别名（QUIC 不是缩写，正确写法是 QUIC）。
 	// 保留它只为兼容早期拼写，新代码请用 QUIC。
 	QUIK = QUIC
+	UDP  = "udp"
 )
 
 // HeaderProtocol 固定请求头键：标明这条调用是从哪条协议上发出来的

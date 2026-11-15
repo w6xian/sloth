@@ -1,0 +1,38 @@
+# coordinator 的 systemd 服务单元。
+#
+# 安装（CentOS 7/8/9 通用）：
+#   sudo cp coordinator-linux-amd64 /usr/local/bin/coordinator && sudo chmod +x /usr/local/bin/coordinator
+#   sudo cp coordinator.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now coordinator
+#
+# 查看日志 / 状态：
+#   systemctl status coordinator
+#   journalctl -u coordinator -f
+#
+# 端口放行见 README.md「云端端口放行（CentOS）」。
+
+[Unit]
+Description=sloth p2p punch coordinator (ws signaling + UDP addr observer)
+Documentation=file:///usr/local/share/doc/p2p/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/apps/coordinator/coordinator -rpc :9100 -udp :9101
+Restart=always
+RestartSec=3
+
+# 端口 >1024，nobody 足够；不给 root
+User=nobody
+Group=nobody
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+# ws 长连接较多时抬高 fd 上限
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

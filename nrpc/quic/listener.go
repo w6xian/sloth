@@ -104,10 +104,27 @@ func Listen(addr string, tlsConf *tls.Config, conf *quicgo.Config) (net.Listener
 	if err != nil {
 		return nil, err
 	}
+	ln, err := ListenPacketConn(udpConn, tlsConf, conf)
+	if err != nil {
+		_ = udpConn.Close()
+		return nil, err
+	}
+	return ln, nil
+}
+
+// ListenPacketConn 用现成的 PacketConn 监听 QUIC。
+//
+// p2p 打洞专用：直连必须建立在打洞的那条 socket 上（NAT 映射与 socket
+// 绑定），因此监听器不能自己新建 UDP socket。socket 此前的读窗口
+// （打洞引擎收 ACK/探针）必须已结束——quic-go 的 Transport 接管后独占读。
+func ListenPacketConn(pc net.PacketConn, tlsConf *tls.Config, conf *quicgo.Config) (net.Listener, error) {
+	if tlsConf == nil || len(tlsConf.Certificates) == 0 && tlsConf.GetCertificate == nil {
+		return nil, errNoTLSCert
+	}
 	if conf == nil {
 		conf = defaultQuicConfig()
 	}
-	tr := &quicgo.Transport{Conn: udpConn}
+	tr := &quicgo.Transport{Conn: pc}
 	ln, err := tr.Listen(withALPN(tlsConf), conf)
 	if err != nil {
 		_ = tr.Close()

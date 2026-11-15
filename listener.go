@@ -2,6 +2,7 @@ package sloth
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/w6xian/sloth/v4/option"
@@ -29,7 +30,29 @@ type ProtocolListener struct {
 // 变成 TLS 监听器，明文客户端全部握手失败且不报错。TLS 该在哪一层生效：
 // wss → http.Server.ServeTLS（握手阶段），QUIC → quic-go 内部，
 // 两者都不需要 TLS listener。
-func (s *Connect) makeListenerFor(factory ProtocolFactory, address string, opts ...option.ConnectOption) (net.Listener, error) {
+//
+// p2p 分支：选项里带了 WithCoordinate（且传了 WithWorkID）时，不直接
+// net.Listen，而是先经 coordinator 牵线打洞——绑定 UDP socket → 登记
+// work-id → 等 client 牵线 → 用 **同一条 socket** 造传输监听器
+// （NAT 映射与 socket 绑定，换端口对方进不来，见 p2p 包注释）。
+func (s *Connect) makeListenerFor(ctx context.Context, factory ProtocolFactory, address string, opts ...option.ConnectOption) (net.Listener, error) {
+	coords, workID, token := resolveP2POpts(opts)
+	if len(coords) > 0 {
+		coord := coordAddress(coords, string(WS))
+		pc, err := punchServeSocket(ctx, address, coord, workID, token)
+		if err != nil {
+			return nil, err
+		}
+		if lf, ok := factory.(PacketConnListenerFactory); ok {
+			ln, lerr := lf.MakeListenerFromPacketConn(pc, s.tlsConfig)
+			if lerr != nil {
+				_ = pc.Close()
+			}
+			return ln, lerr
+		}
+		_ = pc.Close()
+		return nil, fmt.Errorf("protocol %s does not support p2p (no PacketConn listener factory)", factory.Name())
+	}
 	// 带选项的版本优先：KCP 的加密方式与 FEC 参数决定线上包的格式，
 	// 必须在建监听器时就定下来，而此时传输实例还没创建，只能从选项里取。
 	if lf, ok := factory.(ListenerFactoryWithOptions); ok {

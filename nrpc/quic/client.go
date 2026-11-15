@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +51,18 @@ type QuicClient struct {
 	closeOnce sync.Once
 	closeChan chan struct{}
 	m         stream.Metrics
+
+	// p2p 打洞产物（可选）：非 nil 时握手直接跑在这条已打洞的 socket 上，
+	// 而不是新建 UDP socket 拨 c.address（NAT 映射与 socket 绑定，
+	// 换 socket 对方的包进不来）。见 p2p 包与 sloth.punchDialSocket 的注释。
+	punchedPC     net.PacketConn
+	punchedRemote net.Addr
+}
+
+// SetPunchedConn 注入打洞产物（p2p 地址 Dial 时由上层桥接层调用）。
+func (c *QuicClient) SetPunchedConn(pc net.PacketConn, remote net.Addr) {
+	c.punchedPC = pc
+	c.punchedRemote = remote
 }
 
 // ── option.IConnectOption ─────────────────────────────────────────────
@@ -169,7 +182,15 @@ func (c *QuicClient) serveOnce(ctx context.Context) (<-chan struct{}, error) {
 	// 握手带超时：地址不可达时 UDP 不会像 TCP 那样快速失败（没有 RST），
 	// 不设超时会一直等到 ctx 取消。
 	dialCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
-	qconn, err := quicgo.DialAddr(dialCtx, c.address, withALPN(c.tlsConf), c.quicConf)
+	var qconn *quicgo.Conn
+	var err error
+	if c.punchedPC != nil {
+		// p2p：握手直接跑在打洞的那条 socket 上，对端是直连地址。
+		// 重连也复用同一条 socket——QUIC keepalive 会持续刷新 NAT 映射。
+		qconn, err = quicgo.Dial(dialCtx, c.punchedPC, c.punchedRemote, withALPN(c.tlsConf), c.quicConf)
+	} else {
+		qconn, err = quicgo.DialAddr(dialCtx, c.address, withALPN(c.tlsConf), c.quicConf)
+	}
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("quic dial %s: %w", c.address, err)

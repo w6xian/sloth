@@ -8,6 +8,17 @@ import (
 	"github.com/w6xian/sloth/v4/types/handler"
 )
 
+// Coordinate p2p 直连的 coordinator 信令地址（一场牵线要用到的两个面）。
+//
+// 放在 option 包而不是 sloth 根包：根包 import 本包（Connect.Listen 的选项
+// 参数），本包若反根包 import 就是循环引用——Coordinate 曾经定义在根包，
+// WithCoordinate 一接线就编译失败，故移到这里；根包保留 type alias 兼容
+// sloth.Coordinator(...) 的调用写法。
+type Coordinate struct {
+	Network string // 信令面协议，如 sloth.WS
+	Address string // coordinator 地址，如 coord.example.com:9100
+}
+
 type IConnectOption interface {
 	SetUriPath(path string) error
 	SetRouter(router *mux.Router) error
@@ -80,6 +91,35 @@ func WithCodec(c codec.Codec) ConnectOption {
 	}
 }
 
+// WithCoordinate 配置 p2p 直连的 coordinator 信令面。
+//
+// 传了该选项（且传输支持），Listen/Dial 不再直接监听/直连，而是先经
+// coordinator 牵线打洞（见根包 p2p_signal.go）：服务端把本机注册到
+// coordinator 等待被连，客户端按 "对端ID@coordinator地址" 拨号。
+//
+// 走"可选接口"：只有实现了 SetCoordinates 的传输才会收到（目前 QUIC），
+// 其他传输静默忽略——与 WithTcpHandleMessage 同一套路。
+func WithCoordinate(coords ...Coordinate) ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface{ SetCoordinates([]Coordinate) }); ok {
+			v.SetCoordinates(coords)
+		}
+	}
+}
+
+// WithWorkID p2p 直连的本端身份：work-id + token。
+//
+// id 由 coordinator 生成并管理（punch.CreateID），token 是 id 的接管凭据；
+// 服务端必填（要被 client 按 id 找到）；客户端可不填——coordinator 会分配
+// 一次性匿名 id。token 不匹配会被 coordinator 拒绝（常数时间比较）。
+func WithWorkID(id, token string) ConnectOption {
+	return func(s IConnectOption) {
+		if v, ok := any(s).(interface{ SetWorkID(string, string) }); ok {
+			v.SetWorkID(id, token)
+		}
+	}
+}
+
 // WithTcpHandleMessage 给非 HTTP 传输（TCP）注入连接事件钩子。
 //
 // 为什么是独立的一个 option：IConnectOption.SetServerHandleMessage 的形参写死了
@@ -89,7 +129,9 @@ func WithCodec(c codec.Codec) ConnectOption {
 // WebSocket 传输传了也不会有效果——它本来就有 HTTP 版钩子。
 func WithTcpHandleMessage(h handler.TcpHandleMessage) ConnectOption {
 	return func(s IConnectOption) {
-		if v, ok := any(s).(interface{ SetTcpHandleMessage(handler.TcpHandleMessage) }); ok {
+		if v, ok := any(s).(interface {
+			SetTcpHandleMessage(handler.TcpHandleMessage)
+		}); ok {
 			v.SetTcpHandleMessage(h)
 		}
 	}

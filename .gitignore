@@ -12,3 +12,5 @@ examples/.DS_Store
 *.mp4
 /sloth-proxy
 build.bat
+tools/tunnel/examples/p2p/peer-linux-amd64
+tools/tunnel/examples/p2p/coordinator-linux-amd64

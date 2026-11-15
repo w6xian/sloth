@@ -289,7 +289,7 @@ ch.OnError(func(err error) { /* 连接级处理 */ })   // 传 nil 复位为默�
 | `utils` | 序列化 / 类型收敛 / 数值 / CRC | `utils.Serialize`、`utils.AnyToBytes`、`utils.Max` |
 | `utils/id` | ID 生成 | `id.ShortID()`、`id.NextId(svr)`、`id.RandStr(n)` |
 | `utils/array` | 切片小工具 | `array.InArray`、`array.Map` |
-| `tools` | 雪花 ID、随机 token、cityhash | `tools.GetSnowflakeId`、`tools.CityHash64` |
+| `tools` | cityhash 非加密哈希（bucket 分片用） | `tools.CityHash32`、`tools.CityHash64` |
 | `codec` | 帧编解码接口（自定义协议时实现它） | `codec.Codec`，配合 `option.WithCodec` |
 | `transport` | 与协议无关的帧分发（自研传输可复用） | `transport.NewFrameRouter` |
 | `ref` | 方法注册 + 反射调用 | `ref.Register`、`ref.CallFuncWithContext` |

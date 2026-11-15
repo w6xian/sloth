@@ -57,6 +57,16 @@ type ListenerFactoryWithOptions interface {
 	MakeListenerWithOptions(address string, tlsConf *tls.Config, opts ...option.ConnectOption) (net.Listener, error)
 }
 
+// PacketConnListenerFactory 用现成的 PacketConn 造监听器（可选能力）。
+//
+// p2p 打洞专用：打洞必须发生在一条 socket 上（NAT 映射与 socket 绑定），
+// 拿到直连后，这条 socket 要直接交给传输当监听器——再新建端口监听的话
+// NAT 映射对不上，对方的包永远进不来。目前只有 QUIC 实现（quic-go 的
+// Listen 接受现成 net.PacketConn）。
+type PacketConnListenerFactory interface {
+	MakeListenerFromPacketConn(pc net.PacketConn, tlsConf *tls.Config) (net.Listener, error)
+}
+
 type wsProtocolFactory struct{ secure bool }
 
 func (f wsProtocolFactory) Name() string {
@@ -114,6 +124,11 @@ func (quicProtocolFactory) MakeListener(address string, tlsConf *tls.Config) (ne
 	return quic.MakeListener(address, tlsConf)
 }
 
+// MakeListenerFromPacketConn 用已打洞的 socket 造 QUIC 监听器（p2p 专用）。
+func (quicProtocolFactory) MakeListenerFromPacketConn(pc net.PacketConn, tlsConf *tls.Config) (net.Listener, error) {
+	return quic.ListenPacketConn(pc, tlsConf, nil)
+}
+
 func (quicProtocolFactory) CreateServer(ctx context.Context, c trpc.ICallRpc, address string, opts ...option.ConnectOption) (types.IServer, error) {
 	return quic.GetQuicServer(ctx, c, opts...), nil
 }
@@ -128,6 +143,20 @@ func (quicProtocolFactory) CreateClient(ctx context.Context, c trpc.ICallRpc, ad
 	if tlsConf == nil {
 		return nil, errors.New("quic requires TLS: set sloth.WithTLSConfig(...) before Dial")
 	}
+
+	// p2p 地址（"对端ID@coordinator地址"）：先经 coordinator 牵线打洞，
+	// 把打了洞的 socket 连同对端直连地址注入客户端——QUIC 握手直接跑在
+	// 这条 socket 上（NAT 映射与 socket 绑定，见 p2p 包注释）。
+	_, workID, token := resolveP2POpts(opts)
+	if target, coord, ok := splitP2PAddr(address); ok {
+		pc, remote, err := punchDialSocket(ctx, coord, target, workID, token)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, punchedConnOption(pc, remote))
+		address = remote.String() // 展示用；实际拨号走 punched conn
+	}
+
 	cli := quic.NewQuicClient(c, append([]option.ConnectOption{option.WithAddress(address)}, opts...)...)
 	cli.SetTLSConfig(tlsConf)
 	return cli, nil

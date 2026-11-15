@@ -66,6 +66,39 @@ go build -o agent.exe ./agent
 - relay 的 `listen` 支持 `0.0.0.0`；http 模式多条隧道可共用同一 `listen`。
 - agent 支持同时挂多条隧道；也可以多个 agent 各挂不同隧道（id 不能冲突）。
 
+### 云端端口放行（CentOS）
+
+relay 需要放行的端口全部来自配置，缺一不可：
+
+| 端口 | 协议 | 用途 |
+|---|---|---|
+| `rpc_addr` 的端口（如 9100） | TCP | agent 拨入的 ws 信令 |
+| 每条 `tcp` 隧道的 `listen` 端口 | TCP | 该隧道的公网入口 |
+| 每条 `udp` 隧道的 `listen` 端口 | UDP | 该隧道的公网入口 |
+| `http` 隧道共用的 `listen` 端口 | TCP | 按 Host 分发的公网入口 |
+
+以 dev 配置（9100 信令 + 18080 tcp + 18081 http）为例，CentOS 默认的
+firewalld 放行：
+
+```bash
+sudo firewall-cmd --permanent --add-port=9100/tcp
+sudo firewall-cmd --permanent --add-port=18080/tcp
+sudo firewall-cmd --permanent --add-port=18081/tcp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports
+```
+
+云服务器还需在**控制台安全组**里放行同样的端口（firewalld 只管本机这一层）。
+
+个别镜像用 iptables 而非 firewalld（`systemctl status firewalld` 显示
+inactive 时）：
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 9100 -j ACCEPT
+```
+
+agent 所在的内网机器**不需要开任何入站端口**（agent 是出站拨向 relay）。
+
 ## 验证（单机模拟全链路）
 
 ```bash
